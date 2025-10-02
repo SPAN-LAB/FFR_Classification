@@ -44,7 +44,7 @@ Args:
 Returns:
     A list of new (mapped) class labels
 """
-def map_classes(clss_data, file_path):
+def map_class_labels(clss_data, file_path):
     df = pd.read_csv(file_path, skipinitialspace=True)
 
     # Map each element to its column header
