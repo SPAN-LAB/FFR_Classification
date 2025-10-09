@@ -17,6 +17,7 @@ QMainWindow { background-color: #121212; }
 QLabel { color: #e6e6e6; }
 QPushButton { background: #2b2b2b; color: #e6e6e6; border: 1px solid #3a3a3a; border-radius: 6px; padding: 6px 10px; }
 QPushButton:hover { background: #343434; }
+QPushButton:disabled { background: #242424; color: #777777; border: 1px solid #2a2a2a; }
 QComboBox { background: #1c1c1c; color: #e6e6e6; border: 1px solid #3a3a3a; border-radius: 6px; padding: 4px 8px; }
 QFrame#FunctionCard { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; }
 """
@@ -74,6 +75,26 @@ class FunctionBlock(QFrame):
         self.up_button.clicked.connect(lambda: move_up(self.index))
         self.down_button.clicked.connect(lambda: move_down(self.index))
         self.delete_button.clicked.connect(lambda: delete(self.index))
+class DragHandleLabel(QLabel):
+    def __init__(self, text: str = "≡", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, event):
+        self.setCursor(Qt.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def enterEvent(self, event):
+        self.setCursor(Qt.OpenHandCursor)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.unsetCursor()
+        super().leaveEvent(event)
 class FunctionItemWidget(QFrame):
     def __init__(self, name: str, arg: str = ""):
         super().__init__()
@@ -82,6 +103,18 @@ class FunctionItemWidget(QFrame):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
         self.setLayout(layout)
+
+        # Drag handle (three lines) and position number
+        handle = DragHandleLabel("≡")
+        handle.setFixedWidth(14)
+        handle.setAlignment(Qt.AlignCenter)
+        handle.setToolTip("Drag to reorder")
+        layout.addWidget(handle)
+
+        self.position_label = QLabel("1.")
+        self.position_label.setFixedWidth(24)
+        self.position_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(self.position_label)
 
         self.name = name
         self.label = QLabel(name)
@@ -93,6 +126,17 @@ class FunctionItemWidget(QFrame):
         self.arg_edit.setText(arg)
         self.arg_edit.setMinimumWidth(240)
         layout.addWidget(self.arg_edit, 2)
+
+        # Delete button (red 'x') on the right
+        self.delete_button = QPushButton("x")
+        self.delete_button.setToolTip("Remove this step")
+        self.delete_button.setFixedWidth(24)
+        self.delete_button.setStyleSheet(
+            "QPushButton { color: #ff5555; background: transparent; border: none; font-size: 14px; } "
+            "QPushButton:hover { color: #ff7777; }"
+        )
+        self.delete_button.clicked.connect(self._request_delete)
+        layout.addWidget(self.delete_button)
 
         # Emit change to enable autosave by parent
         self.arg_edit.textChanged.connect(self._notify_changed)
@@ -111,6 +155,17 @@ class FunctionItemWidget(QFrame):
 
     def get_arg(self) -> str:
         return self.arg_edit.text()
+
+    def set_position(self, pos_index: int):
+        # Display as 1-based index
+        self.position_label.setText(f"{pos_index + 1}.")
+
+    def _request_delete(self):
+        parent = self.parent()
+        while parent and not isinstance(parent, ConfiguratorTab):
+            parent = parent.parent()
+        if isinstance(parent, ConfiguratorTab):
+            parent.remove_function_widget(self)
 
 
 
@@ -165,6 +220,7 @@ class ConfiguratorTab(QWidget):
 
         # List events
         self.list_widget.model().rowsMoved.connect(self._mark_dirty_and_autosave)
+        self.list_widget.model().rowsMoved.connect(lambda *_: self._refresh_positions())
 
         # Initial state
         self._update_open_create_label()
@@ -172,10 +228,16 @@ class ConfiguratorTab(QWidget):
         # Bottom bar: Add function
         bottom_row = QHBoxLayout()
         self.add_button = QPushButton("Add function")
-        bottom_row.addStretch(1)
+        self.run_button = QPushButton("Run")
         bottom_row.addWidget(self.add_button)
+        bottom_row.addStretch(1)
+        bottom_row.addWidget(self.run_button)
         self.layout.addLayout(bottom_row)
         self.add_button.clicked.connect(self.add_function)
+        self.run_button.clicked.connect(self.run_pipeline)
+
+        # Disable bottom buttons until a file is opened
+        self._update_bottom_buttons_enabled()
 
     def load_pipeline(self):
         # Clear previous
@@ -186,6 +248,7 @@ class ConfiguratorTab(QWidget):
             self.path_edit.setText("")
             self.empty_label.show()
             self.list_widget.hide()
+            self._update_bottom_buttons_enabled()
             return
 
         target_path = self.pipeline_path
@@ -196,6 +259,7 @@ class ConfiguratorTab(QWidget):
             # No file exists at path yet
             self.empty_label.show()
             self.list_widget.hide()
+            self._update_bottom_buttons_enabled()
             return
 
         with open(target_path, "r") as f:
@@ -217,12 +281,16 @@ class ConfiguratorTab(QWidget):
             self.list_widget.addItem(item)
             self.list_widget.setItemWidget(item, widget)
 
+        # Update position labels
+        self._refresh_positions()
+
         # Show list now that content is present
         self.empty_label.hide()
         self.list_widget.show()
 
         self.is_dirty = False
         self._update_save_visibility()
+        self._update_bottom_buttons_enabled()
     def save_pipeline(self):
         lines = []
         for i in range(self.list_widget.count()):
@@ -251,6 +319,7 @@ class ConfiguratorTab(QWidget):
         # Hide open/create until edits occur
         self.open_create_button.hide()
         self.save_button_top.hide()
+        self._update_bottom_buttons_enabled()
 
     def _update_open_create_label(self):
         path = self.path_edit.text().strip()
@@ -258,10 +327,25 @@ class ConfiguratorTab(QWidget):
             self.open_create_button.setText("Create")
         else:
             self.open_create_button.setText("Open")
+        # Enable buttons only when a non-empty path exists AND file exists or has been opened/created
+        self._update_bottom_buttons_enabled()
 
     def _mark_dirty_and_autosave(self, *args, **kwargs):
         self.is_dirty = True
         self._update_save_visibility()
+        self.save_pipeline()
+
+    def _refresh_positions(self):
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if hasattr(widget, 'set_position'):
+                widget.set_position(i)
+
+    def run_pipeline(self):
+        # Placeholder: integrate with execution layer later
+        # For now, ensure positions are up-to-date and saved
+        self._refresh_positions()
         self.save_pipeline()
 
     def notify_child_edit(self):
@@ -277,6 +361,14 @@ class ConfiguratorTab(QWidget):
         else:
             self.save_button_top.hide()
             self.open_create_button.show()
+
+    def _update_bottom_buttons_enabled(self):
+        if not hasattr(self, 'add_button') or not hasattr(self, 'run_button'):
+            return
+        has_path = bool(self.pipeline_path)
+        enabled = has_path and os.path.exists(self.pipeline_path)
+        self.add_button.setEnabled(enabled)
+        self.run_button.setEnabled(enabled)
 
     def add_function(self):
         # Choose from FUNCTION_OPTIONS keys
@@ -305,6 +397,22 @@ class ConfiguratorTab(QWidget):
         self.list_widget.setItemWidget(item, widget)
 
         # Mark dirty and autosave
+        self.is_dirty = True
+        self._update_save_visibility()
+        # Update numbering to reflect new item position
+        self._refresh_positions()
+        self.save_pipeline()
+
+    def remove_function_widget(self, widget: QWidget):
+        # Find the matching QListWidgetItem and remove it
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            w = self.list_widget.itemWidget(item)
+            if w is widget:
+                self.list_widget.takeItem(i)
+                break
+        # Refresh numbering and autosave
+        self._refresh_positions()
         self.is_dirty = True
         self._update_save_visibility()
         self.save_pipeline()
