@@ -4,10 +4,11 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
+from models.FunctionLinker import GUIFunctionManager, ExternalGUIFunction
 
 PIPELINE_FILE = "pipeline.txt"
 
@@ -22,60 +23,23 @@ QComboBox { background: #1c1c1c; color: #e6e6e6; border: 1px solid #3a3a3a; bord
 QFrame#FunctionCard { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; }
 """
 
-# Dummy function-to-options mapping (you can extend this)
-FUNCTION_OPTIONS = {
-    "clean_data": ["remove_nulls", "fill_mean", "drop_duplicates"],
-    "normalize": ["min-max", "z-score", "none"],
-    "extract_features": ["PCA", "LDA", "manual"],
-    "train_model": ["SVM", "Random Forest", "Logistic Regression"],
-}
-
 
 class FunctionBlock(QFrame):
+    """
+    Legacy placeholder retained for compatibility with older code; not used in current UI.
+    """
+
     def __init__(self, name, index, move_up, move_down, delete):
         super().__init__()
-        self.name = name
-        self.index = index
-
+        # Legacy placeholder retained for compatibility; no longer used.
         self.setObjectName("FunctionCard")
 
-        layout = QHBoxLayout()
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
-        self.setLayout(layout)
 
-        self.label = QLabel(name)
-        layout.addWidget(self.label)
+class DragHandleView(QLabel):
+    """
+    Small label that acts as a drag handle; shows grab/closed-hand cursors on hover/press.
+    """
 
-        # Add dummy options (dropdown or text box)
-        options = FUNCTION_OPTIONS.get(name.strip(), ["Option A", "Option B"])
-        self.dropdown = QComboBox()
-        self.dropdown.addItems(options)
-        self.dropdown.setMinimumWidth(160)
-        self.dropdown.setToolTip(f"Options for {name}")
-        layout.addWidget(self.dropdown)
-
-        # Move up/down/delete buttons
-        self.up_button = QPushButton("↑")
-        self.down_button = QPushButton("↓")
-        self.delete_button = QPushButton("✕")
-
-        for b, tip in (
-            (self.up_button, "Move up"),
-            (self.down_button, "Move down"),
-            (self.delete_button, "Remove step"),
-        ):
-            b.setFixedWidth(28)
-            b.setToolTip(tip)
-
-        layout.addWidget(self.up_button)
-        layout.addWidget(self.down_button)
-        layout.addWidget(self.delete_button)
-
-        self.up_button.clicked.connect(lambda: move_up(self.index))
-        self.down_button.clicked.connect(lambda: move_down(self.index))
-        self.delete_button.clicked.connect(lambda: delete(self.index))
-class DragHandleLabel(QLabel):
     def __init__(self, text: str = "≡", parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.OpenHandCursor)
@@ -95,8 +59,14 @@ class DragHandleLabel(QLabel):
     def leaveEvent(self, event):
         self.unsetCursor()
         super().leaveEvent(event)
-class FunctionItemWidget(QFrame):
-    def __init__(self, name: str, arg: str = ""):
+
+
+class FunctionBlockView(QFrame):
+    """
+    Visual representation of a pipeline step: handle, position number, name, args, and delete action.
+    """
+
+    def __init__(self, name: str, arg: str = "", guidance: dict | None = None):
         super().__init__()
         self.setObjectName("FunctionCard")
         layout = QHBoxLayout()
@@ -105,7 +75,7 @@ class FunctionItemWidget(QFrame):
         self.setLayout(layout)
 
         # Drag handle (three lines) and position number
-        handle = DragHandleLabel("≡")
+        handle = DragHandleView("≡")
         handle.setFixedWidth(14)
         handle.setAlignment(Qt.AlignCenter)
         handle.setToolTip("Drag to reorder")
@@ -121,11 +91,34 @@ class FunctionItemWidget(QFrame):
         self.label.setMinimumWidth(120)
         layout.addWidget(self.label, 1)
 
-        self.arg_edit = QLineEdit()
-        self.arg_edit.setPlaceholderText("arguments (e.g. k=5, window=0:300)")
-        self.arg_edit.setText(arg)
-        self.arg_edit.setMinimumWidth(240)
-        layout.addWidget(self.arg_edit, 2)
+        # Parameter views row: generated from guidance (param -> type)
+        self.param_views = {}
+        guidance = guidance or {}
+        params_row = QHBoxLayout()
+        params_row.setSpacing(6)
+        for param_name, param_type in guidance.items():
+            param_label = QLabel(f"{param_name}:")
+            params_row.addWidget(param_label)
+            if param_type is int:
+                editor = QSpinBox()
+                editor.setMinimum(-10_000_000)
+                editor.setMaximum(10_000_000)
+                editor.setFixedWidth(72)
+                editor.valueChanged.connect(self._notify_changed)
+            elif param_type is float:
+                editor = QDoubleSpinBox()
+                editor.setDecimals(6)
+                editor.setMinimum(-1e12)
+                editor.setMaximum(1e12)
+                editor.setFixedWidth(96)
+                editor.valueChanged.connect(self._notify_changed)
+            else:
+                editor = QLineEdit()
+                editor.setFixedWidth(140)
+                editor.textChanged.connect(self._notify_changed)
+            self.param_views[param_name] = (editor, param_type)
+            params_row.addWidget(editor)
+        layout.addLayout(params_row, 2)
 
         # Delete button (red 'x') on the right
         self.delete_button = QPushButton("x")
@@ -138,23 +131,49 @@ class FunctionItemWidget(QFrame):
         self.delete_button.clicked.connect(self._request_delete)
         layout.addWidget(self.delete_button)
 
-        # Emit change to enable autosave by parent
-        self.arg_edit.textChanged.connect(self._notify_changed)
+        # No single arg edit; param editors above signal changes
 
     def _notify_changed(self):
-        # Parent container (ConfiguratorTab) will catch and save
+        # Parent container (BuildFunctionView) will catch and save
         parent = self.parent()
         # QListWidget sets the widget inside a viewport, so we bubble to top-level
-        while parent and not isinstance(parent, ConfiguratorTab):
+        while parent and not isinstance(parent, BuildFunctionView):
             parent = parent.parent()
-        if isinstance(parent, ConfiguratorTab):
+        if isinstance(parent, BuildFunctionView):
             parent.notify_child_edit()
 
     def get_name(self) -> str:
         return self.name
 
     def get_arg(self) -> str:
-        return self.arg_edit.text()
+        # Reconstruct key=value string for backward-compat save format
+        parts = []
+        for key, (editor, typ) in self.param_views.items():
+            if typ is int:
+                parts.append(f"{key}={int(editor.value())}")
+            elif typ is float:
+                parts.append(f"{key}={float(editor.value())}")
+            else:
+                parts.append(f"{key}={editor.text()}")
+        return " ".join(parts)
+
+    def get_args_dict(self) -> dict:
+        args = {}
+        for key, (editor, typ) in self.param_views.items():
+            if typ is int:
+                args[key] = int(editor.value())
+            elif typ is float:
+                args[key] = float(editor.value())
+            else:
+                args[key] = editor.text()
+        return args
+
+    def set_supported(self, is_supported: bool) -> None:
+        # Red if unsupported, normal otherwise
+        if is_supported:
+            self.label.setStyleSheet("")
+        else:
+            self.label.setStyleSheet("QLabel { color: #ff5555; }")
 
     def set_position(self, pos_index: int):
         # Display as 1-based index
@@ -162,103 +181,116 @@ class FunctionItemWidget(QFrame):
 
     def _request_delete(self):
         parent = self.parent()
-        while parent and not isinstance(parent, ConfiguratorTab):
+        while parent and not isinstance(parent, BuildFunctionView):
             parent = parent.parent()
-        if isinstance(parent, ConfiguratorTab):
+        if isinstance(parent, BuildFunctionView):
             parent.remove_function_widget(self)
 
 
+class BuildFunctionView(QWidget):
+    """
+    Main builder view for configuring the pipeline: path input, DnD function list,
+    add/run controls, empty state messaging, and autosave behavior.
+    """
 
-class ConfiguratorTab(QWidget):
     def __init__(self):
         super().__init__()
         self.pipeline_steps = []
         self.pipeline_path = ""
         self.is_dirty = False
+        self.function_manager = GUIFunctionManager()
+
+        self.function_manager.register_function(function_name="do_something", callback=lambda: print("Hello world!"), guidance={})
+        
         self.init_ui()
 
     def init_ui(self):
-        self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(16, 12, 16, 12)
-        self.layout.setSpacing(12)
-        self.setLayout(self.layout)
+        self.layout_view = QVBoxLayout()
+        self.layout_view.setContentsMargins(16, 12, 16, 12)
+        self.layout_view.setSpacing(12)
+        self.setLayout(self.layout_view)
 
-        # Path row
-        path_row = QHBoxLayout()
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("pipeline path")
-        self.open_create_button = QPushButton("Open")
-        self.save_button_top = QPushButton("Save")
-        self.save_button_top.hide()
-        path_row.addWidget(self.path_edit, 1)
-        path_row.addWidget(self.open_create_button)
-        path_row.addWidget(self.save_button_top)
-        self.layout.addLayout(path_row)
+        # Top bar: filename (left), Close and Save (next), Open (far right when no file open)
+        top_row = QHBoxLayout()
+        self.filename_label_view = QLabel("")
+        self.filename_label_view.setMinimumWidth(0)
+        self.close_and_save_button_view = QPushButton("Close and Save")
+        self.new_button_view = QPushButton("New Pipeline")
+        self.open_button_view = QPushButton("Open")
 
-        self.open_create_button.clicked.connect(self.handle_open_or_create)
-        self.save_button_top.clicked.connect(self.save_pipeline)
-        self.path_edit.textChanged.connect(self._update_open_create_label)
+        top_row.addWidget(self.filename_label_view)
+        top_row.addWidget(self.close_and_save_button_view)
+        top_row.addStretch(1)
+        top_row.addWidget(self.new_button_view)
+        top_row.addWidget(self.open_button_view)
+        self.layout_view.addLayout(top_row)
+
+        self.close_and_save_button_view.clicked.connect(self.close_and_save)
+        self.new_button_view.clicked.connect(self.new_pipeline)
+        self.open_button_view.clicked.connect(self.open_file_dialog)
 
         # Empty state label (shown when no file is open)
-        self.empty_label = QLabel("No config file opened. Create one in the top bar.")
-        self.empty_label.setWordWrap(True)
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.layout.addWidget(self.empty_label)
+        self.empty_label_view = QLabel("No config file opened. Create one in the top bar.")
+        self.empty_label_view.setWordWrap(True)
+        self.empty_label_view.setAlignment(Qt.AlignCenter)
+        self.layout_view.addWidget(self.empty_label_view)
 
         # Draggable list of function blocks
-        self.list_widget = QListWidget()
-        self.list_widget.setObjectName("FunctionList")
-        self.list_widget.setDragDropMode(QAbstractItemView.InternalMove)
-        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.list_widget.setDefaultDropAction(Qt.MoveAction)
-        self.list_widget.setSpacing(8)
-        self.layout.addWidget(self.list_widget)
+        self.list_view = QListWidget()
+        self.list_view.setObjectName("FunctionList")
+        self.list_view.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list_view.setDefaultDropAction(Qt.MoveAction)
+        self.list_view.setSpacing(8)
+        self.layout_view.addWidget(self.list_view)
 
-        # Initial visibility: no file open => show empty label, hide list
-        self.empty_label.show()
-        self.list_widget.hide()
+        # Initial visibility: no file open => show empty label, hide list, show Open
+        self.empty_label_view.show()
+        self.list_view.hide()
+        self._update_top_controls()
 
         # List events
-        self.list_widget.model().rowsMoved.connect(self._mark_dirty_and_autosave)
-        self.list_widget.model().rowsMoved.connect(lambda *_: self._refresh_positions())
+        self.list_view.model().rowsMoved.connect(self._mark_dirty_and_autosave)
+        self.list_view.model().rowsMoved.connect(lambda *_: self._refresh_positions())
 
         # Initial state
-        self._update_open_create_label()
+        self._update_bottom_buttons_enabled()
 
         # Bottom bar: Add function
         bottom_row = QHBoxLayout()
-        self.add_button = QPushButton("Add function")
-        self.run_button = QPushButton("Run")
-        bottom_row.addWidget(self.add_button)
+        self.add_button_view = QPushButton("Add function")
+        self.run_button_view = QPushButton("Run")
+        bottom_row.addWidget(self.add_button_view)
         bottom_row.addStretch(1)
-        bottom_row.addWidget(self.run_button)
-        self.layout.addLayout(bottom_row)
-        self.add_button.clicked.connect(self.add_function)
-        self.run_button.clicked.connect(self.run_pipeline)
+        bottom_row.addWidget(self.run_button_view)
+        self.layout_view.addLayout(bottom_row)
+        self.add_button_view.clicked.connect(self.add_function)
+        self.run_button_view.clicked.connect(self.run_pipeline)
 
         # Disable bottom buttons until a file is opened
         self._update_bottom_buttons_enabled()
 
     def load_pipeline(self):
         # Clear previous
-        self.list_widget.clear()
+        self.list_view.clear()
 
         # No file selected/opened
         if not self.pipeline_path:
-            self.path_edit.setText("")
-            self.empty_label.show()
-            self.list_widget.hide()
+            self.empty_label_view.show()
+            self.list_view.hide()
+            self._update_top_controls()
             self._update_bottom_buttons_enabled()
             return
 
         target_path = self.pipeline_path
-        # Reflect path in the top text field
-        self.path_edit.setText(target_path)
+        # Reflect filename in the top bar
+        self.filename_label_view.setText(os.path.basename(target_path))
 
         if not os.path.exists(target_path):
             # No file exists at path yet
-            self.empty_label.show()
-            self.list_widget.hide()
+            self.empty_label_view.show()
+            self.list_view.hide()
+            self._update_top_controls()
             self._update_bottom_buttons_enabled()
             return
 
@@ -275,27 +307,31 @@ class ConfiguratorTab(QWidget):
             arg = " ".join(parts[1:])
             self.pipeline_steps.append((name, arg))
 
-            widget = FunctionItemWidget(name, arg)
+            guidance = GUIFunctionManager.get_builtin_guidance(name) or {}
+            widget = FunctionBlockView(name, arg, guidance)
             item = QListWidgetItem()
             item.setSizeHint(widget.sizeHint())
-            self.list_widget.addItem(item)
-            self.list_widget.setItemWidget(item, widget)
+            self.list_view.addItem(item)
+            self.list_view.setItemWidget(item, widget)
 
         # Update position labels
         self._refresh_positions()
+        self._refresh_support_highlighting()
 
         # Show list now that content is present
-        self.empty_label.hide()
-        self.list_widget.show()
+        self.empty_label_view.hide()
+        self.list_view.show()
 
         self.is_dirty = False
-        self._update_save_visibility()
+        self._update_top_controls()
         self._update_bottom_buttons_enabled()
+        self._refresh_support_highlighting()
+    
     def save_pipeline(self):
         lines = []
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            widget = self.list_widget.itemWidget(item)
+        for i in range(self.list_view.count()):
+            item = self.list_view.item(i)
+            widget = self.list_view.itemWidget(item)
             name = widget.get_name().strip()
             arg = widget.get_arg().strip()
             line = name if not arg else f"{name} {arg}"
@@ -307,27 +343,45 @@ class ConfiguratorTab(QWidget):
         self._update_save_visibility()
         return True
 
-    def handle_open_or_create(self):
-        self.pipeline_path = self.path_edit.text().strip()
-        if not self.pipeline_path:
-            self.pipeline_path = PIPELINE_FILE
+    def open_file_dialog(self):
+        # Use native dialog to select a file to open
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open pipeline", os.getcwd(), "Text Files (*.txt);;All Files (*)")
+        if not file_path:
+            return
+        self.pipeline_path = file_path
         if not os.path.exists(self.pipeline_path):
-            # Create empty file for simplicity
             with open(self.pipeline_path, "w") as f:
                 f.write("")
         self.load_pipeline()
-        # Hide open/create until edits occur
-        self.open_create_button.hide()
-        self.save_button_top.hide()
+        self._update_top_controls()
         self._update_bottom_buttons_enabled()
 
-    def _update_open_create_label(self):
-        path = self.path_edit.text().strip()
-        if path and not os.path.exists(path):
-            self.open_create_button.setText("Create")
-        else:
-            self.open_create_button.setText("Open")
-        # Enable buttons only when a non-empty path exists AND file exists or has been opened/created
+    def new_pipeline(self):
+        # Use native dialog to choose where to create a new pipeline file
+        file_path, _ = QFileDialog.getSaveFileName(self, "New pipeline", os.path.join(os.getcwd(), "pipeline.txt"), "Text Files (*.txt);;All Files (*)")
+        if not file_path:
+            return
+        # Ensure .txt extension if none provided
+        if not os.path.splitext(file_path)[1]:
+            file_path = file_path + ".txt"
+        # Create/overwrite empty file
+        with open(file_path, "w") as f:
+            f.write("")
+        self.pipeline_path = file_path
+        self.load_pipeline()
+        self._update_top_controls()
+        self._update_bottom_buttons_enabled()
+
+    def close_and_save(self):
+        # Save current pipeline, then close and reset UI to initial state
+        if self.pipeline_path:
+            self.save_pipeline()
+        self.pipeline_path = ""
+        self.list_view.clear()
+        self.empty_label_view.show()
+        self.list_view.hide()
+        self.is_dirty = False
+        self._update_top_controls()
         self._update_bottom_buttons_enabled()
 
     def _mark_dirty_and_autosave(self, *args, **kwargs):
@@ -336,107 +390,183 @@ class ConfiguratorTab(QWidget):
         self.save_pipeline()
 
     def _refresh_positions(self):
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            widget = self.list_widget.itemWidget(item)
+        for i in range(self.list_view.count()):
+            item = self.list_view.item(i)
+            widget = self.list_view.itemWidget(item)
             if hasattr(widget, 'set_position'):
                 widget.set_position(i)
 
     def run_pipeline(self):
-        # Placeholder: integrate with execution layer later
-        # For now, ensure positions are up-to-date and saved
+        # Validate support for all blocks first
+        unsupported = []
+        for i in range(self.list_view.count()):
+            item = self.list_view.item(i)
+            widget = self.list_view.itemWidget(item)
+            name = widget.get_name().strip()
+            if GUIFunctionManager.get_builtin_callable(name) is None:
+                unsupported.append(name)
+        if len(unsupported) > 0:
+            QMessageBox.warning(self, "Unsupported functions", "Cannot run. Unsupported: " + ", ".join(unsupported))
+            return
+
+        # Build manager execution list from UI
+        self.function_manager.functions.clear()
+        for i in range(self.list_view.count()):
+            item = self.list_view.item(i)
+            widget = self.list_view.itemWidget(item)
+            name = widget.get_name().strip()
+            # Prefer structured args when available
+            if hasattr(widget, 'get_args_dict'):
+                args_dict = widget.get_args_dict()
+            else:
+                args_text = widget.get_arg().strip()
+                args_dict = self._parse_named_args(args_text)
+            callback = GUIFunctionManager.get_builtin_callable(name)
+            if callback is None:
+                continue
+            self.function_manager.add_gui_function(ExternalGUIFunction(function_name=name, callback=callback, function_args=args_dict))
+
+        # Ensure positions are up-to-date and saved
         self._refresh_positions()
         self.save_pipeline()
+        self.function_manager.run_functions()
 
     def notify_child_edit(self):
         self.is_dirty = True
-        self._update_save_visibility()
+        self._update_top_controls()
         self.save_pipeline()
 
     def _update_save_visibility(self):
-        # When editing starts, show Save button and hide open/create
-        if self.is_dirty:
-            self.open_create_button.hide()
-            self.save_button_top.show()
-        else:
-            self.save_button_top.hide()
-            self.open_create_button.show()
+        # Deprecated in top-bar refactor; retained for compatibility if called
+        self._update_top_controls()
 
     def _update_bottom_buttons_enabled(self):
-        if not hasattr(self, 'add_button') or not hasattr(self, 'run_button'):
+        if not hasattr(self, 'add_button_view') or not hasattr(self, 'run_button_view'):
             return
         has_path = bool(self.pipeline_path)
         enabled = has_path and os.path.exists(self.pipeline_path)
-        self.add_button.setEnabled(enabled)
-        self.run_button.setEnabled(enabled)
+        self.add_button_view.setEnabled(enabled)
+        self.run_button_view.setEnabled(enabled)
+
+    def _update_top_controls(self):
+        # Show filename and Close/Save when a file is open; otherwise show Open button only
+        file_open = bool(self.pipeline_path)
+        if hasattr(self, 'filename_label_view'):
+            self.filename_label_view.setVisible(file_open)
+            if file_open and os.path.exists(self.pipeline_path):
+                self.filename_label_view.setText(os.path.basename(self.pipeline_path))
+            elif file_open:
+                self.filename_label_view.setText(os.path.basename(self.pipeline_path))
+            else:
+                self.filename_label_view.setText("")
+        if hasattr(self, 'close_and_save_button_view'):
+            self.close_and_save_button_view.setVisible(file_open)
+        if hasattr(self, 'open_button_view'):
+            self.open_button_view.setVisible(not file_open)
+        if hasattr(self, 'new_button_view'):
+            self.new_button_view.setVisible(not file_open)
+
+    def _refresh_support_highlighting(self):
+        for i in range(self.list_view.count()):
+            item = self.list_view.item(i)
+            widget = self.list_view.itemWidget(item)
+            name = widget.get_name().strip()
+            is_supported = GUIFunctionManager.get_builtin_callable(name) is not None
+            if hasattr(widget, 'set_supported'):
+                widget.set_supported(is_supported)
+
+    def _parse_named_args(self, args_text: str) -> dict:
+        result = {}
+        if not args_text:
+            return result
+        parts = args_text.split()
+        for part in parts:
+            if '=' not in part:
+                continue
+            key, value = part.split('=', 1)
+            value_cast = self._auto_cast(value)
+            result[key] = value_cast
+        return result
+
+    def _auto_cast(self, value: str):
+        try:
+            return int(value)
+        except ValueError:
+            try:
+                return float(value)
+            except ValueError:
+                return value
 
     def add_function(self):
         # Choose from FUNCTION_OPTIONS keys
-        items = list(FUNCTION_OPTIONS.keys())
-        if not items:
-            return
+        if hasattr(GUIFunctionManager, 'list_available_function_names'):
+            items = GUIFunctionManager.list_available_function_names()
+        else:
+            items = list(GUIFunctionManager.builtin_function_guidance.keys())
         items.sort()
         selected, ok = QInputDialog.getItem(self, "Add function", "Select function:", items, 0, False)
         if not ok or not selected:
             return
 
-        # Ensure a target path is defined
-        if not self.pipeline_path:
-            self.pipeline_path = self.path_edit.text().strip() or PIPELINE_FILE
-            self.path_edit.setText(self.pipeline_path)
-
         # Ensure list is visible
-        self.empty_label.hide()
-        self.list_widget.show()
+        self.empty_label_view.hide()
+        self.list_view.show()
 
         # Append new item
-        widget = FunctionItemWidget(selected, "")
+        guidance = GUIFunctionManager.get_builtin_guidance(selected) or {}
+        widget = FunctionBlockView(selected, "", guidance)
         item = QListWidgetItem()
         item.setSizeHint(widget.sizeHint())
-        self.list_widget.addItem(item)
-        self.list_widget.setItemWidget(item, widget)
+        self.list_view.addItem(item)
+        self.list_view.setItemWidget(item, widget)
 
         # Mark dirty and autosave
         self.is_dirty = True
         self._update_save_visibility()
-        # Update numbering to reflect new item position
+        # Update numbering and support highlighting
         self._refresh_positions()
+        self._refresh_support_highlighting()
         self.save_pipeline()
 
     def remove_function_widget(self, widget: QWidget):
         # Find the matching QListWidgetItem and remove it
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            w = self.list_widget.itemWidget(item)
+        for i in range(self.list_view.count()):
+            item = self.list_view.item(i)
+            w = self.list_view.itemWidget(item)
             if w is widget:
-                self.list_widget.takeItem(i)
+                self.list_view.takeItem(i)
                 break
         # Refresh numbering and autosave
         self._refresh_positions()
+        self._refresh_support_highlighting()
         self.is_dirty = True
-        self._update_save_visibility()
+        self._update_top_controls()
         self.save_pipeline()
 
 
-class MainWindow(QMainWindow):
+class MainWindowView(QMainWindow):
+    """
+    Application main window hosting the BuildFunctionView as the central widget.
+    """
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FFR Pipeline Editor")
         self.setGeometry(200, 200, 800, 500)
 
         # Single, clean view: Configurator only
-        self.config_tab = ConfiguratorTab()
-        self.setCentralWidget(self.config_tab)
+        self.build_function_view = BuildFunctionView()
+        self.setCentralWidget(self.build_function_view)
 
     def save_blocks_pipeline(self):
-        ok = self.config_tab.save_pipeline()
+        ok = self.build_function_view.save_pipeline()
         if ok:
             pass
 
 
 def main():
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = MainWindowView()
     window.show()
     sys.exit(app.exec_())
 
