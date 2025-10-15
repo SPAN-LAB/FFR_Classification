@@ -1,2 +1,11 @@
 # FFR_Classification
-This is the repository for classification scripts of FFR EEG Data.
+
+## How to run 
+
+```
+pip install -r requirements.txt
+cd src
+python gui.py
+```
+
+
