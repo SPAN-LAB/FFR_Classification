@@ -8,7 +8,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
-from models.FunctionLinker import GUIFunctionManager, ExternalGUIFunction
+from FriendlyFunction import FriendlyFunction
+from FriendlyFunctionManager import FriendlyFunctionManager
 
 PIPELINE_FILE = "pipeline.txt"
 
@@ -91,12 +92,20 @@ class FunctionBlockView(QFrame):
         self.label.setMinimumWidth(120)
         layout.addWidget(self.label, 1)
 
-        # Parameter views row: generated from guidance (param -> type)
+        # Parameter views row: generated from guidance (param -> type or schema dict)
         self.param_views = {}
         guidance = guidance or {}
         params_row = QHBoxLayout()
         params_row.setSpacing(6)
-        for param_name, param_type in guidance.items():
+        for param_name, spec in guidance.items():
+            # spec can be a type or a dict with keys: 'type', 'default'
+            if isinstance(spec, dict):
+                param_type = spec.get('type', str)
+                default_value = spec.get('default', None)
+            else:
+                param_type = spec
+                default_value = None
+
             param_label = QLabel(f"{param_name}:")
             params_row.addWidget(param_label)
             if param_type is int:
@@ -104,6 +113,11 @@ class FunctionBlockView(QFrame):
                 editor.setMinimum(-10_000_000)
                 editor.setMaximum(10_000_000)
                 editor.setFixedWidth(72)
+                if default_value is not None:
+                    try:
+                        editor.setValue(int(default_value))
+                    except Exception:
+                        pass
                 editor.valueChanged.connect(self._notify_changed)
             elif param_type is float:
                 editor = QDoubleSpinBox()
@@ -111,10 +125,17 @@ class FunctionBlockView(QFrame):
                 editor.setMinimum(-1e12)
                 editor.setMaximum(1e12)
                 editor.setFixedWidth(96)
+                if default_value is not None:
+                    try:
+                        editor.setValue(float(default_value))
+                    except Exception:
+                        pass
                 editor.valueChanged.connect(self._notify_changed)
             else:
                 editor = QLineEdit()
                 editor.setFixedWidth(140)
+                if default_value is not None:
+                    editor.setText(str(default_value))
                 editor.textChanged.connect(self._notify_changed)
             self.param_views[param_name] = (editor, param_type)
             params_row.addWidget(editor)
@@ -168,6 +189,22 @@ class FunctionBlockView(QFrame):
                 args[key] = editor.text()
         return args
 
+    def apply_args_dict(self, args: dict) -> None:
+        for key, (editor, typ) in self.param_views.items():
+            if key not in args:
+                continue
+            value = args[key]
+            try:
+                if typ is int:
+                    editor.setValue(int(value))
+                elif typ is float:
+                    editor.setValue(float(value))
+                else:
+                    editor.setText(str(value))
+            except Exception:
+                # Ignore bad values; keep current
+                pass
+
     def set_supported(self, is_supported: bool) -> None:
         # Red if unsupported, normal otherwise
         if is_supported:
@@ -198,9 +235,8 @@ class BuildFunctionView(QWidget):
         self.pipeline_steps = []
         self.pipeline_path = ""
         self.is_dirty = False
-        self.function_manager = GUIFunctionManager()
-
-        self.function_manager.register_function(function_name="do_something", callback=lambda: print("Hello world!"), guidance={})
+        # Initialize with no data for now; data can be attached later
+        self.function_manager = FriendlyFunctionManager(data=None)
         
         self.init_ui()
 
@@ -303,16 +339,33 @@ class BuildFunctionView(QWidget):
             parts = line.split()
             if len(parts) == 0:
                 continue
-            name = parts[0]
-            arg = " ".join(parts[1:])
+            # Reconstruct full name (can contain spaces) by splitting before first key=value token
+            first_kv_index = None
+            for idx, token in enumerate(parts):
+                if '=' in token:
+                    first_kv_index = idx
+                    break
+            if first_kv_index is None:
+                # Entire line is the function name; no args
+                name = line
+                arg = ""
+            else:
+                name = " ".join(parts[:first_kv_index])
+                arg = " ".join(parts[first_kv_index:])
             self.pipeline_steps.append((name, arg))
 
-            guidance = GUIFunctionManager.get_builtin_guidance(name) or {}
-            widget = FunctionBlockView(name, arg, guidance)
+            usage_schema = self._get_usage_schema(name) or {}
+            # Hide args if the function consumes EEGData only
+            if self._get_source_type(name) == FriendlyFunction.SourceType.EEG_DATA:
+                usage_schema = {}
+            widget = FunctionBlockView(name, arg, usage_schema)
             item = QListWidgetItem()
             item.setSizeHint(widget.sizeHint())
             self.list_view.addItem(item)
             self.list_view.setItemWidget(item, widget)
+            # Apply saved args to override defaults
+            if arg:
+                widget.apply_args_dict(self._parse_named_args(arg))
 
         # Update position labels
         self._refresh_positions()
@@ -399,37 +452,42 @@ class BuildFunctionView(QWidget):
     def run_pipeline(self):
         # Validate support for all blocks first
         unsupported = []
+        available_names = set(self._get_all_function_names())
         for i in range(self.list_view.count()):
             item = self.list_view.item(i)
             widget = self.list_view.itemWidget(item)
             name = widget.get_name().strip()
-            if GUIFunctionManager.get_builtin_callable(name) is None:
+            if name not in available_names:
                 unsupported.append(name)
         if len(unsupported) > 0:
             QMessageBox.warning(self, "Unsupported functions", "Cannot run. Unsupported: " + ", ".join(unsupported))
             return
 
-        # Build manager execution list from UI
-        self.function_manager.functions.clear()
+        # Execute functions sequentially via manager
         for i in range(self.list_view.count()):
             item = self.list_view.item(i)
             widget = self.list_view.itemWidget(item)
             name = widget.get_name().strip()
+            # If no data yet, only allow DATA_LOADING operations
+            op_type = self._get_operation_type(name)
+            if getattr(self.function_manager, 'data', None) is None and op_type != FriendlyFunction.OperationType.DATA_LOADING:
+                QMessageBox.warning(self, "No data", f"No EEG data is loaded; cannot run '{name}' before a data loading step.")
+                return
             # Prefer structured args when available
             if hasattr(widget, 'get_args_dict'):
                 args_dict = widget.get_args_dict()
             else:
                 args_text = widget.get_arg().strip()
                 args_dict = self._parse_named_args(args_text)
-            callback = GUIFunctionManager.get_builtin_callable(name)
-            if callback is None:
-                continue
-            self.function_manager.add_gui_function(ExternalGUIFunction(function_name=name, callback=callback, function_args=args_dict))
+            try:
+                self.function_manager.run_function(name, **args_dict)
+            except Exception as e:
+                QMessageBox.warning(self, "Execution error", f"Failed to run {name}: {e}")
+                return
 
         # Ensure positions are up-to-date and saved
         self._refresh_positions()
         self.save_pipeline()
-        self.function_manager.run_functions()
 
     def notify_child_edit(self):
         self.is_dirty = True
@@ -467,11 +525,12 @@ class BuildFunctionView(QWidget):
             self.new_button_view.setVisible(not file_open)
 
     def _refresh_support_highlighting(self):
+        available_names = set(self._get_all_function_names())
         for i in range(self.list_view.count()):
             item = self.list_view.item(i)
             widget = self.list_view.itemWidget(item)
             name = widget.get_name().strip()
-            is_supported = GUIFunctionManager.get_builtin_callable(name) is not None
+            is_supported = name in available_names
             if hasattr(widget, 'set_supported'):
                 widget.set_supported(is_supported)
 
@@ -498,11 +557,8 @@ class BuildFunctionView(QWidget):
                 return value
 
     def add_function(self):
-        # Choose from FUNCTION_OPTIONS keys
-        if hasattr(GUIFunctionManager, 'list_available_function_names'):
-            items = GUIFunctionManager.list_available_function_names()
-        else:
-            items = list(GUIFunctionManager.builtin_function_guidance.keys())
+        # Choose from manager-registered function names
+        items = self._get_all_function_names()
         items.sort()
         selected, ok = QInputDialog.getItem(self, "Add function", "Select function:", items, 0, False)
         if not ok or not selected:
@@ -512,9 +568,11 @@ class BuildFunctionView(QWidget):
         self.empty_label_view.hide()
         self.list_view.show()
 
-        # Append new item
-        guidance = GUIFunctionManager.get_builtin_guidance(selected) or {}
-        widget = FunctionBlockView(selected, "", guidance)
+        # Append new item using usage as guidance
+        usage_schema = self._get_usage_schema(selected) or {}
+        if self._get_source_type(selected) == FriendlyFunction.SourceType.EEG_DATA:
+            usage_schema = {}
+        widget = FunctionBlockView(selected, "", usage_schema)
         item = QListWidgetItem()
         item.setSizeHint(widget.sizeHint())
         self.list_view.addItem(item)
@@ -527,6 +585,27 @@ class BuildFunctionView(QWidget):
         self._refresh_positions()
         self._refresh_support_highlighting()
         self.save_pipeline()
+
+    def _get_all_function_names(self):
+        return [f.name for f in getattr(self.function_manager, 'possible_functions', [])]
+
+    def _get_usage_schema(self, function_name: str):
+        for f in getattr(self.function_manager, 'possible_functions', []):
+            if f.name == function_name:
+                return getattr(f, 'usage', {}) or {}
+        return {}
+
+    def _get_operation_type(self, function_name: str):
+        for f in getattr(self.function_manager, 'possible_functions', []):
+            if f.name == function_name:
+                return getattr(f, 'operation_type', None)
+        return None
+
+    def _get_source_type(self, function_name: str):
+        for f in getattr(self.function_manager, 'possible_functions', []):
+            if f.name == function_name:
+                return getattr(f, 'source_type', None)
+        return None
 
     def remove_function_widget(self, widget: QWidget):
         # Find the matching QListWidgetItem and remove it
@@ -551,7 +630,7 @@ class MainWindowView(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("FFR Pipeline Editor")
+        self.setWindowTitle("Frequency-Following Response Pipeline Editor")
         self.setGeometry(200, 200, 800, 500)
 
         # Single, clean view: Configurator only
