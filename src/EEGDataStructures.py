@@ -1,9 +1,11 @@
+from __future__ import annotations
+from numpy import typing as npt
+from typing import *
+
 import numpy as np
 from random import shuffle
 import pandas as pd 
-
-from numpy import typing as npt
-from typing import *
+from pymatreader import read_mat
 
 # NOTE: This implementation was made for single-channel data. 
 class EEGTrial:
@@ -90,6 +92,27 @@ class EEGSubject:
         self._trials = trials
         self._subaveraged_trials = None
     
+    @staticmethod
+    def init_from_filepath(path: str) -> EEGSubject:
+        # Open the file 
+        file = read_mat(path)
+
+        # Get the raw data
+        raw_data = file["ffr_nodss"]
+        timestamps = file["time"]
+        labels = file["#subsystem#"]["MCOS"][3]
+
+        # Create the EEGTrial instances
+        trials = []
+        for i, trial in enumerate(raw_data):
+            trials.append(EEGTrial(
+                data=raw_data[i],
+                timestamps=timestamps,
+                raw_label=labels[i],
+                trial_index=i
+            ))
+        return EEGSubject(trials)
+
     @property
     def trials(self):
         """
@@ -180,3 +203,9 @@ class EEGSubject:
             else:
                 grouped_trials[trial.mapped_label] = [trial]
         return grouped_trials
+
+if __name__ == "__main__":
+    e: EEGSubject = EEGSubject.init_from_filepath("/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat")
+    print(len(e._trials))
+    e.subaverage(size=5)
+    print(len(e._subaveraged_trials))
