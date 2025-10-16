@@ -120,7 +120,7 @@ class EEGSubject:
             n = len(homogeneous_trials)
             i = 0
             while i + size <= n:
-                stacked_data = np.array([trial.data for trial in homogeneous_trials])
+                stacked_data = np.array([trial.data for trial in homogeneous_trials[i: i + size]])
                 subaveraged_data = np.mean(stacked_data, axis=0)
 
                 # Create a new EEGTrial object and assign it an artificial label
@@ -133,8 +133,10 @@ class EEGSubject:
                 )
                 subaveraged_trials.append(subaveraged_trial)
 
+                i += size
+
         # Store the trials in `self.subaveraged_trials`
-        self.subaveraged_trials = subaveraged_trials
+        self._subaveraged_trials = subaveraged_trials
             
     def test_split(self, trials: Sequence[EEGTrial], ratio: float):
         """
@@ -148,7 +150,7 @@ class EEGSubject:
 
         shuffle(trials) # Could be removed if we are guaranteed already-shuffled trials 
         cutoff_index = int(len(trials) * ratio)
-        return trials[:cutoff_index+1], trials[cutoff_index+1:]
+        return trials[:cutoff_index], trials[cutoff_index:]
 
     def stratified_folds(self, num_folds):
         folds = [[] for i in range(num_folds)]
@@ -165,7 +167,7 @@ class EEGSubject:
             shuffle(fold)
         
         return folds
-            
+    
     def grouped_trials(self) -> Dict[int, Sequence[EEGTrial]]:
         """
         A private helper method for grouping trials in a dictionary according to their labels. i.e.
