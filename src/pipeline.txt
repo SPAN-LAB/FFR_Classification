@@ -1,3 +1,0 @@
-Load data filename=/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat
-Transpose FFR
-Print name name=FirstName
