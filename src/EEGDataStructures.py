@@ -1,27 +1,71 @@
 import numpy as np
+from random import shuffle
+import pandas as pd 
+
 from numpy import typing as npt
-
-from pymatreader import read_mat
-
 from typing import *
 
 # NOTE: This implementation was made for single-channel data. 
 class EEGTrial:
     """
-    Represents data from a single trial: data, timestamps, label, and trial index.
+    Represents data from a single trial: data, timestamps, raw_label, mapped_label, and trial index.
     """
-    def __init__(self, data: npt.NDArray, timestamps: npt.NDArray, label: int, trial_index: int):
+    def __init__(self, data: npt.NDArray, timestamps: npt.NDArray, raw_label: int, trial_index: int):
         """
         :param data: A 1D numpy array containing the data.
         :param timestamps: The clock time corresponding to each datapoint in `data`
-        :param label: This `EEGTrial`'s label
+        :param raw_label: This `EEGTrial`'s initial (unprocessed) label
+        :param mapped_label: This `EEGTrial`'s actual (mapped) label 
         :param trial_index: This `EEGTrial`'s trial index
         """
         self.data = self.formatted_data(data)
-        self.timestamps = timestamps
-        self.label = label
+        self.timestamps = self.formatted_timestamps(timestamps)
+        self.raw_label = raw_label
+        self.mapped_label = None # Initially None
         self.trial_index = trial_index
 
+    def trim(self, start_index: int, end_index: int):
+        """
+        Trims `data` and `timestamps`, keeping only the values within the parameters' bounds. 
+        """
+        self.data = self.data[start_index: end_index + 1]
+
+        # Trim the timestamps too for consistent lengths 
+        self.timestamps = self.timestamps[start_index: end_index + 1]
+
+
+    def map_labels(self, filename: str=None, map: Dict[int, int]=None): 
+        """
+        Maps from raw labels to class labels. Accepts either a filename or a dictionary for mapping.
+        """
+        if not map and not filename:
+            # Used if the raw_label IS the intended mapped_label
+            self.mapped_label = self.raw_label
+            return
+        elif not map:
+            # Used if we want to use the filename to map
+            map = self.create_map_from_csv(filename)
+        
+        # By this point, map is non-None
+        if self.raw_label not in map:
+            raise KeyError("The raw label was not found in the map.")
+        self.mapped_label = map[self.raw_label]
+    
+    @staticmethod
+    def create_map_from_csv(path: str) -> Dict[int, int]:
+        """
+        Creates a dictionary that maps from raw labels to actual labels. This function is used by 
+        `map_labels`.
+
+        :param path: the path to the CSV file
+        """
+        instructions = pd.read_csv(path)
+        labels_map = {}
+        for column_label in instructions.columns:
+            for raw_label in instructions[column_label]:
+                labels_map[raw_label] = int(column_label)
+        return labels_map
+                
     @staticmethod
     def formatted_data(data: npt.NDArray) -> npt.NDArray:
         """
@@ -39,117 +83,98 @@ class EEGTrial:
         if timestamps.ndim != 1:
             raise ValueError("Only 1D arrays are permitted.")
         return timestamps
-    
-    def trim(self, start_time=0, end_time=None):
-        """
-        Binary search the timestamps for the start and end time
-        """
-        pass
 
-class EEGData: 
+
+class EEGSubject: 
     def __init__(self, trials: Sequence[EEGTrial]):
-        self.all_data = trials
-
-class AveragedEEGTrial:
-    """
-    Represents the averaged data of multiple EEGTrial instances.
-    """
-    def __init__(self, trials: Sequence[EEGTrial], trial_index: int):
-        stack = np.stack([trial.data for trial in trials])
-        averaged_data = stack.mean(axis=0)
-        self.data = averaged_data
-        self.times = trials[0].times
-        self.label = trials[0].label
-        self.trial_index = trial_index
-
-class EEGData: 
-    """
-    Represents all EEGTrial instances obtained from a subject. 
-    """
-    # def __init__(self, identifier: str, trials: Sequence[EEGTrial]):
-    #     """
-    #     Initialize from a sequence  of EEGTrial instances.
-    #     """
-    #     self.identifier = identifier 
-    #     self.trials = trials
-
-    def __init__(self, *, identifier: str, filename: str=None, trials: Sequence[EEGTrial]=None):
+        self._trials = trials
+        self._subaveraged_trials = None
+    
+    @property
+    def trials(self):
         """
-        Initialize directly from the filename.
+        Logic for using either `_trials` or `_subaveraged_trials`
         """
-        # Check preconditions
-        if not filename and not trials:
-            print("Error: Either filename or trials must not be None.")
-            return
-        elif filename and trials:
-            print("Error: filename and trials cannot both be non-None.")
-            return
-        
-        if trials:
-            self.trials = trials
-        elif filename:
-            self.trials = [] # Initialize to empty list 
-            data, times, labels = self.extract_from_file(filename)
+        if self._subaveraged_trials is not None:
+            return self._subaveraged_trials
+        return self._trials
+    
+    def subaverage(self, size: int):
+        """
+        Averages data values over `size` `EEGTrial`s who have the same `mapped_label`
 
-            for trial_index in range(len(data)):
-                trial = data[trial_index]
-                self.trials.append(EEGTrial(data=trial, 
-                                            times=times, 
-                                            label=labels[trial_index], 
-                                            trial_index=trial_index))
+        :param size: The number of trials each subaveraging is composed from. 
 
-        self.identifier = identifier
+        TODO: Let the key be customizable (for example, use `raw_label` instead of `mapped_label`)
+        """
+        # Group trials by their labels 
+        grouped_trials = self.grouped_trials()
+
+        # Randomize the order of each list of homogeneous trials 
+        for _, homogeneous_trials in grouped_trials.items():
+            shuffle(homogeneous_trials)
+
+        # Subaverage the trials 
+        subaveraged_trials: List[EEGTrial] = []
+        for label, homogeneous_trials in grouped_trials.items():
+            n = len(homogeneous_trials)
+            i = 0
+            while i + size <= n:
+                stacked_data = np.array([trial.data for trial in homogeneous_trials])
+                subaveraged_data = np.mean(stacked_data, axis=0)
+
+                # Create a new EEGTrial object and assign it an artificial label
+                # This artificial label equals the length of `subaveraged_trials`
+                subaveraged_trial = EEGTrial(
+                    data=subaveraged_data, 
+                    timestamps=homogeneous_trials[0].timestamps, 
+                    raw_label=label,
+                    trial_index=len(subaveraged_trials)
+                )
+                subaveraged_trials.append(subaveraged_trial)
+
+        # Store the trials in `self.subaveraged_trials`
+        self.subaveraged_trials = subaveraged_trials
             
-    def extract_from_file(self, filename, data_extractor=None, times_extractor=None, labels_extractor=None):
+    def test_split(self, trials: Sequence[EEGTrial], ratio: float):
         """
-        Returns the data, times, and labels using the given filename. The structure of returned data
-        is found in the documentation for the `__array__` method. 
-        """
-        raw_data = read_mat(filename)
+        Splits `trials` input into a train set and test set according to the specified `ratio`. 
 
-        data = raw_data["ffr_nodss"] if not data_extractor else data_extractor(raw_data)
-        times = raw_data["time"] if not times_extractor else times_extractor(raw_data)
-        labels = raw_data["#subsystem#"]["MCOS"][3] if not labels_extractor else labels_extractor(raw_data)
+        :param trials: the trials to be split into train and test sets
+        :param ratio: the ratio of `trials` that become train sets 
+        """
+        if ratio > 1 or ratio < 0:
+            raise ValueError("Ratio must be in [0, 1].")
 
-        return data, times, labels
+        shuffle(trials) # Could be removed if we are guaranteed already-shuffled trials 
+        cutoff_index = int(len(trials) * ratio)
+        return trials[:cutoff_index+1], trials[cutoff_index+1:]
 
-    def __array__(self):
-        """
-        Converts the array of trials into a numpy array.
-        We have individual trials along the 1st dimension,
-            channels along the 2nd dimension,
-            and datapoints for the channel of the trial along the 3rd dimension.
+    def stratified_folds(self, num_folds):
+        folds = [[] for i in range(num_folds)]
+        grouped_trials = self.grouped_trials()
 
-            arr[a][b][c] is the c-th datapoint for the b-th channel for the a-th trial
+        # For each label, we shuffle then distribute them over the folds
+        for _, homogeneous_trials in grouped_trials.items():
+            shuffle(homogeneous_trials)
+            for i, trial in enumerate(homogeneous_trials):
+                folds[i % num_folds].append(trial)
+        
+        # Shuffle the trials in each fold 
+        for fold in folds:
+            shuffle(fold)
+        
+        return folds
+            
+    def grouped_trials(self) -> Dict[int, Sequence[EEGTrial]]:
         """
-        return np.stack([trial.data for trial in self.trials])
-    
-    def to_subaveraged(self, n):
+        A private helper method for grouping trials in a dictionary according to their labels. i.e.
+        all trials with label = 1 are in grouped_trials[1]... 
         """
-        Returns a subaveraged vertion of this EEGData instance. 
-        """
-        grouped_trials = {}
+        grouped_trials: Dict[int, Sequence[EEGTrial]] = {}
         for trial in self.trials:
-            trial_label = trial.label
-            if trial_label in grouped_trials:
-                grouped_trials[trial_label].append(trial)
+            if trial.mapped_label in grouped_trials:
+                grouped_trials[trial.mapped_label].append(trial)
             else:
-                grouped_trials[trial_label] = [trial]
-        
-        sub_averages = []
-        for _, trial_subgroup in grouped_trials.items():
-            for i in range(0, len(trial_subgroup), n):
-                group = trial_subgroup[i:i+n]
-                sub_averages.append(AveragedEEGTrial(trials=group, trial_index=len(sub_averages)))
-        
-        return EEGData(identifier="test", trials=sub_averages)
-
-
-if __name__ == "__main__":
-    filename = "../../../trial-classification/data/4T1002.mat"
-    something = EEGData(identifier="test", filename=filename)
-    print(np.array(something)[0][0])
-
-
-
-    
+                grouped_trials[trial.mapped_label] = [trial]
+        return grouped_trials
