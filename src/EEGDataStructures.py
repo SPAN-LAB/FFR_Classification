@@ -91,7 +91,16 @@ class EEGSubject:
     def __init__(self, trials: Sequence[EEGTrial]):
         self._trials = trials
         self._subaveraged_trials = None
-    
+
+    @property
+    def trials(self):
+        """
+        Logic for using either `_trials` or `_subaveraged_trials`
+        """
+        if self._subaveraged_trials is not None:
+            return self._subaveraged_trials
+        return self._trials
+
     @staticmethod
     def init_from_filepath(path: str) -> EEGSubject:
         # Open the file 
@@ -112,16 +121,16 @@ class EEGSubject:
                 trial_index=i
             ))
         return EEGSubject(trials)
-
-    @property
-    def trials(self):
-        """
-        Logic for using either `_trials` or `_subaveraged_trials`
-        """
-        if self._subaveraged_trials is not None:
-            return self._subaveraged_trials
-        return self._trials
     
+    def map_labels(self, filepath: str):
+        labels_map = EEGTrial.create_map_from_csv(filepath)
+        for trial in self.trials:
+            trial.map_labels(map=labels_map)
+
+    def trim(self, start_index, end_index):
+        for trial in self.trials:
+            trial.trim(start_index=start_index, end_index=end_index)
+
     def subaverage(self, size: int):
         """
         Averages data values over `size` `EEGTrial`s who have the same `mapped_label`
@@ -130,6 +139,7 @@ class EEGSubject:
 
         TODO: Let the key be customizable (for example, use `raw_label` instead of `mapped_label`)
         """
+        print(f"Length before subaveraging: {len(self.trials)}")
         # Group trials by their labels 
         grouped_trials = self.grouped_trials()
 
@@ -160,6 +170,8 @@ class EEGSubject:
 
         # Store the trials in `self.subaveraged_trials`
         self._subaveraged_trials = subaveraged_trials
+
+        print(f"Length after subaveraging: {len(self.trials)}")
             
     def test_split(self, trials: Sequence[EEGTrial], ratio: float):
         """
@@ -207,5 +219,10 @@ class EEGSubject:
 if __name__ == "__main__":
     e: EEGSubject = EEGSubject.init_from_filepath("/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat")
     print(len(e._trials))
-    e.subaverage(size=5)
+
+    s = e.subaverage
+
+    s(size=5)
+
     print(len(e._subaveraged_trials))
+

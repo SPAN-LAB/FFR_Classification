@@ -235,8 +235,8 @@ class BuildFunctionView(QWidget):
         self.pipeline_steps = []
         self.pipeline_path = ""
         self.is_dirty = False
-        # Initialize with no data for now; data can be attached later
-        self.function_manager = FriendlyFunctionManager(data=None)
+        # Initialize manager (subject is loaded via 'load_data')
+        self.function_manager = FriendlyFunctionManager()
         
         self.init_ui()
 
@@ -450,28 +450,14 @@ class BuildFunctionView(QWidget):
                 widget.set_position(i)
 
     def run_pipeline(self):
-        # Validate support for all blocks first
-        unsupported = []
-        available_names = set(self._get_all_function_names())
+        # Execute functions sequentially via manager; dynamically resolves functions as they become available
         for i in range(self.list_view.count()):
             item = self.list_view.item(i)
             widget = self.list_view.itemWidget(item)
             name = widget.get_name().strip()
-            if name not in available_names:
-                unsupported.append(name)
-        if len(unsupported) > 0:
-            QMessageBox.warning(self, "Unsupported functions", "Cannot run. Unsupported: " + ", ".join(unsupported))
-            return
-
-        # Execute functions sequentially via manager
-        for i in range(self.list_view.count()):
-            item = self.list_view.item(i)
-            widget = self.list_view.itemWidget(item)
-            name = widget.get_name().strip()
-            # If no data yet, only allow DATA_LOADING operations
-            op_type = self._get_operation_type(name)
-            if getattr(self.function_manager, 'data', None) is None and op_type != FriendlyFunction.OperationType.DATA_LOADING:
-                QMessageBox.warning(self, "No data", f"No EEG data is loaded; cannot run '{name}' before a data loading step.")
+            # Check function availability at this moment
+            if name not in set(self._get_all_function_names()):
+                QMessageBox.warning(self, "Unsupported functions", f"Cannot run. Unsupported: {name}")
                 return
             # Prefer structured args when available
             if hasattr(widget, 'get_args_dict'):
@@ -570,8 +556,6 @@ class BuildFunctionView(QWidget):
 
         # Append new item using usage as guidance
         usage_schema = self._get_usage_schema(selected) or {}
-        if self._get_source_type(selected) == FriendlyFunction.SourceType.EEG_DATA:
-            usage_schema = {}
         widget = FunctionBlockView(selected, "", usage_schema)
         item = QListWidgetItem()
         item.setSizeHint(widget.sizeHint())
@@ -590,22 +574,18 @@ class BuildFunctionView(QWidget):
         return [f.name for f in getattr(self.function_manager, 'possible_functions', [])]
 
     def _get_usage_schema(self, function_name: str):
+        # Build a simple schema mapping parameter_name -> { 'type': type, 'default': value }
         for f in getattr(self.function_manager, 'possible_functions', []):
             if f.name == function_name:
-                return getattr(f, 'usage', {}) or {}
+                schema = {}
+                if hasattr(f, 'user_facing_arguments'):
+                    for arg in f.user_facing_arguments():
+                        schema[arg.parameter_name] = {
+                            'type': arg.data_type,
+                            'default': arg.default_value,
+                        }
+                return schema
         return {}
-
-    def _get_operation_type(self, function_name: str):
-        for f in getattr(self.function_manager, 'possible_functions', []):
-            if f.name == function_name:
-                return getattr(f, 'operation_type', None)
-        return None
-
-    def _get_source_type(self, function_name: str):
-        for f in getattr(self.function_manager, 'possible_functions', []):
-            if f.name == function_name:
-                return getattr(f, 'source_type', None)
-        return None
 
     def remove_function_widget(self, widget: QWidget):
         # Find the matching QListWidgetItem and remove it
