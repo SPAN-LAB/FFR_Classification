@@ -1,65 +1,80 @@
+from __future__ import annotations
+from typing import *
 
-
-from FriendlyFunction import FriendlyFunction, f_transpose_ffr, f_test_function, f_load_data
-from typing import List
-
-from EEGData import EEGData
-from FriendlyFunction import FriendlyFunction as FF
+from EEGDataStructures import EEGSubject
+from FriendlyFunction import FriendlyFunction 
+from FriendlyFunction import ArgumentSpecification as ArgSpec
 
 class FriendlyFunctionManager:
     """
     A manager for GUI-callable functions.
     """
-    def __init__(self, data: EEGData):
-        self.data = data
-        self.possible_functions: List[FriendlyFunction] = []
-        self.functions: List[FriendlyFunction] = []
+    def __init__(self, e: EEGSubject=None):
+        self.e = e
+        self.possible_functions = []
+        self.functions = []
+        self.added = False
 
-        # Add the external functions 
-        self.register_function(f_transpose_ffr)
-        self.register_function(f_test_function)
-        self.register_function(f_load_data)
-    
-    def set_data(self, data: EEGData):
-        self.data = data
+        def compound_load(filepath: str):
+            _e = EEGSubject.init_from_filepath(filepath)
+            if len(self.possible_functions) == 1:
+                self.possible_functions.append(FriendlyFunction(
+                    function=_e.subaverage,
+                    name="Subaverage Trials",
+                    arguments=[
+                        ArgSpec(
+                            parameter_label="Size",
+                            parameter_name="size",
+                            data_type=int,
+                            default_value=5,
+                            is_user_facing=True,
+                        )
+                    ]
+                ))
+                self.possible_functions.append(FriendlyFunction(
+                    function=_e.stratified_folds,
+                    name="Split Trials into Stratified Folds",
+                    arguments=[
+                        ArgSpec(
+                            parameter_label="Number of Folds",
+                            parameter_name="num_folds",
+                            data_type=int,
+                            default_value=5,
+                            is_user_facing=True,
+                        )
+                    ]
+                ))
+            self.e = _e
 
-    def add_function(self, function: FriendlyFunction):
-        if type(function) != FriendlyFunction:
-            raise ValueError("Function must be an instance of ExternalGUIFunction.")
-        self.functions.append(function)
+        load_data_function = FriendlyFunction(
+            function=compound_load,
+            name="Load Data from File",
+            arguments=[
+                ArgSpec(
+                    parameter_label="Filepath",
+                    parameter_name="filepath",
+                    data_type=str,
+                    default_value="/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat",
+                    is_user_facing=True,
+                )
+            ],
+        )
+        self.possible_functions.append(load_data_function)
 
-    def register_function(self, function: FriendlyFunction):
-        if type(function) != FriendlyFunction:
-            raise ValueError("Function must be an instance of ExternalGUIFunction.")
-        self.possible_functions.append(function)
-    
+
     def run_function(self, function_name: str, **kwargs):
-        for function in self.possible_functions:
-            if function.name == function_name:
-                # Supply EEGData context only for functions that need it
-                if getattr(function, 'source_type', None) == FF.SourceType.EEG_DATA:
-                    result = function.run(on=self.data)
-                elif getattr(function, 'source_type', None) == FF.SourceType.EEG_DATA_AND_ARGS:
-                    result = function.run(on=self.data, **kwargs)
-                else:
-                    result = function.run(**kwargs)
-                # If the function returned EEGData, update the manager's data regardless of operation type
-                if isinstance(result, EEGData):
-                    self.data = result
-                return result
-        raise ValueError(f"Function {function_name} not found in the manager.")
+        function = None
+        for f in self.possible_functions:
+            if f.name == function_name:
+                function = f
+                break
+        
+        if function is None:
+            raise ValueError(f"Function {function_name} not found")
+        function.run(**kwargs)
 
 if __name__ == "__main__":
-    # Get the EEGData 
-    from pymatreader import read_mat
-    filename = "/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat"
-    raw_data = read_mat(filename)
-    data = raw_data["ffr_nodss"]
-    times = raw_data["time"]
-    labels = raw_data["#subsystem#"]["MCOS"][3]
-    my_data = EEGData(data=data, times=times, labels=labels)
-
-    # Create a new GUIFunctionManager
-    fm = FriendlyFunctionManager(data=my_data)
-    fm.run_function("Transpose FFR")
-    # fm.run_function("Print provided name", name="Kevin")
+    f = FriendlyFunctionManager()
+    f.run_function("load_data", filepath="/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat")
+    f.run_function("subaverage", size=5)
+    print(len(f.e.trials))
