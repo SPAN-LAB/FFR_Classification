@@ -98,8 +98,10 @@ class EEGTrial:
 class EEGSubject: 
     class DataState(Enum):
         """
-        This Enum makes it convenient to determine when functions can and cannot be run. 
-        For example, we cannot fold when we have already subaveraged. (TODO: or maybe we can?)
+        This enum tracks the modification state of this instance. This also makes it easier to 
+        determine whether when a method of this instance can or cannot run, because one just checks 
+        the state to get information about the condition of the other attributes. (For example, 
+        one cannot train with cross validation without first having split the data into folds.)
         """
         
         # The data has not been modified

@@ -1,11 +1,13 @@
 from EEGDataStructures import EEGSubject
 
+SUBJECTS: EEGSubject = []
+
 def GLOBAL_map_class_labels(e: EEGSubject, csv_filepath: str):
     """
-    TODO Kevin
-    EEGTrial Method Wrapper
+    Maps the raw labels for each subject in SUBJECTS as specified in the CSV. 
     """
-    e.map_labels(csv_filepath)
+    for subject in SUBJECTS:
+        subject.map_labels(csv_filepath)
 
 def GLOBAL_trim_ffr(e: EEGSubject, start_index: int, end_index: int):
     """
