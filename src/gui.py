@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
@@ -224,6 +224,62 @@ class FunctionBlockView(QFrame):
             parent.remove_function_widget(self)
 
 
+class RightPaneView(QWidget):
+    """
+    Placeholder right-side pane. Future widgets can be added here.
+    """
+
+    def __init__(self, manager: FriendlyFunctionManager):
+        super().__init__()
+        self.manager = manager
+        layout = QVBoxLayout()
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        self.setLayout(layout)
+
+        # Summary box at top
+        self.summary_frame = QFrame()
+        self.summary_frame.setFrameShape(QFrame.StyledPanel)
+        self.summary_frame.setFrameShadow(QFrame.Plain)
+        summary_layout = QVBoxLayout()
+        summary_layout.setContentsMargins(8, 8, 8, 8)
+        summary_layout.setSpacing(4)
+        self.summary_frame.setLayout(summary_layout)
+
+        self.summary_label = QLabel("")
+        self.summary_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        summary_layout.addWidget(self.summary_label)
+
+        layout.addWidget(self.summary_frame)
+        layout.addStretch(1)
+
+        self.refresh_summary()
+
+    def refresh_summary(self):
+        e = getattr(self.manager, 'e', None)
+        if e is None:
+            self.summary_label.setText("No subject loaded")
+            return
+        try:
+            num_trials = len(e.trials)
+        except Exception:
+            num_trials = "?"
+        try:
+            num_folds = len(e.folds)
+        except Exception:
+            num_folds = "?"
+        try:
+            num_classes = len(e.grouped_trials().keys())
+        except Exception:
+            num_classes = "?"
+
+        self.summary_label.setText(
+            f"Number of trials: {num_trials}\n"
+            f"Number of folds: {num_folds}\n"
+            f"Number of classes: {num_classes}"
+        )
+
+
 class BuildFunctionView(QWidget):
     """
     Main builder view for configuring the pipeline: path input, DnD function list,
@@ -355,9 +411,6 @@ class BuildFunctionView(QWidget):
             self.pipeline_steps.append((name, arg))
 
             usage_schema = self._get_usage_schema(name) or {}
-            # Hide args if the function consumes EEGData only
-            if self._get_source_type(name) == FriendlyFunction.SourceType.EEG_DATA:
-                usage_schema = {}
             widget = FunctionBlockView(name, arg, usage_schema)
             item = QListWidgetItem()
             item.setSizeHint(widget.sizeHint())
@@ -467,6 +520,13 @@ class BuildFunctionView(QWidget):
                 args_dict = self._parse_named_args(args_text)
             try:
                 self.function_manager.run_function(name, **args_dict)
+                # After each step, refresh the right pane summary (subject may have changed)
+                parent = self.parent()
+                # bubble up to MainWindow to access right pane
+                while parent and not isinstance(parent, MainWindowView):
+                    parent = parent.parent()
+                if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
+                    parent.right_pane_view.refresh_summary()
             except Exception as e:
                 QMessageBox.warning(self, "Execution error", f"Failed to run {name}: {e}")
                 return
@@ -571,11 +631,12 @@ class BuildFunctionView(QWidget):
         self.save_pipeline()
 
     def _get_all_function_names(self):
-        return [f.name for f in getattr(self.function_manager, 'possible_functions', [])]
+        available = getattr(self.function_manager, 'available_functions', [])
+        return [f.name for f in available]
 
     def _get_usage_schema(self, function_name: str):
         # Build a simple schema mapping parameter_name -> { 'type': type, 'default': value }
-        for f in getattr(self.function_manager, 'possible_functions', []):
+        for f in getattr(self.function_manager, 'available_functions', []):
             if f.name == function_name:
                 schema = {}
                 if hasattr(f, 'user_facing_arguments'):
@@ -613,9 +674,25 @@ class MainWindowView(QMainWindow):
         self.setWindowTitle("Frequency-Following Response Pipeline Editor")
         self.setGeometry(200, 200, 800, 500)
 
-        # Single, clean view: Configurator only
+        # Split view: left (builder) and right (placeholder) with resizable divider
         self.build_function_view = BuildFunctionView()
-        self.setCentralWidget(self.build_function_view)
+        self.right_pane_view = RightPaneView(self.build_function_view.function_manager)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.build_function_view)
+        splitter.addWidget(self.right_pane_view)
+        # Prevent panes from collapsing and give them sensible minimum widths
+        self.build_function_view.setMinimumWidth(260)
+        self.right_pane_view.setMinimumWidth(220)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setHandleWidth(2)
+        splitter.setStyleSheet(
+            "QSplitter::handle { background-color: #2a2a2a; } "
+            "QSplitter::handle:hover { background-color: #3a3a3a; }"
+        )
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+        self.setCentralWidget(splitter)
 
     def save_blocks_pipeline(self):
         ok = self.build_function_view.save_pipeline()

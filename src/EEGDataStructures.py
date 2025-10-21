@@ -1,6 +1,7 @@
 from __future__ import annotations
 from numpy import typing as npt
 from typing import *
+from enum import Enum, auto
 
 import numpy as np
 from random import shuffle
@@ -26,9 +27,16 @@ class EEGTrial:
         self.mapped_label = None # Initially None
         self.trial_index = trial_index
 
+    @property
+    def label(self):
+        if self.mapped_label is not None:
+            return self.mapped_label
+        else:
+            return self.raw_label
+
     def trim(self, start_index: int, end_index: int):
         """
-        Trims `data` and `timestamps`, keeping only the values within the parameters' bounds. 
+        Trims `data` and `timestamps`, keeping only the values included in the parameters' bounds. 
         """
         self.data = self.data[start_index: end_index + 1]
 
@@ -88,18 +96,66 @@ class EEGTrial:
 
 
 class EEGSubject: 
+    class DataState(Enum):
+        """
+        This Enum makes it convenient to determine when functions can and cannot be run. 
+        For example, we cannot fold when we have already subaveraged. (TODO: or maybe we can?)
+        """
+        
+        # The data has not been modified
+        UNMODIFIED = auto() 
+        
+        # The data has been subaveraged. 
+        # This comes with the guarantee that`self._subaveraged_trials` is not None.
+        # Mutually exclusive with `UNMODIFIED`.
+        SUBAVERAGED = auto() 
+
+        # The data has been split into folds.
+        # This comes with the guarantee that `self._folds` is not None.
+        FOLDED = auto() 
+
+    def is_unmodified(self):
+        return self.DataState.UNMODIFIED in self.state
+    
+    def is_subaveraged(self):
+        return self.DataState.SUBAVERAGED in self.state
+    
+    def is_folded(self):
+        return self.DataState.FOLDED in self.state
+    
+    def remove_state(self, state: DataState):
+        self.state.remove(state)
+
+    def add_state(self, state: DataState):
+        # Don't allow adding `UNMODIFIED` state.
+        if state is self.DataState.UNMODIFIED:
+            raise ValueError("Cannot add `UNMODIFIED` state to the subject.")
+        
+        if state is self.DataState.SUBAVERAGED:
+            self.state.add(self.DataState.SUBAVERAGED)
+            if self.is_unmodified():
+                self.remove_state(self.DataState.UNMODIFIED)
+        elif state is self.DataState.FOLDED:
+            if self.is_unmodified():
+                self.remove_state(self.DataState.UNMODIFIED)
+
     def __init__(self, trials: Sequence[EEGTrial]):
+        self.state = set([self.DataState.UNMODIFIED])
         self._trials = trials
         self._subaveraged_trials = None
+        self.folds = None
 
     @property
     def trials(self):
         """
         Logic for using either `_trials` or `_subaveraged_trials`
         """
-        if self._subaveraged_trials is not None:
+        if self.DataState.SUBAVERAGED in self.state:
+            # The data has been subaveraged
             return self._subaveraged_trials
-        return self._trials
+        else: 
+            # The data has not been subaveraged
+            return self._trials
 
     @staticmethod
     def init_from_filepath(path: str) -> EEGSubject:
@@ -171,6 +227,9 @@ class EEGSubject:
         # Store the trials in `self.subaveraged_trials`
         self._subaveraged_trials = subaveraged_trials
 
+        # Update the state
+        self.add_state(self.DataState.SUBAVERAGED)
+
         print(f"Length after subaveraging: {len(self.trials)}")
             
     def test_split(self, trials: Sequence[EEGTrial], ratio: float):
@@ -201,7 +260,13 @@ class EEGSubject:
         for fold in folds:
             shuffle(fold)
         
-        return folds
+        # Update the state
+        self.add_state(self.DataState.FOLDED)
+
+        # Store the folds
+        self.folds = folds
+
+        print(f"Folded into {len(folds)} folds")
     
     def grouped_trials(self) -> Dict[int, Sequence[EEGTrial]]:
         """
@@ -210,10 +275,10 @@ class EEGSubject:
         """
         grouped_trials: Dict[int, Sequence[EEGTrial]] = {}
         for trial in self.trials:
-            if trial.mapped_label in grouped_trials:
-                grouped_trials[trial.mapped_label].append(trial)
+            if trial.label in grouped_trials:
+                grouped_trials[trial.label].append(trial)
             else:
-                grouped_trials[trial.mapped_label] = [trial]
+                grouped_trials[trial.label] = [trial]
         return grouped_trials
 
 if __name__ == "__main__":
