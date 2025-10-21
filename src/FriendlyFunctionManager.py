@@ -11,9 +11,8 @@ class FriendlyFunctionManager:
     """
     def __init__(self, e: EEGSubject=None):
         self.e = e
-        self.possible_functions = []
-        self.functions = []
-        self.added = False
+        self.possible_functions: Sequence[FriendlyFunction] = []
+        self.functions: Sequence[FriendlyFunction] = []
 
         def compound_load(filepath: str):
             _e = EEGSubject.init_from_filepath(filepath)
@@ -44,7 +43,8 @@ class FriendlyFunctionManager:
                         )
                     ]
                 ))
-            self.e = _e
+            if self.e is None:
+                self.e = _e
 
         load_data_function = FriendlyFunction(
             function=compound_load,
@@ -61,6 +61,16 @@ class FriendlyFunctionManager:
         )
         self.possible_functions.append(load_data_function)
 
+    @property
+    def available_functions(self):
+        # If nothing registered yet
+        if len(self.possible_functions) == 0:
+            return []
+        # Loader is first; if no subject loaded, only expose loader
+        if self.e is None:
+            return [self.possible_functions[0]]
+        # Subject present: expose everything except the loader
+        return self.possible_functions[1:]
 
     def run_function(self, function_name: str, **kwargs):
         function = None

@@ -1,14 +1,6 @@
-from typing import Callable, Dict, Any, Sequence
+from typing import *
 
-from preprocessing_functions import transpose_ffr
-
-from pymatreader import read_mat
-
-from EEGData import EEGData
-
-from enum import Enum, auto
-
-from user_functions import *
+from EEGDataStructures import EEGSubject
 
 class ArgumentSpecification: 
     def __init__(self, parameter_label: str, parameter_name: str, data_type: int | float | str, default_value: Any, is_user_facing: bool):
