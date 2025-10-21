@@ -212,8 +212,8 @@ class EEGSubject:
                 stacked_data = np.array([trial.data for trial in homogeneous_trials[i: i + size]])
                 subaveraged_data = np.mean(stacked_data, axis=0)
 
-                # Create a new EEGTrial object and assign it an artificial label
-                # This artificial label equals the length of `subaveraged_trials`
+                # Create a new EEGTrial object and assign it an artificial trial index
+                # which equals the length of `subaveraged_trials`
                 subaveraged_trial = EEGTrial(
                     data=subaveraged_data, 
                     timestamps=homogeneous_trials[0].timestamps, 
