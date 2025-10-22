@@ -7,6 +7,8 @@ import numpy as np
 from random import shuffle
 import pandas as pd 
 from pymatreader import read_mat
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # NOTE: This implementation was made for single-channel data. 
 class EEGTrial:
@@ -94,6 +96,33 @@ class EEGTrial:
             raise ValueError("Only 1D arrays are permitted.")
         return timestamps
 
+    def visualize(self, y_range: Tuple[float, float] | None = None):
+        """
+        Visualize this trial's data over time.
+
+        :param y_range: Optional (min, max) y-limits for the plot.
+        """
+        # Determine the y-range if one wasn't provided
+        if y_range is None:
+            y_range = (float(np.min(self.data)), float(np.max(self.data)))
+
+        # Prefer provided timestamps; else use index-based time
+        if isinstance(self.timestamps, np.ndarray) and self.timestamps.size == self.data.size:
+            x = self.timestamps
+            x_label = "Time"
+        else:
+            x = np.arange(len(self.data))
+            x_label = "Index"
+
+        plt.figure(figsize=(12, 4))
+        sns.lineplot(x=x, y=self.data)
+        plt.title(f"FFR Trial for Tone {self.label}")
+        plt.ylim(y_range)
+        plt.xlabel(x_label)
+        plt.ylabel("Amplitude")
+        plt.tight_layout()
+        plt.show()
+
 
 class EEGSubject: 
     class DataState(Enum):
@@ -138,14 +167,16 @@ class EEGSubject:
             if self.is_unmodified():
                 self.remove_state(self.DataState.UNMODIFIED)
         elif state is self.DataState.FOLDED:
+            self.state.add(self.DataState.FOLDED)
             if self.is_unmodified():
                 self.remove_state(self.DataState.UNMODIFIED)
 
-    def __init__(self, trials: Sequence[EEGTrial]):
+    def __init__(self, trials: Sequence[EEGTrial], source_filepath: str=None):
         self.state = set([self.DataState.UNMODIFIED])
         self._trials = trials
         self._subaveraged_trials = None
         self.folds = None
+        self.source_filepath = source_filepath
 
     @property
     def trials(self):
@@ -178,7 +209,7 @@ class EEGSubject:
                 raw_label=labels[i],
                 trial_index=i
             ))
-        return EEGSubject(trials)
+        return EEGSubject(trials, source_filepath=path)
     
     def map_labels(self, filepath: str):
         labels_map = EEGTrial.create_map_from_csv(filepath)
@@ -249,6 +280,9 @@ class EEGSubject:
         return trials[:cutoff_index], trials[cutoff_index:]
 
     def stratified_folds(self, num_folds):
+        if self.is_folded():
+            raise ValueError("Subject already folded. Cannot fold again.")
+        
         folds = [[] for i in range(num_folds)]
         grouped_trials = self.grouped_trials()
 
@@ -267,8 +301,46 @@ class EEGSubject:
 
         # Store the folds
         self.folds = folds
+    
+    def visualize(self, label: int, y_range: Tuple[float, float] | None = None):
+        """
+        Visualize the subaveraged waveform over all trials for a given label (tone).
 
-        print(f"Folded into {len(folds)} folds")
+        :param label: Required. Visualize only trials with this label.
+        :param y_range: Optional (min, max) y-limits applied to the plot.
+        """
+        groups = self.grouped_trials()
+        if label not in groups:
+            raise ValueError(f"No trials found for label {label}.")
+        trials = list(groups[label])
+        if not trials:
+            raise ValueError("No trials available to visualize for the specified label.")
+
+        # Stack and subaverage across all trials of the label
+        stacked_data = np.stack([t.data for t in trials], axis=0)
+        subavg = np.mean(stacked_data, axis=0)
+
+        # Choose x-axis from timestamps if available; else sample index
+        ref = trials[0]
+        if isinstance(ref.timestamps, np.ndarray) and ref.timestamps.size == subavg.size:
+            x = ref.timestamps
+            x_label = "Time"
+        else:
+            x = np.arange(subavg.size)
+            x_label = "Index"
+
+        # Determine y-range if not provided
+        if y_range is None:
+            y_range = (float(np.min(subavg)), float(np.max(subavg)))
+
+        plt.figure(figsize=(12, 4))
+        sns.lineplot(x=x, y=subavg)
+        plt.title(f"FFR Subaverage for Tone {label} (n={len(trials)})")
+        plt.ylim(y_range)
+        plt.xlabel(x_label)
+        plt.ylabel("Amplitude")
+        plt.tight_layout()
+        plt.show()
     
     def grouped_trials(self) -> Dict[int, Sequence[EEGTrial]]:
         """
@@ -282,6 +354,33 @@ class EEGSubject:
             else:
                 grouped_trials[trial.label] = [trial]
         return grouped_trials
+
+    def summary(self) -> Dict[str, Any]:
+        """
+        Returns lightweight stats for this subject.
+        """
+        try:
+            num_trials = len(self.trials)
+        except Exception:
+            num_trials = 0
+        try:
+            num_classes = len(self.grouped_trials().keys())
+        except Exception:
+            num_classes = 0
+        try:
+            num_folds = len(self.folds) if getattr(self, 'folds', None) is not None else 0
+        except Exception:
+            num_folds = 0
+        try:
+            is_subaveraged = bool(self.is_subaveraged())
+        except Exception:
+            is_subaveraged = False
+        return {
+            "num_trials": num_trials,
+            "num_classes": num_classes,
+            "num_folds": num_folds,
+            "is_subaveraged": is_subaveraged,
+        }
 
 if __name__ == "__main__":
     e: EEGSubject = EEGSubject.init_from_filepath("/Users/kevin/Desktop/Work/SPAN_Lab/trial-classification/data/4T1002.mat")

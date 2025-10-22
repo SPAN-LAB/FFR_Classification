@@ -1,42 +1,95 @@
+from __future__ import annotations
+from typing import *
+
 from EEGDataStructures import EEGSubject
 
-SUBJECTS: EEGSubject = []
+def function_label(label: str):
+    """
+    Set a GUI-ready function label.
 
-def GLOBAL_map_class_labels(e: EEGSubject, csv_filepath: str):
+    See below for usage
+    """
+    def decorator(function):
+        function.label = label
+        return function
+    return decorator
+
+def param_labels(labels: List[str]):
+    """
+    Conveniently set the GUI-ready parameter labels corresponding to a function's parameters.
+    The order the labels must match the order of the function's parameters.
+
+    See below for usage.
+    """
+    def decorator(function):
+        function.parameter_labels = labels
+        return function
+    return decorator
+
+SUBJECTS: List[EEGSubject] = []
+
+@function_label("Load Subject Data")
+@param_labels(["Filepath"])
+def GLOBAL_load_subject_data(filepath: str):
+    """
+    Initializes a new EEGSubject instance using the given filepath.
+    """
+    # Check if the subject data has already been loaded.
+    # If so, we don't do anything.
+    for subject in SUBJECTS:
+        if subject.source_filepath == filepath:
+            return
+    SUBJECTS.append(EEGSubject.init_from_filepath(filepath))
+
+@function_label("Map Class Labels")
+@param_labels(["CSV Filepath"])
+def GLOBAL_map_class_labels(csv_filepath: str):
     """
     Maps the raw labels for each subject in SUBJECTS as specified in the CSV. 
     """
     for subject in SUBJECTS:
         subject.map_labels(csv_filepath)
 
-def GLOBAL_trim_ffr(e: EEGSubject, start_index: int, end_index: int):
+@function_label("Trim")
+@param_labels(["Start Index", "End Index"])
+def GLOBAL_trim_ffr(start_index: int, end_index: int):
     """
-    TODO Kevin
-    EEGTrial Method Wrapper
+    Trims the data for all subjects in SUBJECTS
     """
-    e.trim(start_index=start_index, end_index=end_index)
+    for subject in SUBJECTS:
+        subject.trim(start_index=start_index, end_index=end_index)
 
-def GLOABL_sub_average_data(e: EEGSubject, size: int):
+@function_label("Subaverage Data")
+@param_labels(["Subaverage Size"])
+def GLOBAL_sub_average_data(size: int=5):
     """
-    TODO Kevin
+    Subaverages the trials across all subjects
+    """
+    for subject in SUBJECTS:
+        subject.subaverage(size=size)
+
+@function_label("Split for Testing")
+@param_labels(["Ratio"])
+def GLOBAL_test_split_stratified(ratio: float=0.8):
+    """
+    Test-splits for all subjects.
+
+    :param ratio: the ratio of trials to be used for training
+    """
+    for subject in SUBJECTS:
+        subject.test_split(trials=subject.trials, ratio=ratio)
+
+@function_label("Split into Folds")
+@param_labels(["Fold Count"])
+def GLOBAL_k_fold_stratified(num_folds: int=5):
+    """
     EEGSubject Method Wrapper
     """
-    e.subaverage(size=size)
+    for subject in SUBJECTS:
+        subject.stratified_folds(num_folds=num_folds)
 
-def GLOBAL_test_split_stratified(e: EEGSubject, ratio: float):
-    """
-    TODO Kevin
-    EEGSubject Method Wrapper
-    """
-    e.test_split(trials=e.trials, ratio=ratio)
-
-def GLOBAL_k_fold_stratified(e: EEGSubject, num_folds: int):
-    """
-    TODO Kevin
-    EEGSubject Method Wrapper
-    """
-    e.stratified_folds(num_folds=num_folds)
-
+@function_label("TODO")
+@param_labels([])
 def GLOBAL_inference_model():
     """
     TODO Anu
@@ -44,9 +97,27 @@ def GLOBAL_inference_model():
     """
     return
 
+@function_label("TODO")
+@param_labels([])
 def GLOBAL_train_model():
     """
     TODO Anu
     Standalone function for training predefined PyTorch models.
     """
     return
+
+@function_label("Visualize Subject Per Tone")
+@param_labels(["Subject Index", "Tone"])
+def GLOBAL_visualize_subject_per_tone(subject_index: int=1, tone: int=1):
+    """
+    Visualizes the subject's data for the given tone.
+    """
+    SUBJECTS[subject_index - 1].visualize(label=tone)
+
+@function_label("Print Name")
+@param_labels(["Name"])
+def GLOBAL_print_name(name: str):
+    print(name)
+
+if __name__ == "__main__":
+    print(GLOBAL_load_subject_data.label)
