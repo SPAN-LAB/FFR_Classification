@@ -4,12 +4,12 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
-from FriendlyFunction import FriendlyFunction
-from FriendlyFunctionManager import FriendlyFunctionManager
+from GUIFunctionManager import GUIFunctionManager
+import user_functions
 
 PIPELINE_FILE = "pipeline.txt"
 
@@ -102,11 +102,13 @@ class FunctionBlockView(QFrame):
             if isinstance(spec, dict):
                 param_type = spec.get('type', str)
                 default_value = spec.get('default', None)
+                display_label = spec.get('label', param_name)
             else:
                 param_type = spec
                 default_value = None
+                display_label = param_name
 
-            param_label = QLabel(f"{param_name}:")
+            param_label = QLabel(f"{display_label}:")
             params_row.addWidget(param_label)
             if param_type is int:
                 editor = QSpinBox()
@@ -223,13 +225,23 @@ class FunctionBlockView(QFrame):
         if isinstance(parent, BuildFunctionView):
             parent.remove_function_widget(self)
 
+    def set_running(self, is_running: bool) -> None:
+        # Temporarily override card style to show running state
+        if is_running:
+            self.setStyleSheet(
+                "QFrame#FunctionCard { background: #163d1a; border: 1px solid #2e7d32; border-radius: 10px; }"
+            )
+        else:
+            # Clear to inherit global STYLE again
+            self.setStyleSheet("")
+
 
 class RightPaneView(QWidget):
     """
     Placeholder right-side pane. Future widgets can be added here.
     """
 
-    def __init__(self, manager: FriendlyFunctionManager):
+    def __init__(self, manager: GUIFunctionManager):
         super().__init__()
         self.manager = manager
         layout = QVBoxLayout()
@@ -237,47 +249,101 @@ class RightPaneView(QWidget):
         layout.setSpacing(8)
         self.setLayout(layout)
 
-        # Summary box at top
-        self.summary_frame = QFrame()
-        self.summary_frame.setFrameShape(QFrame.StyledPanel)
-        self.summary_frame.setFrameShadow(QFrame.Plain)
-        summary_layout = QVBoxLayout()
-        summary_layout.setContentsMargins(8, 8, 8, 8)
-        summary_layout.setSpacing(4)
-        self.summary_frame.setLayout(summary_layout)
+        # Top-left aligned subject grid
+        self.grid_container = QWidget()
+        self.grid_container.setObjectName("SubjectGrid")
+        self.grid_layout = QGridLayout()
+        self.grid_layout.setContentsMargins(4, 4, 4, 4)
+        self.grid_layout.setHorizontalSpacing(8)
+        self.grid_layout.setVerticalSpacing(8)
+        self.grid_container.setLayout(self.grid_layout)
 
-        self.summary_label = QLabel("")
-        self.summary_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        summary_layout.addWidget(self.summary_label)
-
-        layout.addWidget(self.summary_frame)
-        layout.addStretch(1)
+        layout.addWidget(self.grid_container)
+        layout.addStretch(0)
 
         self.refresh_summary()
 
     def refresh_summary(self):
-        e = getattr(self.manager, 'e', None)
-        if e is None:
-            self.summary_label.setText("No subject loaded")
-            return
-        try:
-            num_trials = len(e.trials)
-        except Exception:
-            num_trials = "?"
-        try:
-            num_folds = len(e.folds)
-        except Exception:
-            num_folds = "?"
-        try:
-            num_classes = len(e.grouped_trials().keys())
-        except Exception:
-            num_classes = "?"
+        # Rebuild grid of subject cards
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
 
-        self.summary_label.setText(
-            f"Number of trials: {num_trials}\n"
-            f"Number of folds: {num_folds}\n"
-            f"Number of classes: {num_classes}"
+        # Build summaries from EEGSubject.summary() for each loaded subject
+        summaries = []
+        try:
+            subjects = getattr(user_functions, 'SUBJECTS', [])
+        except Exception:
+            subjects = []
+        for i, subj in enumerate(subjects):
+            s = subj.summary()
+            s["index"] = i
+            summaries.append(s)
+
+        if not summaries:
+            placeholder = QLabel("No subjects loaded")
+            placeholder.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            self.grid_layout.addWidget(placeholder, 0, 0)
+            return
+
+        # Determine number of columns based on current width (>=300px per column)
+        try:
+            current_width = max(0, int(self.width()))
+        except Exception:
+            current_width = 0
+        max_cols = max(1, (current_width - 225) // 75)
+        for idx, s in enumerate(summaries):
+            r = idx // max_cols
+            c = idx % max_cols
+            card = self._make_subject_card(s)
+            self.grid_layout.addWidget(card, r, c)
+
+    def _make_subject_card(self, summary: dict) -> QWidget:
+        card = QFrame()
+        card.setObjectName("SubjectCard")
+        card.setFrameShape(QFrame.StyledPanel)
+        card.setStyleSheet(
+            "QFrame#SubjectCard {"
+            "  background: #1a1a1a;"
+            "  border: 1px solid #2a2a2a;"
+            "  border-radius: 10px;"
+            "}"
         )
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+        card.setLayout(layout)
+
+        title = QLabel(f"Subject {summary.get('index', 0) + 1}")
+        title.setStyleSheet("QLabel { font-weight: 600; }")
+        layout.addWidget(title)
+
+        rows = [
+            ("Trials", summary.get("num_trials", 0)),
+            ("Classes", summary.get("num_classes", 0)),
+            ("Folds", summary.get("num_folds", 0)),
+            ("Subaveraged", "Yes" if summary.get("is_subaveraged", False) else "No"),
+        ]
+        for label_text, value in rows:
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            lbl = QLabel(f"{label_text}:")
+            val = QLabel(str(value))
+            row.addWidget(lbl)
+            row.addWidget(val)
+            row.addStretch(1)
+            layout.addLayout(row)
+
+        return card
+
+    def resizeEvent(self, event):
+        # Reflow grid on resize to adapt column count
+        try:
+            super().resizeEvent(event)
+        finally:
+            self.refresh_summary()
 
 
 class BuildFunctionView(QWidget):
@@ -291,8 +357,8 @@ class BuildFunctionView(QWidget):
         self.pipeline_steps = []
         self.pipeline_path = ""
         self.is_dirty = False
-        # Initialize manager (subject is loaded via 'load_data')
-        self.function_manager = FriendlyFunctionManager()
+        # Initialize function manager (methods-only access contract)
+        self.function_manager = GUIFunctionManager()
         
         self.init_ui()
 
@@ -479,6 +545,13 @@ class BuildFunctionView(QWidget):
         self._update_bottom_buttons_enabled()
 
     def close_and_save(self):
+        user_functions.SUBJECTS = []
+        # Refresh right pane to reflect cleared subjects
+        parent = self.parent()
+        while parent and not isinstance(parent, MainWindowView):
+            parent = parent.parent()
+        if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
+            parent.right_pane_view.refresh_summary()
         # Save current pipeline, then close and reset UI to initial state
         if self.pipeline_path:
             self.save_pipeline()
@@ -503,6 +576,13 @@ class BuildFunctionView(QWidget):
                 widget.set_position(i)
 
     def run_pipeline(self):
+        user_functions.SUBJECTS = []
+        # Refresh right pane to reflect cleared subjects
+        parent = self.parent()
+        while parent and not isinstance(parent, MainWindowView):
+            parent = parent.parent()
+        if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
+            parent.right_pane_view.refresh_summary()
         # Execute functions sequentially via manager; dynamically resolves functions as they become available
         for i in range(self.list_view.count()):
             item = self.list_view.item(i)
@@ -519,6 +599,11 @@ class BuildFunctionView(QWidget):
                 args_text = widget.get_arg().strip()
                 args_dict = self._parse_named_args(args_text)
             try:
+                # Highlight running block
+                if hasattr(widget, 'set_running'):
+                    widget.set_running(True)
+                    # Force repaint so user sees highlight immediately
+                    QApplication.processEvents()
                 self.function_manager.run_function(name, **args_dict)
                 # After each step, refresh the right pane summary (subject may have changed)
                 parent = self.parent()
@@ -529,7 +614,14 @@ class BuildFunctionView(QWidget):
                     parent.right_pane_view.refresh_summary()
             except Exception as e:
                 QMessageBox.warning(self, "Execution error", f"Failed to run {name}: {e}")
+                # Remove highlight on failure before exiting
+                if hasattr(widget, 'set_running'):
+                    widget.set_running(False)
                 return
+            finally:
+                # Dehighlight after completion
+                if hasattr(widget, 'set_running'):
+                    widget.set_running(False)
 
         # Ensure positions are up-to-date and saved
         self._refresh_positions()
@@ -631,22 +723,46 @@ class BuildFunctionView(QWidget):
         self.save_pipeline()
 
     def _get_all_function_names(self):
-        available = getattr(self.function_manager, 'available_functions', [])
-        return [f.name for f in available]
+        return list(self.function_manager.get_possible_function_labels())
 
     def _get_usage_schema(self, function_name: str):
-        # Build a simple schema mapping parameter_name -> { 'type': type, 'default': value }
-        for f in getattr(self.function_manager, 'available_functions', []):
-            if f.name == function_name:
-                schema = {}
-                if hasattr(f, 'user_facing_arguments'):
-                    for arg in f.user_facing_arguments():
-                        schema[arg.parameter_name] = {
-                            'type': arg.data_type,
-                            'default': arg.default_value,
-                        }
-                return schema
-        return {}
+        # Build a schema mapping parameter_name -> { 'type': type, 'default': value, 'label': str }
+        try:
+            spec = self.function_manager.get_function_specification(function_name)
+        except Exception:
+            return {}
+        schema = {}
+        for arg in getattr(spec, 'arg_specs', []):
+            schema[arg.parameter_name] = {
+                'type': self._normalize_param_type(arg.data_type),
+                'default': arg.default_value,
+                'label': getattr(arg, 'parameter_label', arg.parameter_name),
+            }
+        return schema
+
+    def _normalize_param_type(self, t):
+        # Ensure built-in types for editor selection
+        if t in (int, float, str):
+            return t
+        name = getattr(t, '__name__', None) or getattr(t, '__qualname__', None)
+        if isinstance(name, str):
+            lname = name.lower()
+            if 'int' == lname or 'integer' in lname:
+                return int
+            if 'float' == lname or 'double' in lname:
+                return float
+            if 'str' == lname or 'string' in lname:
+                return str
+        # Fallback: parse textual representation
+        text = str(t).lower()
+        if 'int' in text and 'print' not in text:
+            return int
+        if 'float' in text or 'double' in text:
+            return float
+        if 'str' in text or 'string' in text:
+            return str
+        # Default to str if unknown
+        return str
 
     def remove_function_widget(self, widget: QWidget):
         # Find the matching QListWidgetItem and remove it
@@ -672,7 +788,7 @@ class MainWindowView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Frequency-Following Response Pipeline Editor")
-        self.setGeometry(200, 200, 800, 500)
+        self.setGeometry(200, 200, 1000, 500)
 
         # Split view: left (builder) and right (placeholder) with resizable divider
         self.build_function_view = BuildFunctionView()
@@ -681,8 +797,8 @@ class MainWindowView(QMainWindow):
         splitter.addWidget(self.build_function_view)
         splitter.addWidget(self.right_pane_view)
         # Prevent panes from collapsing and give them sensible minimum widths
-        self.build_function_view.setMinimumWidth(260)
-        self.right_pane_view.setMinimumWidth(220)
+        self.build_function_view.setMinimumWidth(700)
+        self.right_pane_view.setMinimumWidth(300)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         splitter.setHandleWidth(2)
