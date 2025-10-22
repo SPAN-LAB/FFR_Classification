@@ -3,6 +3,7 @@ from typing import *
 from utils import function_label, param_labels
 from EEGDataStructures import EEGSubject
 
+ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
 
 @function_label("Map Class Labels")

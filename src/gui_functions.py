@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import *
 from utils import function_label, param_labels
-from user_functions import SUBJECTS
+from user_functions import SUBJECTS, ORIGINAL_SUBJECTS
 from EEGDataStructures import EEGSubject
 
 @function_label("Load Subject Data")
@@ -10,12 +10,11 @@ def GUI_load_subject_data(filepath: str):
     """
     Initializes a new EEGSubject instance using the given filepath.
     """
-    # Check if the subject data has already been loaded.
-    # If so, we don't do anything.
-    for subject in SUBJECTS:
+    # Load into ORIGINAL_SUBJECTS; avoid duplicates by filepath
+    for subject in ORIGINAL_SUBJECTS:
         if subject.source_filepath == filepath:
             return
-    SUBJECTS.append(EEGSubject.init_from_filepath(filepath))
+    ORIGINAL_SUBJECTS.append(EEGSubject.init_from_filepath(filepath))
 
 @function_label("Filter Trials")
 @param_labels(["Subject Index", "Trials to remove"])
