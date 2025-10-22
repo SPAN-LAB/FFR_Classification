@@ -21,7 +21,6 @@
 - `timestamps: npt.NDArray`  
 - `trial_index: int`  
 - `raw_label: Label`  
-- `_mapped_label: Label | None`  
 
 **Properties / Functions**
 - `mapped_label(self)`  
