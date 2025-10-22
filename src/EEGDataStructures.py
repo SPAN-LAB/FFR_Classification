@@ -172,6 +172,27 @@ class EEGSubject:
                 self.remove_state(self.DataState.UNMODIFIED)
 
     def __init__(self, trials: Sequence[EEGTrial], source_filepath: str=None):
+        if not trials and not source_filepath:
+            raise ValueError("trials and source filepath cannot both be None.")
+        if not trials:
+            # Open the file 
+            file = read_mat(source_filepath)
+
+            # Get the raw data
+            raw_data = file["ffr_nodss"]
+            timestamps = file["time"]
+            labels = file["#subsystem#"]["MCOS"][3]
+
+            # Create the EEGTrial instances
+            trials = []
+            for i, trial in enumerate(raw_data):
+                trials.append(EEGTrial(
+                    data=raw_data[i],
+                    timestamps=timestamps,
+                    raw_label=labels[i],
+                    trial_index=i
+                ))
+
         self.state = set([self.DataState.UNMODIFIED])
         self._trials = trials
         self._subaveraged_trials = None
@@ -190,6 +211,7 @@ class EEGSubject:
             # The data has not been subaveraged
             return self._trials
 
+    # DEPRECATED: Use EEGSubject(source_filepath=...) instead
     @staticmethod
     def init_from_filepath(path: str) -> EEGSubject:
         # Open the file 

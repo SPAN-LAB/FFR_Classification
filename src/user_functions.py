@@ -1,45 +1,9 @@
 from __future__ import annotations
 from typing import *
-
+from utils import function_label, param_labels
 from EEGDataStructures import EEGSubject
 
-def function_label(label: str):
-    """
-    Set a GUI-ready function label.
-
-    See below for usage
-    """
-    def decorator(function):
-        function.label = label
-        return function
-    return decorator
-
-def param_labels(labels: List[str]):
-    """
-    Conveniently set the GUI-ready parameter labels corresponding to a function's parameters.
-    The order the labels must match the order of the function's parameters.
-
-    See below for usage.
-    """
-    def decorator(function):
-        function.parameter_labels = labels
-        return function
-    return decorator
-
 SUBJECTS: List[EEGSubject] = []
-
-@function_label("Load Subject Data")
-@param_labels(["Filepath"])
-def GLOBAL_load_subject_data(filepath: str):
-    """
-    Initializes a new EEGSubject instance using the given filepath.
-    """
-    # Check if the subject data has already been loaded.
-    # If so, we don't do anything.
-    for subject in SUBJECTS:
-        if subject.source_filepath == filepath:
-            return
-    SUBJECTS.append(EEGSubject.init_from_filepath(filepath))
 
 @function_label("Map Class Labels")
 @param_labels(["CSV Filepath"])
@@ -113,11 +77,6 @@ def GLOBAL_visualize_subject_per_tone(subject_index: int=1, tone: int=1):
     Visualizes the subject's data for the given tone.
     """
     SUBJECTS[subject_index - 1].visualize(label=tone)
-
-@function_label("Print Name")
-@param_labels(["Name"])
-def GLOBAL_print_name(name: str):
-    print(name)
 
 if __name__ == "__main__":
     print(GLOBAL_load_subject_data.label)
