@@ -37,13 +37,13 @@ class EEGSubjectStateTracker:
             self.state_set.remove(EEGSubjectState.UNMODIFIED)
 
     def is_modified(self):
-        pass
+        return EEGSubjectState.UNMODIFIED not in self.state_set
 
     def is_subaveraged(self):
-        pass
+        return EEGSubjectState.SUBAVERAGED in self.state_set
 
     def is_folded(self):
-        pass
+        return EEGSubjectState.FOLDED in self.state_set
 
 Label = Any
 
@@ -74,6 +74,20 @@ class EEGTrialProtocol(Protocol):
         Returns `_mapped_label` if it exists; returns `raw_label` otherwise. 
         """
 
+    def map_label(self, label: Label): 
+        """
+        Sets `_mapped_label` for this `EEGTrial`.
+        """
+    
+    def trim(self, start_index: int, end_index: int):
+        """
+        Keeps only the `start_index`th to `end_index`th datapoints of `data` and `timestamps` 
+        (inclusive).
+
+        Thus requires that 0 <= `start_index` <= `end_index` < `len(data)`
+        """
+        ...
+
 
 class EEGSubjectProtocol(Protocol):
     """
@@ -92,17 +106,16 @@ class EEGSubjectProtocol(Protocol):
     # The path to the file used to instantiate this EEGSubject.
     source_filepath: str
 
-    @property
+    def __init__(self, filepath: str):
+        """
+        Initialize from a filepath.
+        """
+
     def stratified_folds(self, num_folds: int) -> list[list[EEGTrialProtocol]]:
         """
-        IMPORTANT NOTE: Call as `self.stratified_folds`, not `self.stratified_folds()`.
-
         Splits `self.trials` into `num_folds` folds in a stratified manner. Each
         sub-list of trials in the output has approximately equivalent size.
         """
-        ...
-
-    def __init__(self, filepath: str):
         ...
 
     def map_labels(self, rule_filepath: str) -> EEGSubjectProtocol:
@@ -132,112 +145,10 @@ class EEGSubjectProtocol(Protocol):
         Mutates this instance and returns itself.
         """
         ...
-
-class EEGTrial(EEGTrialProtocol):
-    def __init__(
-        self, 
-        data: npt.NDArray, 
-        timestamps: npt.NDArray, 
-        trial_index: int,
-        raw_label: any,
-        mapped_label: any=None,
-    ):
-        self.data = data
-        self.timestamps = timestamps
-        self.trial_index = trial_index
-        self.raw_label = raw_label
-        self.mapped_label = mapped_label
     
-class EEGSubject(EEGSubjectProtocol):
-    def __init__(self, filepath: str):
-        self.state = EEGSubjectStateTracker()
-        self.trials: list[EEGTrialProtocol] = []
-        self.source_filepath = filepath
-
-        # Internal attribute for storing folds
-        self._folds: list[list[EEGTrialProtocol]] | None = []
-
-        self.load_data(filepath)
-    
-    def load_data(self, filepath: str):
-        # Get the raw data
-        raw = read_mat(filepath)
-        raw_data = raw["ffr_nodss"]
-        timestamps = raw["time"]
-        labels = raw["#subsystem#"]["MCOS"][3]
-
-        # Create the EEGTrial instances
-        self.trials = []
-        for i, trial in enumerate(raw_data):
-            self.trials.append(EEGTrial(
-                data=trial,
-                timestamps=timestamps,
-                trial_index=i,
-                raw_label=labels[i]
-            ))
-    
-    @property
-    def stratified_folds(self, num_folds: int=1) -> list[list[EEGTrialProtocol]]:
-        # Skip recalculation if the data has already been split into folds
-        if (self._folds is not None) and (len(self._folds) == num_folds):
-            return self._folds
-        
-        folds = [[] for _ in range(num_folds)]
-        grouped_trials = self.grouped_trials()
-
-        for _, trial_group in grouped_trials.items():
-            shuffle(trial_group)
-            for i, trial in enumerate(trial_group):
-                folds[i % num_folds].append(trial)
-            
-            # We shuffle the folds to ensure each fold has approximately the same size. 
-            # Notice that if we didn't shuffle, 23 trials divided into 5 folds would normally leave
-            # group sizes of [5, 5, 5, 5, 3]. The aim with shuffling the folds 
-            # is to flatten that distribution: [5, 4, 5, 5, 4]
-            shuffle(folds)
-
-        for fold in folds:
-            shuffle(fold)
-        
-        self.state.mark_folded()
-        
-        self.folds = folds
-        return folds
-    
-    def subaverage(self, size: int): 
-        grouped_trials = self.grouped_trials()
-        
-        subaveraged_trials: list[EEGTrial] = []
-        for label, trial_group in grouped_trials.items():
-            shuffle(trial_group)
-            n = len(trial_group)
-            for i in range(0, n // size, size):
-                stacked_data = np.array([trial.data for trial in trial_group[i*size: (i+1)*size]])
-                subaveraged_data = np.mean(stacked_data, axis=0)
-
-                subaveraged_trials.append(EEGTrial(
-                    data=subaveraged_data,
-                    timestamps=trial_group[0].timestamps,
-                    trial_index=len(subaveraged_trials),
-                    raw_label=trial_group[0].mapped_label,
-                    mapped_label=trial_group[0].mapped_label
-                ))
-
-        self.state.mark_subaveraged()
-
-        self.trials = subaveraged_trials
-        return self
-
-    def grouped_trials(self) -> dict[Label, list[EEGTrialProtocol]]:
+    def test_split(self, trials: EEGTrialProtocol) -> EEGSubjectProtocol:
         """
-        A private helper method for grouping trials in a dictionary according to their labels. i.e.
-        all trials with label = 1 are in grouped_trials[1]... 
+        Splits `trials` into a training and test set.
+        `ratio` is the ratio of the size of the training set to the size of `trials`
         """
-        grouped_trials: dict[Label, list[EEGTrialProtocol]] = {}
-        for trial in self.trials:
-            if trial.label in grouped_trials:
-                grouped_trials[trial.label].append(trial)
-            else:
-                grouped_trials[trial.label] = [trial]
-        return grouped_trials
-            
+        ...

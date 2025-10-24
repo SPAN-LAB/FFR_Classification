@@ -39,7 +39,7 @@ def GLOBAL_load_subject_data(filepath: str):
     for subject in SUBJECTS:
         if subject.source_filepath == filepath:
             return
-    SUBJECTS.append(EEGSubject.init_from_filepath(filepath))
+    SUBJECTS.append(EEGSubject(filepath))
 
 @function_label("Map Class Labels")
 @param_labels(["CSV Filepath"])
@@ -112,7 +112,7 @@ def GLOBAL_visualize_subject_per_tone(subject_index: int=1, tone: int=1):
     """
     Visualizes the subject's data for the given tone.
     """
-    SUBJECTS[subject_index - 1].visualize(label=tone)
+    # SUBJECTS[subject_index - 1].visualize(label=tone)
 
 @function_label("Print Name")
 @param_labels(["Name"])

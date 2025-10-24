@@ -11,7 +11,7 @@ class ArgumentSpecification:
 class FunctionSpecification: 
     def __init__(self, function: Callable):
         self.function = function
-        self.label = function.label
+        self.label = function.label # type: ignore
         self.name = function.__name__
         self.arg_specs: List[ArgumentSpecification] = []
         
@@ -21,9 +21,9 @@ class FunctionSpecification:
             default = param.default if param.default is not inspect._empty else None
 
             arg_spec = ArgumentSpecification(
-                parameter_label=function.parameter_labels[i],
+                parameter_label=function.parameter_labels[i], # type: ignore
                 parameter_name=name,
-                data_type=annotation,
+                data_type=annotation, # type: ignore
                 default_value=default
             )
             self.arg_specs.append(arg_spec)
