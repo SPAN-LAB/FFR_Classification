@@ -49,6 +49,9 @@ class EEGTrial:
         # Trim the timestamps too for consistent lengths 
         self.timestamps = self.timestamps[start_index: end_index + 1]
 
+    def trim_by_time(self, start_time: float = 0.0):
+        keep = (time >= t0) & (time <= t1)
+
 
     def map_labels(self, filename: str=None, map: Dict[int, int]=None): 
         """
@@ -202,6 +205,7 @@ class EEGSubject:
         self._subaveraged_trials = None
         self.folds = None
         self.source_filepath = source_filepath
+        self.device = None #initially none
 
     @property
     def trials(self):
@@ -385,6 +389,24 @@ class EEGSubject:
     def use_raw_labels(self):
         for tr in self.trials:
             tr.map_labels()
+    
+    def setDevice(self, use_gpu: bool = False):
+        if use_gpu:
+        # 1. Check for NVIDIA GPU
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+
+            # 2. Check for Apple Silicon GPU
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+
+            # 3. Fallback if GPU requested but none found
+            else:
+                self.device = torch.device("cpu")
+        else:
+            # 4. GPU not requested
+            self.device = torch.device("cpu")
+
 
     def to_arrays(self, as_torch: bool = False, adjust_labels: bool = True):
         """
@@ -476,12 +498,10 @@ class EEGSubject:
         return train_dl, val_dl, test_dl
 
 
-    def train(self,*,model_name: str
-              ,model_kwargs: Dict,
+    def train(self,*,model_name: str,
               num_epochs: int = 20,
               lr: float = 1e-3,
               output_dir: Optional[str] = None,
-              device: Optional[str] = None,
               stopping_criteria: bool = False
     ):
 
@@ -491,21 +511,25 @@ class EEGSubject:
         torch.manual_seed(42)
         np.random.seed(42)
 
+        add_channel_dim = True
+        if model_name != "CNN":
+            add_channel_dim = False
+
         num_folds = len(self.folds)
         for fold_idx in range(num_folds):
             train_dl, val_dl, _ = self.create_dataloaders(
-                fold_idx=fold_idx
+                fold_idx=fold_idx, add_channel_dim = add_channel_dim
             )
             res = train_model(
                 model_name=model_name,
-                model_kwargs=model_kwargs,
+                model_kwargs= {"input_size" : len(self.trials[0].timestamps)},
                 train_loader=train_dl,
                 val_loader=val_dl,
                 num_epochs=num_epochs,
                 lr=lr,
                 output_dir=output_dir,
-                device=device,
+                device=self.device,
                 stopping_criteria=stopping_criteria,
             )
-            print(f"Fold {fold_idx+1} results: {res['best_val_acc']:.3f}")
+            print(f"Fold {fold_idx+1} best val acc: {res['best_val_acc']:.3f}")
 

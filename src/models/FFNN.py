@@ -21,7 +21,7 @@ class Model(nn.Module):
             nn.ReLU(),
             # nn.Dropout(dropout_p),
 
-            nn.Linear(hidden3, num_classes)
+            nn.Linear(hidden3, num_classes),
         )
 
     def forward(self, x):
