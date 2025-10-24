@@ -87,6 +87,12 @@ class EEGTrialProtocol(Protocol):
         Thus requires that 0 <= `start_index` <= `end_index` < `len(data)`
         """
         ...
+    
+    def trim_interval(self, left_bound: float, right_bound: float):
+        """
+        Keeps the timestamps inside [left_bound, right_bound]. 
+        """
+        ...
 
 
 class EEGSubjectProtocol(Protocol):

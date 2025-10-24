@@ -81,5 +81,6 @@ def GLOBAL_train_model(model_name: str,
                     stopping_criteria = stopping_criteria)
 
 
+
 if __name__ == "__main__":
     print(GLOBAL_load_subject_data.label)

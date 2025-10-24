@@ -3,7 +3,6 @@ from typing import *
 import inspect
 
 import user_functions
-import gui_functions
 from Specifications import FunctionSpecification as FuncSpec
 from Specifications import ArgumentSpecification as ArgSpec
 
@@ -20,10 +19,15 @@ class GUIFunctionManager:
                 self._label_to_source[function.label] = "user"
 
         # GUI utility functions (not shown in Add list; callable programmatically)
-        for function_name, function in inspect.getmembers(gui_functions, inspect.isfunction):
-            if function_name.startswith("GUI"):
-                self.possible_functions[function.label] = function
-                self._label_to_source[function.label] = "gui"
+        try:
+            import gui_functions  # type: ignore
+            for function_name, function in inspect.getmembers(gui_functions, inspect.isfunction):
+                if function_name.startswith("GUI"):
+                    self.possible_functions[function.label] = function
+                    self._label_to_source[function.label] = "gui"
+        except Exception:
+            # Optional module; safe to skip if unavailable
+            pass
 
         # An ordered collection of the functions displayed in the GUI
         self.functions_arr: List[Callable] = []
