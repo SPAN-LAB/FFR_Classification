@@ -151,5 +151,151 @@ class EEGSubject(EEGSubjectProtocol):
         shuffle(trials) # Could be removed if we are guaranteed already-shuffled trials 
         cutoff_index = int(len(trials) * ratio)
         return trials[:cutoff_index], trials[cutoff_index:]
+    
+    def use_raw_labels(self):
+        for tr in self.trials:
+            tr.map_labels()
+    
+    def setDevice(self, use_gpu: bool = False):
+        if use_gpu:
+        # 1. Check for NVIDIA GPU
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
 
+            # 2. Check for Apple Silicon GPU
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+
+            # 3. Fallback if GPU requested but none found
+            else:
+                self.device = torch.device("cpu")
+        else:
+            # 4. GPU not requested
+            self.device = torch.device("cpu")
+
+
+    def to_arrays(self, as_torch: bool = False, adjust_labels: bool = True):
+        """
+        Converts the trials' data, labels, index into numpy arrays
+        or torch tensors if `as_torch` is True.
+        """
+        X = np.stack([trial.data for trial in self.trials], axis = 0, dtype = np.float32)
+        y = np.asarray([int(trial.mapped_label) for trial in self.trials], dtype = np.int64)
+        # adjust labels:
+        if adjust_labels:
+            y = y - 1
+        t = np.asarray(self.trials[0].timestamps, dtype = np.float32)
+        indices = np.asarray([trial.trial_index for trial in self.trials], dtype=np.int64)
+
+        if not as_torch:
+            return X, y, t, indices
+        
+        X_torch = torch.from_numpy(X)
+        y_torch = torch.from_numpy(y)
+        t_torch = torch.from_numpy(t)
+        indices_torch = torch.from_numpy(indices)
+
+        return X_torch, y_torch, t_torch, indices_torch
+    
+    def trials_to_tensors(self, fold_idx: int,
+                          as_torch: bool = True,
+                          adjust_labels: bool = True):
+        """
+        Use a fold by index from self.folds and return (X, y, indices).
+        """
+        if self.folds is None:
+            raise ValueError("No folds have been created. Call stratified_folds(...) first.")
+        if not (0 <= fold_idx < len(self.folds)):
+            raise IndexError(f"fold_idx {fold_idx} out of range (0..{len(self.folds)-1}).")
+
+        fold = self.folds[fold_idx]
+
+        X = np.stack([trial.data for trial in fold], axis=0).astype(np.float32)
+        y = np.asarray([int(trial.mapped_label) for trial in fold], dtype=np.int64)
+        if adjust_labels:
+            y = y - 1
+        indices = np.asarray([trial.trial_index for trial in fold], dtype=np.int64)
+
+        if not as_torch:
+            return X, y, indices
+
+        return torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(indices)
+
+    
+    def create_dataloaders(self, *, 
+                           fold_idx: int, 
+                           batch_size: int = 64,
+                           train_size: float = 0.64, 
+                           val_size: float = 0.16,
+                           test_size: float = 0.20,
+                           add_channel_dim: bool = True,   # ONLY TRUE FOR CNNs
+                           adjust_labels: bool = True,
+                           shuffle_train: bool = True
+    ):
+        
+        X_np, y_np, indices_np = self.trials_to_tensors(fold_idx, as_torch=False, adjust_labels=adjust_labels)
+
+        if add_channel_dim and X_np.ndim == 2:
+            # For Conv1d: [N, 1, T]
+            X_np = X_np[:, None, :]
+
+        num_samples = len(y_np)
+        sample_indices = np.arange(num_samples)
+
+        sss_test = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42 + fold_idx)
+        trainval_indices, test_indices = next(sss_test.split(sample_indices, y_np))
+
+        # Now split train/val within the trainval set
+        sss_val = StratifiedShuffleSplit(n_splits=1, test_size=val_size, random_state=142 + fold_idx)
+        rel_train_idx, rel_val_idx = next(sss_val.split(trainval_indices, y_np[trainval_indices]))
+        train_indices = trainval_indices[rel_train_idx]
+        val_indices = trainval_indices[rel_val_idx]
+
+        def dl_helper(idxs, *, shuffle: bool = False):
+            X_t = torch.from_numpy(X_np[idxs])
+            y_t = torch.from_numpy(y_np[idxs])
+            idx_t = torch.from_numpy(indices_np[idxs])
+            ds = TensorDataset(X_t, y_t, idx_t)
+            return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)
+
+        train_dl = dl_helper(train_indices, shuffle=shuffle_train)
+        val_dl   = dl_helper(val_indices,   shuffle=False)
+        test_dl  = dl_helper(test_indices,  shuffle=False)
+        return train_dl, val_dl, test_dl
+
+
+    def train(self,*,model_name: str,
+              num_epochs: int = 20,
+              lr: float = 1e-3,
+              output_dir: Optional[str] = None,
+              stopping_criteria: bool = False
+    ):
+
+        if self.folds is None or len(self.folds) == 0:
+            self.stratified_folds(5) #CHANGE LATER
+
+        torch.manual_seed(42)
+        np.random.seed(42)
+
+        add_channel_dim = True
+        if model_name != "CNN":
+            add_channel_dim = False
+
+        num_folds = len(self.folds)
+        for fold_idx in range(num_folds):
+            train_dl, val_dl, _ = self.create_dataloaders(
+                fold_idx=fold_idx, add_channel_dim = add_channel_dim
+            )
+            res = train_model(
+                model_name=model_name,
+                model_kwargs= {"input_size" : len(self.trials[0].timestamps)},
+                train_loader=train_dl,
+                val_loader=val_dl,
+                num_epochs=num_epochs,
+                lr=lr,
+                output_dir=output_dir,
+                device=self.device,
+                stopping_criteria=stopping_criteria,
+            )
+            print(f"Fold {fold_idx+1} best val acc: {res['best_val_acc']:.3f}")
 
