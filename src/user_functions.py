@@ -6,19 +6,6 @@ from EEGDataStructures import EEGSubject
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
 
-@function_label("Load Subject Data")
-@param_labels(["Filepath"])
-def GLOBAL_load_subject_data(filepath: str):
-    """
-    Initializes a new EEGSubject instance using the given filepath.
-    """
-    # Check if the subject data has already been loaded.
-    # If so, we don't do anything.
-    for subject in SUBJECTS:
-        if subject.source_filepath == filepath:
-            return
-    SUBJECTS.append(EEGSubject(filepath))
-
 @function_label("Map Class Labels")
 @param_labels(["CSV Filepath"])
 def GLOBAL_map_class_labels(csv_filepath: str):
@@ -66,6 +53,12 @@ def GLOBAL_k_fold_stratified(num_folds: int=5):
     for subject in SUBJECTS:
         subject.stratified_folds(num_folds=num_folds)
 
+@function_label("Use GPU or CPU")
+@param_labels(["Use GPU?"])
+def GLOBAL_set_device(use_gpu: bool = False):
+    for subject in SUBJECTS:
+        subject.setDevice(use_gpu)
+
 @function_label("TODO")
 @param_labels([])
 def GLOBAL_inference_model():
@@ -75,27 +68,18 @@ def GLOBAL_inference_model():
     """
     return
 
-@function_label("TODO")
-@param_labels([])
-def GLOBAL_train_model():
-    """
-    TODO Anu
-    Standalone function for training predefined PyTorch models.
-    """
-    return
+@function_label("Train Model") 
+@param_labels(["Model Name", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
+def GLOBAL_train_model(model_name: str,
+                    num_epochs: int = 20,
+                    lr: float = 1e-3,
+                    stopping_criteria: bool = False): 
+    for subject in SUBJECTS: 
+        subject.train(model_name = model_name,
+                    num_epochs = num_epochs, 
+                    lr = lr, 
+                    stopping_criteria = stopping_criteria)
 
-@function_label("Visualize Subject Per Tone")
-@param_labels(["Subject Index", "Tone"])
-def GLOBAL_visualize_subject_per_tone(subject_index: int=1, tone: int=1):
-    """
-    Visualizes the subject's data for the given tone.
-    """
-    # SUBJECTS[subject_index - 1].visualize(label=tone)
-
-@function_label("Print Name")
-@param_labels(["Name"])
-def GLOBAL_print_name(name: str):
-    print(name)
 
 if __name__ == "__main__":
     print(GLOBAL_load_subject_data.label)
