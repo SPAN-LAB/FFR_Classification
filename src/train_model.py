@@ -30,7 +30,7 @@ def train_model(
         device: Optional[str] = None,
         stopping_criteria: bool = False
 ) -> Dict:
-    mod = importlib.import_module(f"src.models.{model_name}")
+    mod = importlib.import_module(f"models.{model_name}")
     ModelClass = getattr(mod, "Model")
     model: nn.Module = ModelClass(**model_kwargs)
 
@@ -48,19 +48,19 @@ def train_model(
     min_impr = 1e-3
     no_improve = 0
 
-    outdir = Path(output_dir) if output_dir else None
-    if outdir:
-        (outdir / "checkpoints").mkdir(parents=True, exist_ok=True)
-        with open(outdir / "config.json", "w") as f:
-            json.dump({
-                "model_name": model_name,
-                "model_kwargs": model_kwargs,
-                "num_epochs": num_epochs,
-                "lr": lr,
-                "device": device,
-                "early_stopping": {"enabled": bool(stopping_criteria), "patience": patience, "min_impr": min_impr},
-                "selection": "best_val_acc"
-            }, f, indent=2)
+    outdir = Path(output_dir) if output_dir else Path("outputs")
+    (outdir / "checkpoints").mkdir(parents=True, exist_ok=True)
+    with open(outdir / "config.json", "w") as f:
+        json.dump({
+            "model_name": model_name,
+            "model_kwargs": model_kwargs,
+            "num_epochs": num_epochs,
+            "lr": lr,
+            "device": device,
+            "early_stopping": {"enabled": bool(stopping_criteria), "patience": patience, "min_impr": min_impr},
+            "selection": "best_val_acc"
+        }, f, indent=2)
+
 
     for epoch in range(1, num_epochs + 1):
         model.train()
@@ -95,7 +95,7 @@ def train_model(
             model.eval()
             with torch.no_grad():
                 v_loss, v_correct, v_n = 0.0, 0, 0
-                for xb, yb in val_loader:
+                for xb, yb, _ in val_loader:
                     xb, yb = xb.to(device), yb.to(device)
                     if xb.ndim == 2:
                         xb = xb.unsqueeze(1)
