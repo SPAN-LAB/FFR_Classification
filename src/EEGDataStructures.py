@@ -13,6 +13,9 @@ import seaborn as sns
 from protocol import *
 from train_model import train_model
 
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import StratifiedShuffleSplit
 
 class EEGTrial(EEGTrialProtocol):
     def __init__(
@@ -32,6 +35,13 @@ class EEGTrial(EEGTrialProtocol):
     def trim(self, start_index: int, end_index: int):
         self.data = self.data[start_index: end_index + 1]
         self.timestamps = self.timestamps[start_index: end_index + 1]
+    
+    @property
+    def mapped_label(self) -> Label:
+        return self._mapped_label if self._mapped_label is not None else self.raw_label
+
+    def map_label(self, label: Label):
+        self._mapped_label = label
     
 
 class EEGSubject(EEGSubjectProtocol):
@@ -155,7 +165,7 @@ class EEGSubject(EEGSubjectProtocol):
     
     def use_raw_labels(self):
         for tr in self.trials:
-            tr.map_labels()
+            tr.map_label(tr.raw_label)
     
     def setDevice(self, use_gpu: bool = False):
         if use_gpu:
@@ -202,14 +212,13 @@ class EEGSubject(EEGSubjectProtocol):
                           as_torch: bool = True,
                           adjust_labels: bool = True):
         """
-        Use a fold by index from self.folds and return (X, y, indices).
+        Use a fold by index and return (X, y, indices). Ensures folds exist via stratified_folds.
         """
-        if self.folds is None:
-            raise ValueError("No folds have been created. Call stratified_folds(...) first.")
-        if not (0 <= fold_idx < len(self.folds)):
-            raise IndexError(f"fold_idx {fold_idx} out of range (0..{len(self.folds)-1}).")
+        folds = self.stratified_folds(len(self._folds) if self._folds else 5)
+        if not (0 <= fold_idx < len(folds)):
+            raise IndexError(f"fold_idx {fold_idx} out of range (0..{len(folds)-1}).")
 
-        fold = self.folds[fold_idx]
+        fold = folds[fold_idx]
 
         X = np.stack([trial.data for trial in fold], axis=0).astype(np.float32)
         y = np.asarray([int(trial.mapped_label) for trial in fold], dtype=np.int64)
@@ -272,8 +281,8 @@ class EEGSubject(EEGSubjectProtocol):
               stopping_criteria: bool = False
     ):
 
-        if self.folds is None or len(self.folds) == 0:
-            self.stratified_folds(5) #CHANGE LATER
+        if not self._folds:
+            self.stratified_folds(5)
 
         torch.manual_seed(42)
         np.random.seed(42)
@@ -282,7 +291,8 @@ class EEGSubject(EEGSubjectProtocol):
         if model_name != "CNN":
             add_channel_dim = False
 
-        num_folds = len(self.folds)
+        folds = self.stratified_folds(len(self._folds) if self._folds else 5)
+        num_folds = len(folds)
         for fold_idx in range(num_folds):
             train_dl, val_dl, _ = self.create_dataloaders(
                 fold_idx=fold_idx, add_channel_dim = add_channel_dim
@@ -299,4 +309,19 @@ class EEGSubject(EEGSubjectProtocol):
                 stopping_criteria=stopping_criteria,
             )
             print(f"Fold {fold_idx+1} best val acc: {res['best_val_acc']:.3f}")
+
+    # Do not expose a folds property; use stratified_folds to obtain folds on demand
+
+    def summary(self) -> dict:
+        num_trials = len(self.trials)
+        labels = [t.mapped_label for t in self.trials]
+        unique_labels = set(labels)
+        num_classes = len(unique_labels)
+        num_folds = len(self._folds) if self._folds else 0
+        return {
+            "num_trials": num_trials,
+            "num_classes": num_classes,
+            "num_folds": num_folds,
+            "is_subaveraged": self.state.is_subaveraged(),
+        }
 

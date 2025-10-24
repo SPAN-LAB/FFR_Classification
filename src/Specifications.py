@@ -2,7 +2,7 @@ from typing import *
 import inspect
 
 class ArgumentSpecification: 
-    def __init__(self, parameter_label: str, parameter_name: str, data_type: int | float | str, default_value: Any):
+    def __init__(self, parameter_label: str, parameter_name: str, data_type: int | float | str | bool, default_value: Any):
         self.parameter_label = parameter_label
         self.parameter_name = parameter_name
         self.data_type = data_type

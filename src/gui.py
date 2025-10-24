@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
@@ -134,6 +134,14 @@ class FunctionBlockView(QFrame):
                     except Exception:
                         pass
                 editor.valueChanged.connect(self._notify_changed)
+            elif param_type is bool:
+                editor = QCheckBox()
+                if default_value is not None:
+                    try:
+                        editor.setChecked(bool(default_value))
+                    except Exception:
+                        pass
+                editor.stateChanged.connect(self._notify_changed)
             else:
                 editor = QLineEdit()
                 editor.setFixedWidth(140)
@@ -177,6 +185,8 @@ class FunctionBlockView(QFrame):
                 parts.append(f"{key}={int(editor.value())}")
             elif typ is float:
                 parts.append(f"{key}={float(editor.value())}")
+            elif typ is bool:
+                parts.append(f"{key}={'True' if editor.isChecked() else 'False'}")
             else:
                 parts.append(f"{key}={editor.text()}")
         return " ".join(parts)
@@ -188,6 +198,8 @@ class FunctionBlockView(QFrame):
                 args[key] = int(editor.value())
             elif typ is float:
                 args[key] = float(editor.value())
+            elif typ is bool:
+                args[key] = bool(editor.isChecked())
             else:
                 args[key] = editor.text()
         return args
@@ -202,6 +214,12 @@ class FunctionBlockView(QFrame):
                     editor.setValue(int(value))
                 elif typ is float:
                     editor.setValue(float(value))
+                elif typ is bool:
+                    # accept bool or truthy strings
+                    if isinstance(value, str):
+                        editor.setChecked(value.strip().lower() in ['1','true','yes','y','on'])
+                    else:
+                        editor.setChecked(bool(value))
                 else:
                     editor.setText(str(value))
             except Exception:
@@ -744,6 +762,10 @@ class BuildFunctionView(QWidget):
         return result
 
     def _auto_cast(self, value: str):
+        # Try bool first (explicit tokens)
+        low = value.strip().lower()
+        if low in ['true','false','1','0','yes','no','y','n','on','off']:
+            return low in ['true','1','yes','y','on']
         try:
             return int(value)
         except ValueError:
@@ -800,7 +822,7 @@ class BuildFunctionView(QWidget):
 
     def _normalize_param_type(self, t):
         # Ensure built-in types for editor selection
-        if t in (int, float, str):
+        if t in (int, float, str, bool):
             return t
         name = getattr(t, '__name__', None) or getattr(t, '__qualname__', None)
         if isinstance(name, str):
@@ -811,6 +833,8 @@ class BuildFunctionView(QWidget):
                 return float
             if 'str' == lname or 'string' in lname:
                 return str
+            if 'bool' == lname or 'boolean' in lname:
+                return bool
         # Fallback: parse textual representation
         text = str(t).lower()
         if 'int' in text and 'print' not in text:
@@ -819,6 +843,8 @@ class BuildFunctionView(QWidget):
             return float
         if 'str' in text or 'string' in text:
             return str
+        if 'bool' in text or 'boolean' in text:
+            return bool
         # Default to str if unknown
         return str
 

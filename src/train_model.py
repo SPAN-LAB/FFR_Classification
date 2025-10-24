@@ -56,7 +56,7 @@ def train_model(
             "model_kwargs": model_kwargs,
             "num_epochs": num_epochs,
             "lr": lr,
-            "device": device,
+            # "device": device,
             "early_stopping": {"enabled": bool(stopping_criteria), "patience": patience, "min_impr": min_impr},
             "selection": "best_val_acc"
         }, f, indent=2)
