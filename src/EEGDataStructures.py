@@ -10,7 +10,7 @@ from pymatreader import read_mat
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from protocols import *
+from protocol import *
 
 
 class EEGTrial(EEGTrialProtocol):
