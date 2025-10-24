@@ -1,5 +1,6 @@
 import sys
 import os
+import copy
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
@@ -274,7 +275,8 @@ class RightPaneView(QWidget):
         # Build summaries from EEGSubject.summary() for each loaded subject
         summaries = []
         try:
-            subjects = getattr(user_functions, 'SUBJECTS', [])
+            # Prefer modified subjects; fall back to originals if none
+            subjects = user_functions.SUBJECTS if getattr(user_functions, 'SUBJECTS', []) else getattr(user_functions, 'ORIGINAL_SUBJECTS', [])
         except Exception:
             subjects = []
         for i, subj in enumerate(subjects):
@@ -386,6 +388,21 @@ class BuildFunctionView(QWidget):
         self.close_and_save_button_view.clicked.connect(self.close_and_save)
         self.new_button_view.clicked.connect(self.new_pipeline)
         self.open_button_view.clicked.connect(self.open_file_dialog)
+
+        # Folder selection section
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(8)
+        self.folder_section_label = QLabel("Data folder:")
+        self.folder_path_value_label = QLabel("No folder selected")
+        self.folder_path_value_label.setStyleSheet("QLabel { color: #aaaaaa; }")
+        self.folder_path_value_label.setMinimumWidth(0)
+        self.folder_open_button_view = QPushButton("Open Folder")
+        folder_row.addWidget(self.folder_section_label)
+        folder_row.addWidget(self.folder_path_value_label, 1)
+        folder_row.addStretch(1)
+        folder_row.addWidget(self.folder_open_button_view)
+        self.layout_view.addLayout(folder_row)
+        self.folder_open_button_view.clicked.connect(self.open_folder_dialog)
 
         # Empty state label (shown when no file is open)
         self.empty_label_view = QLabel("No config file opened. Create one in the top bar.")
@@ -568,6 +585,43 @@ class BuildFunctionView(QWidget):
         self._update_save_visibility()
         self.save_pipeline()
 
+    def open_folder_dialog(self):
+        # Use native dialog to select a directory containing .mat files
+        folder_path = QFileDialog.getExistingDirectory(self, "Select data folder", os.getcwd())
+        if not folder_path:
+            return
+        self.folder_path_value_label.setText(folder_path)
+
+        # Find .mat files in the selected folder
+        try:
+            entries = os.listdir(folder_path)
+        except Exception as e:
+            QMessageBox.warning(self, "Folder error", f"Unable to open folder: {e}")
+            return
+
+        mat_files = []
+        for name in entries:
+            if name.lower().endswith('.mat'):
+                mat_files.append(os.path.join(folder_path, name))
+
+        if not mat_files:
+            QMessageBox.information(self, "No files", "No .mat files found in the selected folder.")
+            return
+
+        # Load each .mat file via GUI function
+        for fp in mat_files:
+            try:
+                self.function_manager.run_function("Load Subject Data", filepath=fp)
+            except Exception as e:
+                QMessageBox.warning(self, "Load error", f"Failed to load {os.path.basename(fp)}: {e}")
+
+        # Refresh right pane to reflect loaded subjects
+        parent = self.parent()
+        while parent and not isinstance(parent, MainWindowView):
+            parent = parent.parent()
+        if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
+            parent.right_pane_view.refresh_summary()
+
     def _refresh_positions(self):
         for i in range(self.list_view.count()):
             item = self.list_view.item(i)
@@ -576,8 +630,12 @@ class BuildFunctionView(QWidget):
                 widget.set_position(i)
 
     def run_pipeline(self):
-        user_functions.SUBJECTS = []
-        # Refresh right pane to reflect cleared subjects
+        # Reset SUBJECTS to deep copies of ORIGINAL_SUBJECTS
+        try:
+            user_functions.SUBJECTS = [copy.deepcopy(s) for s in getattr(user_functions, 'ORIGINAL_SUBJECTS', [])]
+        except Exception:
+            user_functions.SUBJECTS = []
+        # Refresh right pane to reflect reset subjects
         parent = self.parent()
         while parent and not isinstance(parent, MainWindowView):
             parent = parent.parent()

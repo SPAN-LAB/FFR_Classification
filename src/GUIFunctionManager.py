@@ -3,23 +3,34 @@ from typing import *
 import inspect
 
 import user_functions
+import gui_functions
 from Specifications import FunctionSpecification as FuncSpec
 from Specifications import ArgumentSpecification as ArgSpec
 
 class GUIFunctionManager: 
     def __init__(self):
-        # Get all the functions in user_functions.py
-        # Except for the decorator.
+        # Collect functions from user_functions (GLOBAL_*) and gui_functions (GUI_*)
         self.possible_functions: Dict[str, Callable] = {}
+        self._label_to_source: Dict[str, str] = {}
+
+        # User functions (eligible for pipeline builder)
         for function_name, function in inspect.getmembers(user_functions, inspect.isfunction):
             if function_name.startswith("GLOBAL"):
                 self.possible_functions[function.label] = function
-        
-        # An ordered collection of the functions displayd in the GUI
+                self._label_to_source[function.label] = "user"
+
+        # GUI utility functions (not shown in Add list; callable programmatically)
+        for function_name, function in inspect.getmembers(gui_functions, inspect.isfunction):
+            if function_name.startswith("GUI"):
+                self.possible_functions[function.label] = function
+                self._label_to_source[function.label] = "gui"
+
+        # An ordered collection of the functions displayed in the GUI
         self.functions_arr: List[Callable] = []
 
     def get_possible_function_labels(self):
-        return [f.label for f in self.possible_functions.values()]
+        # Only expose user-defined (pipeline) functions in the Add list
+        return [label for label, src in self._label_to_source.items() if src == "user"]
 
     def get_function_specification(self, function_label: str=None, function: Callable=None) -> FuncSpec:
         if not function_label and not function:
