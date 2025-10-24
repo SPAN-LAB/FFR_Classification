@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from protocol import *
+from train_model import train_model
 
 
 class EEGTrial(EEGTrialProtocol):
