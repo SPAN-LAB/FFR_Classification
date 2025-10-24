@@ -70,11 +70,7 @@ def train_model(
             if len(batch) < 2:
                 raise ValueError("Each batch must be at least (x,y)")
             x, y = batch[0].to(device), batch[1].to(device)
-            if x.ndim == 2:
-                x = x.unsqueeze(1)
-            elif x.ndim != 3:
-                raise ValueError(f"Expected x with 2 or 3 dims, got shape {tuple(x.shape)}")
-
+            
             optimizer.zero_grad(set_to_none=True)
             logits = model(x)
             loss = criterion(logits, y)
@@ -97,8 +93,6 @@ def train_model(
                 v_loss, v_correct, v_n = 0.0, 0, 0
                 for xb, yb, _ in val_loader:
                     xb, yb = xb.to(device), yb.to(device)
-                    if xb.ndim == 2:
-                        xb = xb.unsqueeze(1)
                     logits = model(xb)
                     v_loss += criterion(logits, yb).item() * yb.numel()
                     v_correct += (logits.argmax(dim=1) == yb).sum().item()

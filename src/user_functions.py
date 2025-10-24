@@ -53,6 +53,12 @@ def GLOBAL_k_fold_stratified(num_folds: int=5):
     for subject in SUBJECTS:
         subject.stratified_folds(num_folds=num_folds)
 
+@function_label("Use GPU or CPU")
+@param_labels(["Use GPU?"])
+def GLOBAL_set_device(use_gpu: bool = False):
+    for subject in SUBJECTS:
+        subject.setDevice(use_gpu)
+
 @function_label("TODO")
 @param_labels([])
 def GLOBAL_inference_model():
@@ -63,18 +69,15 @@ def GLOBAL_inference_model():
     return
 
 @function_label("Train Model") 
-@param_labels(["Model Name", "Number of Epochs", "Learning Rate", "Output Directory", "Device", "Stopping Criteria"])
+@param_labels(["Model Name", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
 def GLOBAL_train_model(model_name: str,
                     num_epochs: int = 20,
                     lr: float = 1e-3,
-                    output_dir: Optional[str] = None,
-                    device: Optional[str] = None, 
-                    stopping_criteria: bool = False ): 
+                    stopping_criteria: bool = False): 
     for subject in SUBJECTS: 
         subject.train(model_name = model_name,
                     num_epochs = num_epochs, 
-                    lr = lr, output_dir = output_dir, 
-                    device = device, 
+                    lr = lr, 
                     stopping_criteria = stopping_criteria)
 
 @function_label("Visualize Subject Per Tone")
