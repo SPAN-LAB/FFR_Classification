@@ -1,1 +1,0 @@
-Train Model model_name= num_epochs=20 lr=0.001 stopping_criteria=False

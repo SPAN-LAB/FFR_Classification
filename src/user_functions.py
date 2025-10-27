@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import *
-from utils import function_label, param_labels
+from utils import function_label, param_labels, options_provided
+from Option import Option, ComputableOption
 from EEGDataStructures import EEGSubject
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
@@ -14,6 +15,17 @@ def GLOBAL_map_class_labels(csv_filepath: str):
     """
     for subject in SUBJECTS:
         subject.map_labels(csv_filepath)
+
+@function_label("Visualize Grand Average")
+@param_labels(["Grouping Method", "Number"])
+@options_provided([Option("Stimulus", "Class"), None])
+def GLOBAL_visualize_grand_average(grouping_method: str="Stimulus"):
+    """
+    TODO
+    """
+    # Create a pseudo-subject that is the amalgamation of all subjects 
+    p_subject = EEGSubject.pseudo_subject(SUBJECTS)
+
 
 @function_label("Trim")
 @param_labels(["Start Index", "End Index"])
@@ -53,7 +65,7 @@ def GLOBAL_k_fold_stratified(num_folds: int=5):
     for subject in SUBJECTS:
         subject.stratified_folds(num_folds=num_folds)
 
-@function_label("Use GPU or CPU")
+@function_label("Select Hardware")
 @param_labels(["Use GPU?"])
 def GLOBAL_set_device(use_gpu: bool = False):
     for subject in SUBJECTS:
@@ -80,7 +92,3 @@ def GLOBAL_train_model(model_name: str,
                     lr = lr, 
                     stopping_criteria = stopping_criteria)
 
-
-
-if __name__ == "__main__":
-    print(GLOBAL_load_subject_data.label)

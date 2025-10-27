@@ -14,7 +14,9 @@ def GUI_load_subject_data(filepath: str):
     for subject in ORIGINAL_SUBJECTS:
         if subject.source_filepath == filepath:
             return
-    ORIGINAL_SUBJECTS.append(EEGSubject(filepath))
+    new_subject = EEGSubject(filepath)
+    print(f"{len(new_subject.trials[0].data) = }")
+    ORIGINAL_SUBJECTS.append(new_subject)
 
 @function_label("Filter Trials")
 @param_labels(["Subject Index", "Trials to remove"])

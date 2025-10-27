@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Protocol, Any
+from typing import Protocol, Any, Callable
 import numpy.typing as npt
 from enum import Enum, auto
 
@@ -68,6 +68,8 @@ class EEGTrialProtocol(Protocol):
 
     _mapped_label: Label | None
 
+    prediction: Label | None
+
     @property
     def mapped_label(self):
         """
@@ -88,11 +90,11 @@ class EEGTrialProtocol(Protocol):
         """
         ...
     
-    def trim_interval(self, left_bound: float, right_bound: float):
-        """
-        Keeps the timestamps inside [left_bound, right_bound]. 
-        """
-        ...
+    # def trim_interval(self, left_bound: float, right_bound: float):
+    #     """
+    #     Keeps the timestamps inside [left_bound, right_bound]. 
+    #     """
+    #     ...
 
 
 class EEGSubjectProtocol(Protocol):
@@ -110,7 +112,7 @@ class EEGSubjectProtocol(Protocol):
     trials: list[EEGTrialProtocol]
 
     # The path to the file used to instantiate this EEGSubject.
-    source_filepath: str
+    source_filepath: str | None
 
     def __init__(self, filepath: str):
         """
@@ -126,7 +128,9 @@ class EEGSubjectProtocol(Protocol):
 
     def map_labels(self, rule_filepath: str) -> EEGSubjectProtocol:
         """
-        Maps labels using the path to a CSV file.
+        Maps labels using the path to a CSV file. 
+        The first value in each row of the CSV specifies the class (mapped label),
+        while the remaining values in the row specify the stimulus (raw label)
 
         Mutates this instance and returns itself.
         """

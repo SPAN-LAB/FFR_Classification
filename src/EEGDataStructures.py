@@ -24,13 +24,15 @@ class EEGTrial(EEGTrialProtocol):
         timestamps: npt.NDArray[Any], 
         trial_index: int,
         raw_label: Label,
-        mapped_label: Label=None,
+        mapped_label: Label | None=None,
+        prediction: Label | None=None
     ):
         self.data = data
         self.timestamps = timestamps
         self.trial_index = trial_index
         self.raw_label = raw_label
         self._mapped_label = mapped_label
+        self.prediction = prediction
     
     def trim(self, start_index: int, end_index: int):
         self.data = self.data[start_index: end_index + 1]
@@ -45,7 +47,7 @@ class EEGTrial(EEGTrialProtocol):
     
 
 class EEGSubject(EEGSubjectProtocol):
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str | None=None):
         self.state = EEGSubjectStateTracker()
         self.trials: list[EEGTrialProtocol] = []
         self.source_filepath = filepath
@@ -53,7 +55,15 @@ class EEGSubject(EEGSubjectProtocol):
         # Internal attribute for storing folds
         self._folds: list[list[EEGTrialProtocol]] | None = []
 
-        self.load_data(filepath)
+        if filepath:
+            self.load_data(filepath)
+    
+    @staticmethod
+    def pseudo_subject(subjects: list[EEGSubject]) -> EEGSubject:
+        p_subject = EEGSubject()
+        for subject in subjects:
+            p_subject.trials += subject.trials
+        return p_subject
     
     def load_data(self, filepath: str):
         """
@@ -104,11 +114,15 @@ class EEGSubject(EEGSubjectProtocol):
 
     def map_labels(self, rule_filepath: str):
         # Create a dictionary that maps from raw label to mapped label
-        instructions = pd.read_csv(rule_filepath)
         labels_map = {}
-        for column_label in instructions.columns:
-            for raw_label in instructions[column_label]:
-                labels_map[raw_label] = int(column_label)
+        with open(rule_filepath, 'r') as file:
+            for line in file:
+                values = line.strip().split(',')
+                if values:  # Skip empty lines
+                    mapped_label = int(values[0])  # First value is the mapped label
+                    for raw_label in values[1:]:  # Remaining values are raw labels
+                        if raw_label.strip():  # Skip empty values
+                            labels_map[raw_label.strip()] = mapped_label
         
         # Set the mapped_label for each trial
         for trial in self.trials:
