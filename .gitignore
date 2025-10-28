@@ -1,5 +1,26 @@
-**/.DS_Store
-**/__pycache__
+# macOS cruft
+.DS_Store
+
+# Python caches & build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+.ipynb_checkpoints/
+
+# Virtual env / IDE
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Project-specific
+src/outputs/
+data/
+
+#Pipeline txt files:
 src/*.txt
-src/outputs
-src/models
