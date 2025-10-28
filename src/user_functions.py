@@ -59,14 +59,11 @@ def GLOBAL_set_device(use_gpu: bool = False):
     for subject in SUBJECTS:
         subject.setDevice(use_gpu)
 
-@function_label("TODO")
+@function_label("Run Inference")
 @param_labels([])
 def GLOBAL_inference_model():
-    """
-    TODO Anu
-    Standalone function for inferencing on saved ONNX models.
-    """
-    return
+    for subject in SUBJECTS:
+        subject.test_model()
 
 @function_label("Train Model") 
 @param_labels(["Model Name", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
@@ -82,5 +79,5 @@ def GLOBAL_train_model(model_name: str,
 
 
 
-if __name__ == "__main__":
-    print(GLOBAL_load_subject_data.label)
+#if __name__ == "__main__":
+    #print(GLOBAL_load_subject_data.label)
