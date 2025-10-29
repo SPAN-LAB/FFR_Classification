@@ -1,23 +1,23 @@
 from typing import Any, Callable
 from abc import ABC, abstractmethod
 
-from EEGTrial import EEGTrial, EEGTrialInterface
-from EEGSubject import EEGSubject, EEGSubjectInterface
+from .EEGTrial import EEGTrial, EEGTrialInterface
+from .EEGSubject import EEGSubject, EEGSubjectInterface
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 class PlotsInterface(ABC): 
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def plot_single_trial(trial: EEGTrialInterface): ...
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def plot_averaged_trials(trials: list[EEGTrialInterface], show_components: bool, key: Callable[[EEGTrialInterface], Any]): ...
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def plot_grand_average(subjects: list[EEGSubjectInterface], show_components: bool): ...
 
 class Plots(PlotsInterface):
