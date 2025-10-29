@@ -65,6 +65,79 @@ class EEGSubject(EEGSubjectProtocol):
             p_subject.trials += subject.trials
         return p_subject
     
+    @staticmethod
+    def visualize_grand_average(subjects: list[EEGSubject]):
+        """
+        Visualizes the grand average of EEG trials across subjects, grouped by raw label.
+        Each subject's average for a label is plotted as a thin line, and the grand average
+        across all subjects is plotted as a thick line.
+        """
+        raw_label_grouped_trials: dict[Label, list[list[EEGTrial]]] = {}
+        for subject in subjects:
+            grouped_trials = subject.grouped_trials(method="raw_label")
+            for raw_label, trial_group in grouped_trials.items():
+                if raw_label in raw_label_grouped_trials:
+                    raw_label_grouped_trials[raw_label].append(trial_group)
+                else:
+                    raw_label_grouped_trials[raw_label] = [trial_group]
+        
+        # Set up the plot style
+        sns.set_style("whitegrid")
+        num_labels = len(raw_label_grouped_trials)
+        fig, axes = plt.subplots(num_labels, 1, figsize=(12, 5 * num_labels))
+        
+        # Ensure axes is iterable even if there's only one subplot
+        if num_labels == 1:
+            axes = [axes]
+        
+        # Process each raw label
+        for idx, (raw_label, list_of_grouped_trials) in enumerate(sorted(raw_label_grouped_trials.items())):
+            ax = axes[idx]
+            
+            # Collect subject averages and timestamps
+            subject_averages = []
+            timestamps = None
+            
+            for trial_group in list_of_grouped_trials:
+                if trial_group:  # Make sure the group is not empty
+                    # Average across all trials for this subject
+                    stacked_data = np.array([trial.data for trial in trial_group])
+                    subject_avg = np.mean(stacked_data, axis=0)
+                    subject_averages.append(subject_avg)
+                    
+                    # Get timestamps (should be the same for all trials)
+                    if timestamps is None:
+                        timestamps = trial_group[0].timestamps
+            
+            if not subject_averages:
+                continue
+            
+            # Convert to numpy array for easier manipulation
+            subject_averages = np.array(subject_averages)
+            
+            # Plot each subject's average as a thin grey line
+            for i, subj_avg in enumerate(subject_averages):
+                ax.plot(timestamps, subj_avg, alpha=0.5, linewidth=0.5, color='grey')
+            
+            # Compute and plot the grand average (average across subjects)
+            grand_average = np.mean(subject_averages, axis=0)
+            ax.plot(timestamps, grand_average, linewidth=3, color='black', 
+                   label='Grand Average', zorder=10)
+            
+            # Styling
+            ax.set_xlabel('Time (s)', fontsize=12, labelpad=10)
+            ax.set_ylabel('Amplitude', fontsize=12, labelpad=10)
+            ax.set_title(f'Grand Average for Raw Label: {raw_label}', fontsize=14, fontweight='bold', pad=20)
+            ax.legend(loc='upper right')
+            ax.grid(True, alpha=0.3)
+        
+        # Add significant spacing between subplots and around the edges
+        plt.tight_layout(pad=2.0, h_pad=5.0, w_pad=2.0)
+        plt.show()
+            
+        # 
+
+    
     def load_data(self, filepath: str):
         """
         A private helper method for getting the data using a given filepath.
@@ -152,18 +225,27 @@ class EEGSubject(EEGSubjectProtocol):
         self.trials = subaveraged_trials
         return self
 
-    def grouped_trials(self) -> dict[Label, list[EEGTrialProtocol]]:
+    def grouped_trials(self, method: str="mapped_label") -> dict[Label, list[EEGTrialProtocol]]:
         """
         A private helper method for grouping trials in a dictionary according to their labels. i.e.
         all trials with label = 1 are in grouped_trials[1]... 
         """
-        grouped_trials: dict[Label, list[EEGTrialProtocol]] = {}
-        for trial in self.trials:
-            if trial.mapped_label in grouped_trials:
-                grouped_trials[trial.mapped_label].append(trial)
-            else:
-                grouped_trials[trial.mapped_label] = [trial]
-        return grouped_trials
+        if method == "mapped_label":
+            grouped_trials: dict[Label, list[EEGTrialProtocol]] = {}
+            for trial in self.trials:
+                if trial.mapped_label in grouped_trials:
+                    grouped_trials[trial.mapped_label].append(trial)
+                else:
+                    grouped_trials[trial.mapped_label] = [trial]
+            return grouped_trials
+        else: # raw_label
+            grouped_trials: dict[Label, list[EEGTrialProtocol]] = {}
+            for trial in self.trials:
+                if trial.raw_label in grouped_trials:
+                    grouped_trials[trial.raw_label].append(trial)
+                else:
+                    grouped_trials[trial.raw_label] = [trial]
+            return grouped_trials
     
     def trim(self, start_index: int, end_index: int):
         for trial in self.trials:

@@ -1,5 +1,3 @@
-from Option import Option, ComputableOption
-
 def function_label(label: str):
     """
     Set a GUI-ready function label.
@@ -20,23 +18,5 @@ def param_labels(labels: list[str]):
     """
     def decorator(function):
         function.parameter_labels = labels
-        return function
-    return decorator
-
-def options_provided(options: list[Option]):
-    """
-    Set the options for a parmeter. 
-
-    len(options) must equal len(param_labels). 
-
-    Example usage: 
-    param_labels = ["name", "day"]
-    options_provided = [
-        None,                    # Denoting that this paraemter does not come with options
-        ["Monday", "Wednesday"]  # Denoting that these are the options for `day`
-    ]
-    """
-    def decorator(function):
-        function.options_provided = options
         return function
     return decorator
