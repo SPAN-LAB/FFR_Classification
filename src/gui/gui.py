@@ -9,8 +9,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
-from GUIFunctionManager import GUIFunctionManager
-import user_functions
+from gui.GUIFunctionManager import GUIFunctionManager
+import gui.user_functions as user_functions
 
 PIPELINE_FILE = "pipeline.txt"
 
