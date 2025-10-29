@@ -12,10 +12,13 @@ import seaborn as sns
 
 from protocol import *
 from train_model import train_model
+from run_model import run_model
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import StratifiedShuffleSplit
+import json
 
 class EEGTrial(EEGTrialProtocol):
     def __init__(
@@ -54,6 +57,8 @@ class EEGSubject(EEGSubjectProtocol):
 
         # Internal attribute for storing folds
         self._folds: list[list[EEGTrialProtocol]] | None = []
+        self.subject_name = None 
+        self.model_used = None 
 
         if filepath:
             self.load_data(filepath)
@@ -144,6 +149,7 @@ class EEGSubject(EEGSubjectProtocol):
         """
         # Get the raw data
         raw = read_mat(filepath)
+        self.subject_name = Path(filepath).stem
         raw_data = raw["ffr_nodss"]
         timestamps = raw["time"]
         labels = raw["#subsystem#"]["MCOS"][3]
@@ -369,14 +375,14 @@ class EEGSubject(EEGSubjectProtocol):
         test_dl  = dl_helper(test_indices,  shuffle=False)
         return train_dl, val_dl, test_dl
 
+    
 
     def train(self,*,model_name: str,
               num_epochs: int = 20,
               lr: float = 1e-3,
-              output_dir: Optional[str] = None,
               stopping_criteria: bool = False
     ):
-
+        self.model_used = model_name
         if not self._folds:
             self.stratified_folds(5)
 
@@ -386,13 +392,19 @@ class EEGSubject(EEGSubjectProtocol):
         add_channel_dim = True
         if model_name != "CNN":
             add_channel_dim = False
+        
+        root = Path("outputs") / "train"
+        subject_dir = root / self.subject_name
 
-        folds = self.stratified_folds(len(self._folds) if self._folds else 5)
+        folds = self._folds
         num_folds = len(folds)
         for fold_idx in range(num_folds):
-            train_dl, val_dl, _ = self.create_dataloaders(
+            fold_dir = (subject_dir / f"fold{fold_idx+1}").as_posix()
+
+            train_dl, val_dl, test_dl = self.create_dataloaders(
                 fold_idx=fold_idx, add_channel_dim = add_channel_dim
             )
+            self.test_dataloader = test_dl
             res = train_model(
                 model_name=model_name,
                 model_kwargs= {"input_size" : len(self.trials[0].timestamps)},
@@ -400,13 +412,82 @@ class EEGSubject(EEGSubjectProtocol):
                 val_loader=val_dl,
                 num_epochs=num_epochs,
                 lr=lr,
-                output_dir=output_dir,
+                output_dir=fold_dir,
                 device=self.device,
                 stopping_criteria=stopping_criteria,
             )
-            print(f"Fold {fold_idx+1} best val acc: {res['best_val_acc']:.3f}")
+            print(f"[{self.subject_name}] Fold {fold_idx+1} best val acc: {res['best_val_acc']:.3f}")
 
-    # Do not expose a folds property; use stratified_folds to obtain folds on demand
+    
+
+    def test_model(self):
+        torch.manual_seed(42)
+        np.random.seed(42)
+        
+        add_channel_dim = True
+        if self.model_used != "CNN":
+            add_channel_dim = False
+        
+        test_root = Path("outputs") / "test"
+        subject_dir = test_root / self.subject_name
+        subject_dir.mkdir(parents = True, exist_ok = True)
+
+        train_root = Path("outputs") / "train" / self.subject_name
+
+
+
+        num_folds = len(self._folds)
+        results: list[dict] = []
+
+        for fold_idx in range(num_folds):
+            fold_dir = (subject_dir / f"fold{fold_idx+1}")
+            fold_dir.mkdir(parents = True, exist_ok = True)
+
+            #CHANGE LATER only works rn because random seeds are set
+            #if seeds arent set test_dl might not be the same as the one created
+            #when create_dataloaders is called in train_model
+            _, _, test_dl = self.create_dataloaders(
+                fold_idx=fold_idx, add_channel_dim = add_channel_dim
+            )
+            ckpt_dir = train_root / f"fold{fold_idx+1}" / "checkpoints"
+            best = ckpt_dir / "best.pt"
+            last = ckpt_dir / "last.pt"
+
+            if best.exists():
+                weights_path = best.as_posix()
+                which = "best"
+            elif last.exists():
+                weights_path = last.as_posix()
+                which = "last"
+            else:
+                raise FileNotFoundError(f"No checkpoint found for fold {fold_idx+1} in {ckpt_dir}")
+            
+            res = run_model(model_name = self.model_used,
+                            model_kwargs = {"input_size" : len(self.trials[0].timestamps)},
+                            dataloader= test_dl,
+                            weights_path = weights_path,
+                            device = self.device,
+                            output_dir = fold_dir)
+
+            res["fold"] = fold_idx + 1
+            res["weights_used"] = weights_path
+            res["which"] = which
+            results.append(res)
+
+            print(f"[{self.subject_name}] test fold {fold_idx+1}: acc={res['acc']:.3f} (n={res['n']}) → {res.get('saved_to','')} [{which}]")
+
+        summary_path = subject_dir / "summary.json"
+        mean_acc = (sum(r["acc"] for r in results) / len(results)) if results else 0.0
+        with open(summary_path, "w") as f:
+            json.dump(
+                {"subject": self.subject_name, "model": self.model_used, "folds": results, "mean_acc": mean_acc},
+                f,
+                indent=2,
+            )
+        print(f"[{self.subject_name}] test summary → {summary_path.as_posix()} (mean_acc={mean_acc:.3f})")
+
+        return results
+       
 
     def summary(self) -> dict:
         num_trials = len(self.trials)
