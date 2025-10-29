@@ -2,9 +2,9 @@ from __future__ import annotations
 from typing import *
 import inspect
 
-import gui.user_functions as user_functions
-from gui.Specification import FunctionSpecification as FuncSpec
-from gui.Specification import ArgumentSpecification as ArgSpec
+from . import user_functions
+from .Specification import FunctionSpecification as FuncSpec
+from .Specification import ArgumentSpecification as ArgSpec
 
 class GUIFunctionManager: 
     def __init__(self):
@@ -20,7 +20,7 @@ class GUIFunctionManager:
 
         # GUI utility functions (not shown in Add list; callable programmatically)
         try:
-            import gui.builtin_functions as builtin_functions  # type: ignore
+            from . import builtin_functions  # type: ignore
             for function_name, function in inspect.getmembers(builtin_functions, inspect.isfunction):
                 if function_name.startswith("GUI"):
                     self.possible_functions[function.label] = function

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Self, Callable
 from abc import ABC, abstractmethod
 
-from EEGTrial import EEGTrialInterface, EEGTrial
+from .EEGTrial import EEGTrialInterface, EEGTrial
 
 import numpy as np
 from pymatreader import read_mat
@@ -13,8 +13,8 @@ class EEGSubjectInterface(ABC):
     source_filepath: str
     folds: list[list[EEGTrialInterface]]
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def init_from_filepath(filepath: str) -> Self: ... 
 
     @abstractmethod
@@ -100,6 +100,7 @@ class EEGSubject(EEGSubjectInterface):
                 subaveraged_trial = EEGTrial(
                     data=subaveraged_data,
                     trial_index=len(subaveraged_trials),
+                    timestamps=chunk[0].timestamps,
                     raw_label=chunk[0].raw_label,
                     mapped_label=chunk[0].mapped_label
                 )
