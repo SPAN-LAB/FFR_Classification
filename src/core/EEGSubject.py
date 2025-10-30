@@ -119,8 +119,12 @@ class EEGSubject(EEGSubjectInterface):
                 folds[i % num_folds].append(trial)
         self.folds = folds
         return self
+
+    def use_raw_labels(self):
+        for tr in self.trials:
+            tr.mapped_label = tr.raw_label
     
-    def map_trial_labels(self, rule_filepath: str) -> Self:
+    def map_trial_labels(self, rule_filepath: str) -> Self:        
         # Create a dictionary that maps from raw label to mapped label
         labels_map: dict[int, int] = {}
     
