@@ -1,10 +1,12 @@
 from __future__ import annotations
 from typing import *
-from utils import function_label, param_labels
+from gui/utils import function_label, param_labels
 from EEGDataStructures import EEGSubject
+from core import Trainer
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
+trainer = Trainer()
 
 @function_label("Map Class Labels")
 @param_labels(["CSV Filepath"])
@@ -63,7 +65,7 @@ def GLOBAL_set_device(use_gpu: bool = False):
 @param_labels([])
 def GLOBAL_inference_model():
     for subject in SUBJECTS:
-        subject.test_model()
+        
 
 @function_label("Train Model") 
 @param_labels(["Model Name", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
@@ -76,6 +78,10 @@ def GLOBAL_train_model(model_name: str,
                     num_epochs = num_epochs, 
                     lr = lr, 
                     stopping_criteria = stopping_criteria)
+        
+    for subject in SUBJECTS:
+        trainer.train(subject)
+        
 
 
 
