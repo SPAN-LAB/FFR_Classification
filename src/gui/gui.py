@@ -5,12 +5,12 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox, QScrollArea, QSizePolicy
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QFontDatabase
-from gui.GUIFunctionManager import GUIFunctionManager
-import gui.user_functions as user_functions
+from .GUIFunctionManager import GUIFunctionManager
+from . import user_functions
 
 PIPELINE_FILE = "pipeline.txt"
 
@@ -255,6 +255,25 @@ class FunctionBlockView(QFrame):
             self.setStyleSheet("")
 
 
+class SquareCard(QFrame):
+    """
+    A frame that keeps its height equal to its current width to form a square box.
+    """
+    def __init__(self):
+        super().__init__()
+        self._side = 150
+        self.setFixedWidth(self._side)
+        self.setFixedHeight(self._side)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+    def resizeEvent(self, event):
+        try:
+            # Maintain square size; do not grow with pane
+            self.setFixedWidth(self._side)
+            self.setFixedHeight(self._side)
+        finally:
+            super().resizeEvent(event)
+
 class RightPaneView(QWidget):
     """
     Placeholder right-side pane. Future widgets can be added here.
@@ -268,17 +287,25 @@ class RightPaneView(QWidget):
         layout.setSpacing(8)
         self.setLayout(layout)
 
-        # Top-left aligned subject grid
+        # Top-left aligned subject grid inside a scroll area
         self.grid_container = QWidget()
         self.grid_container.setObjectName("SubjectGrid")
         self.grid_layout = QGridLayout()
         self.grid_layout.setContentsMargins(4, 4, 4, 4)
         self.grid_layout.setHorizontalSpacing(8)
         self.grid_layout.setVerticalSpacing(8)
+        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.grid_container.setLayout(self.grid_layout)
 
-        layout.addWidget(self.grid_container)
-        layout.addStretch(0)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidget(self.grid_container)
+
+        layout.addWidget(self.scroll_area)
+        # Ensure scroll area grows to fill available space
+        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.setStretch(layout.count() - 1, 1)
 
         self.refresh_summary()
 
@@ -290,17 +317,39 @@ class RightPaneView(QWidget):
             if w is not None:
                 w.setParent(None)
 
-        # Build summaries from EEGSubject.summary() for each loaded subject
+        # Build summaries directly from subject fields (no dependency on EEGSubject.summary())
         summaries = []
         try:
-            # Prefer modified subjects; fall back to originals if none
             subjects = user_functions.SUBJECTS if getattr(user_functions, 'SUBJECTS', []) else getattr(user_functions, 'ORIGINAL_SUBJECTS', [])
         except Exception:
             subjects = []
         for i, subj in enumerate(subjects):
-            s = subj.summary()
-            s["index"] = i
-            summaries.append(s)
+            try:
+                num_trials = len(getattr(subj, 'trials', []) or [])
+            except Exception:
+                num_trials = 0
+            # Prefer mapped_label if present; otherwise use raw_label
+            try:
+                labels = []
+                for t in (getattr(subj, 'trials', []) or []):
+                    label = getattr(t, 'mapped_label', None)
+                    if label is None:
+                        label = getattr(t, 'raw_label', None)
+                    labels.append(label)
+                num_classes = len({l for l in labels if l is not None})
+            except Exception:
+                num_classes = 0
+            try:
+                folds = getattr(subj, 'folds', None)
+                num_folds = len(folds) if folds else 0
+            except Exception:
+                num_folds = 0
+            summaries.append({
+                "index": i,
+                "num_trials": num_trials,
+                "num_classes": num_classes,
+                "num_folds": num_folds,
+            })
 
         if not summaries:
             placeholder = QLabel("No subjects loaded")
@@ -308,20 +357,23 @@ class RightPaneView(QWidget):
             self.grid_layout.addWidget(placeholder, 0, 0)
             return
 
-        # Determine number of columns based on current width (>=300px per column)
+        # Determine number of columns based on a simple minimum card width
         try:
             current_width = max(0, int(self.width()))
         except Exception:
             current_width = 0
-        max_cols = max(1, (current_width - 225) // 75)
+        card_min_width = 150
+        spacing = max(8, self.grid_layout.horizontalSpacing())
+        effective_width = max(1, current_width - (self.grid_layout.contentsMargins().left() + self.grid_layout.contentsMargins().right()))
+        max_cols = max(1, effective_width // (card_min_width + spacing))
         for idx, s in enumerate(summaries):
             r = idx // max_cols
             c = idx % max_cols
             card = self._make_subject_card(s)
-            self.grid_layout.addWidget(card, r, c)
+            self.grid_layout.addWidget(card, r, c, Qt.AlignTop | Qt.AlignLeft)
 
     def _make_subject_card(self, summary: dict) -> QWidget:
-        card = QFrame()
+        card = SquareCard()
         card.setObjectName("SubjectCard")
         card.setFrameShape(QFrame.StyledPanel)
         card.setStyleSheet(
@@ -331,6 +383,8 @@ class RightPaneView(QWidget):
             "  border-radius: 10px;"
             "}"
         )
+        # Let the card determine its own square height based on width
+        card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
@@ -344,7 +398,6 @@ class RightPaneView(QWidget):
             ("Trials", summary.get("num_trials", 0)),
             ("Classes", summary.get("num_classes", 0)),
             ("Folds", summary.get("num_folds", 0)),
-            ("Subaveraged", "Yes" if summary.get("is_subaveraged", False) else "No"),
         ]
         for label_text, value in rows:
             row = QHBoxLayout()
