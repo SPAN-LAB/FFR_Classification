@@ -1,10 +1,8 @@
-<<<<<<< HEAD
 **/.DS_Store
 **/__pycache__
 src/*.txt
 src/outputs
 **/*.mat
-=======
 # macOS cruft
 .DS_Store
 
@@ -31,4 +29,3 @@ data/
 
 #Pipeline txt files:
 src/*.txt
->>>>>>> sacrificial
