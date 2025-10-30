@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import *
-from gui.utils import function_label, param_labels
-from core.EEGSubject import EEGSubject
+from .utils import function_label, param_labels
+from ..core.EEGSubject import EEGSubject
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
@@ -10,54 +10,40 @@ SUBJECTS: List[EEGSubject] = []
 @param_labels(["CSV Filepath"])
 def GLOBAL_map_class_labels(csv_filepath: str):
     """
-    Maps the raw labels for each subject in SUBJECTS as specified in the CSV. 
+    Maps raw labels to mapped labels for each subject according to CSV mapping.
     """
     for subject in SUBJECTS:
-        subject.map_labels(csv_filepath)
+        subject.map_trial_labels(csv_filepath)
 
-@function_label("Visualize Grand Average")
-@param_labels([])
-def GLOBAL_visualize_grand_average():
-    EEGSubject.visualize_grand_average(SUBJECTS)
-
-
-@function_label("Trim")
+@function_label("Trim by Index")
 @param_labels(["Start Index", "End Index"])
-def GLOBAL_trim_ffr(start_index: int, end_index: int):
+def GLOBAL_trim_by_index(start_index: int, end_index: int):
     """
-    Trims the data for all subjects in SUBJECTS
+    Trims data for all subjects using sample indices (inclusive).
     """
     for subject in SUBJECTS:
-        subject.trim(start_index=start_index, end_index=end_index)
+        subject.trim_by_index(start_index=start_index, end_index=end_index)
+
+@function_label("Trim by Time")
+@param_labels(["Start Time", "End Time"])
+def GLOBAL_trim_by_time(start_time: float, end_time: float):
+    for subject in SUBJECTS:
+        subject.trim_by_timestamp(start_time=start_time, end_time=end_time)
 
 @function_label("Subaverage Data")
 @param_labels(["Subaverage Size"])
 def GLOBAL_sub_average_data(size: int=5):
-    """
-    Subaverages the trials across all subjects
-    """
     for subject in SUBJECTS:
         subject.subaverage(size=size)
 
-@function_label("Split for Testing")
-@param_labels(["Ratio"])
-def GLOBAL_test_split_stratified(ratio: float=0.8):
-    """
-    Test-splits for all subjects.
-
-    :param ratio: the ratio of trials to be used for training
-    """
-    for subject in SUBJECTS:
-        subject.test_split(trials=subject.trials, ratio=ratio)
-
 @function_label("Split into Folds")
 @param_labels(["Fold Count"])
-def GLOBAL_k_fold_stratified(num_folds: int=5):
-    """
-    EEGSubject Method Wrapper
-    """
+def GLOBAL_split_into_folds(num_folds: int=5):
     for subject in SUBJECTS:
-        subject.stratified_folds(num_folds=num_folds)
+        subject.fold(num_folds=num_folds)
+
+###############################################################################
+
 
 @function_label("Select Hardware")
 @param_labels(["Use GPU?"])
