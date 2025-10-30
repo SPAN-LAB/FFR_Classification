@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import *
 from .utils import function_label, param_labels
 from ..core.EEGSubject import EEGSubject
+from ..core.Trainer import Trainer
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
@@ -61,16 +62,20 @@ def GLOBAL_inference_model():
     return
 
 @function_label("Train Model") 
-@param_labels(["Model Name", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
-def GLOBAL_train_model(model_name: str,
-                    num_epochs: int = 20,
-                    lr: float = 1e-3,
-                    stopping_criteria: bool = False): 
-    for subject in SUBJECTS: 
-        subject.train(model_name = model_name,
-                    num_epochs = num_epochs, 
-                    lr = lr, 
-                    stopping_criteria = stopping_criteria)
+@param_labels(["Use GPU?", "Model Name", 
+               "Number of Epochs", "Learning Rate",
+                 "Stopping Criteria"])
+def GLOBAL_train_model(use_gpu: bool,
+                       model_name: str,
+                       num_epochs: int = 20,
+                       lr: float = 1e-3,
+                       stopping_criteria: bool = True
+                       ): 
+    for subject in SUBJECTS:
+        trainer = Trainer(subject = subject, model_name = model_name)
+        trainer.train(use_gpu = use_gpu, num_epochs = num_epochs,
+                            lr = lr, stopping_criteria = stopping_criteria)
+
 
 @function_label("Train with Multiple Subaveraging Sizes")
 @param_labels(["Model Name", "Start Size", "End Size", "Step Size", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
