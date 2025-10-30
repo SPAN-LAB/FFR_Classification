@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from .EEGSubject import EEGSubjectInterface, EEGSubject
+from .EEGTrial import EEGTrialInterface, EEGTrial
 from typing import Any, Self, Callable
 
 import importlib, json
@@ -25,7 +26,7 @@ class TrainerInterface(ABC):
 
 
     @abstractmethod
-    def train(self, use_gpu: bool, num_epochs: int, lr: float, stopping_criteria: bool) -> Self: ...
+    def train(self, use_gpu: bool, num_epochs: int, lr: float, stopping_criteria: bool) -> None: ...
         
 
     @abstractmethod
@@ -56,63 +57,61 @@ class Trainer(TrainerInterface):
             # 4. GPU not requested
             self.device = torch.device("cpu")
 
-    def trials_to_tensors(self, fold_idx: int,
-                          as_torch: bool = True,
-                          adjust_labels: bool = True):
-        """
-        Use a fold by index and return (X, y, indices). Ensures folds exist via stratified_folds.
-        """
+    def _trials_to_np(self, trials: list[EEGTrial], *, add_channel_dim: bool, adjust_labels: bool):
+        X = np.stack([t.data for t in trials], axis=0).astype(np.float32)
+        y = np.asarray([int(t.mapped_label) for t in trials], dtype=np.int64)
+        
+        if adjust_labels: y -= 1
+        idx = np.asarray([t.trial_index for t in trials], dtype=np.int64)
+        if add_channel_dim and X.ndim == 2:  # [N, T] -> [N, 1, T] for Conv1d
+            X = X[:, None, :]
+        return X, y, idx
+    
+    def create_train_val_dls(self, *, fold_idx,
+                             val_frac: float = 0.20, batch_size: int = 64,
+                             add_channel_dim: bool = False,
+                             adjust_labels: bool = True,
+                             shuffle_train: bool = True):
+        
+        folds = self.subject.folds
+        test_fold_idx = fold_idx
 
-        fold = self.subject.folds[fold_idx]
+        train_trials = []
+        for f, fold in enumerate(folds):
+            if f == test_fold_idx:
+                continue
+            train_trials.extend(fold) 
+        X_tr_full, y_tr_full, idx_tr_full = self._trials_to_np(
+            train_trials, add_channel_dim=add_channel_dim, adjust_labels=adjust_labels
+        )
 
-        X = np.stack([trial.data for trial in fold], axis=0).astype(np.float32)
-        y = np.asarray([int(trial.mapped_label) for trial in fold], dtype=np.int64)
-        if adjust_labels:
-            y = y - 1
-        indices = np.asarray([trial.trial_index for trial in fold], dtype=np.int64)
+        
+        n = len(y_tr_full)
+        sss = StratifiedShuffleSplit(n_splits=1, test_size=val_frac, random_state=42 + test_fold_idx)
+        tr_idx, val_idx = next(sss.split(np.arange(n), y_tr_full))
 
-        if not as_torch:
-            return X, y, indices
+        
+        def make_dl(X, y, idxs, *, shuffle: bool):
+            X_t = torch.from_numpy(X[idxs])
+            y_t = torch.from_numpy(y[idxs])
+            i_t = torch.from_numpy(idx_tr_full[idxs])
+            return DataLoader(TensorDataset(X_t, y_t, i_t), batch_size=batch_size, shuffle=shuffle)
 
-        return torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(indices)
+        train_dl = make_dl(X_tr_full, y_tr_full, tr_idx, shuffle=shuffle_train)
+        val_dl   = make_dl(X_tr_full, y_tr_full, val_idx, shuffle=False)
+        return train_dl, val_dl
+    
+    def create_test_dl(self, *, test_fold_idx: int, batch_size: int = 64,
+                       add_channel_dim: bool = False, adjust_labels: bool = True):
+        
+        folds = self.subject.folds
+        test_trials = folds[test_fold_idx]
+        X_te, y_te, idx_te = self._trials_to_np(
+            test_trials, add_channel_dim=add_channel_dim, adjust_labels=adjust_labels
+        )
 
-    def create_dataloaders(self, *, fold_idx: int, 
-                           batch_size: int = 64,
-                            val_size: float = 0.20,
-                            test_size: float = 0.20,
-                            add_channel_dim: bool = True,   # ONLY TRUE FOR CNNs
-                            adjust_labels: bool = True,
-                            shuffle_train: bool = True):
-
-        X_np, y_np, indices_np = self.trials_to_tensors(fold_idx, as_torch=False, adjust_labels=adjust_labels)
-
-        if add_channel_dim and X_np.ndim == 2:
-            # Conv1d expects [N, C, T]
-            X_np = X_np[:, None, :]
-
-        num_samples = len(y_np)
-        sample_indices = np.arange(num_samples)
-
-        # 1) carve out test
-        sss_test = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42 + fold_idx)
-        trainval_indices, test_indices = next(sss_test.split(sample_indices, y_np))
-
-
-        sss_val = StratifiedShuffleSplit(n_splits=1, test_size=val_size, random_state=142 + fold_idx)
-        rel_train_idx, rel_val_idx = next(sss_val.split(trainval_indices, y_np[trainval_indices]))
-        train_indices = trainval_indices[rel_train_idx]
-        val_indices   = trainval_indices[rel_val_idx]
-
-        def dl_helper(idxs, *, shuffle: bool = False):
-            X_t = torch.from_numpy(X_np[idxs])
-            y_t = torch.from_numpy(y_np[idxs])
-            idx_t = torch.from_numpy(indices_np[idxs])
-            return DataLoader(TensorDataset(X_t, y_t, idx_t), batch_size=batch_size, shuffle=shuffle)
-
-        train_dl = dl_helper(train_indices, shuffle=shuffle_train)
-        val_dl   = dl_helper(val_indices,   shuffle=False)
-        test_dl  = dl_helper(test_indices,  shuffle=False)
-        return train_dl, val_dl, test_dl
+        ds = TensorDataset(torch.from_numpy(X_te), torch.from_numpy(y_te), torch.from_numpy(idx_te))
+        return DataLoader(ds, batch_size=batch_size, shuffle=False)
 
 
     def train(self, use_gpu: bool, num_epochs: int, lr: float, stopping_criteria: bool):
@@ -120,12 +119,7 @@ class Trainer(TrainerInterface):
         torch.manual_seed(42)
         np.random.seed(42)
 
-        mod = importlib.import_module(f"src.models.{self.model_name}")
-        ModelClass = getattr(mod, "Model")
-
-        model_kwargs = {"input_size" : len(self.subject.trials[0].timestamps)}
-        model: nn.Module = ModelClass(**model_kwargs)
-
+        
         self.set_device(use_gpu)
         print(f"Using device: {self.device}")
 
@@ -142,16 +136,19 @@ class Trainer(TrainerInterface):
         root = Path("outputs") / "train"
         subject_dir = root / self.subject_name
 
-        self.test_dataloaders : list[DataLoader] = []
+        mod = importlib.import_module(f"src.models.{self.model_name}")
+        ModelClass = getattr(mod, "Model")
+        model_kwargs = {"input_size": len(self.subject.trials[0].timestamps)}
+        
         for fold_idx in range(len(folds)):
             fold_dir = subject_dir / f"fold{fold_idx + 1}"
 
-            train_dl, val_dl, test_dl = self.create_dataloaders(
-                fold_idx = fold_idx, add_channel_dim = add_channel_dim
-            )
-            self.test_dataloaders.append(test_dl)
+            train_dl, val_dl = self.create_train_val_dls(fold_idx = fold_idx,
+                                                          add_channel_dim = add_channel_dim)
             
+            model: nn.Module = ModelClass(**model_kwargs)
             model.to(self.device)
+
             criterion = nn.CrossEntropyLoss()
             optimizer = optim.AdamW(model.parameters(), lr = lr)
 
@@ -175,80 +172,60 @@ class Trainer(TrainerInterface):
 
             for epoch in range(1, num_epochs + 1):
                 model.train()
-                total_loss, total_correct, total_n = 0.0, 0, 0
+                total_loss = total_correct = total_n = 0
 
-                for batch in train_dl:
-                    if len(batch) < 2:
-                        raise ValueError("Each batch must be at least (x,y)")
-                    x, y = batch[0].to(self.device), batch[1].to(self.device)
-                    
+                for xb, yb, _ in train_dl:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
                     optimizer.zero_grad(set_to_none=True)
-                    logits = model(x)
-                    loss = criterion(logits, y)
+                    logits = model(xb)
+                    loss = criterion(logits, yb)
                     loss.backward()
                     optimizer.step()
 
-                    preds = logits.argmax(dim=1)
-                    total_loss += loss.item() * y.numel()
-                    total_correct += (preds == y).sum().item()
-                    total_n += y.numel()
+                    preds = logits.argmax(1)
+                    total_loss += loss.item() * yb.numel()
+                    total_correct += (preds == yb).sum().item()
+                    total_n += yb.numel()
 
                 train_loss = total_loss / total_n
-                train_acc = total_correct / total_n
+                train_acc  = total_correct / total_n
                 history["train_loss"].append(train_loss)
                 history["train_acc"].append(train_acc)
-            
+
                 model.eval()
                 with torch.no_grad():
-                    v_loss, v_correct, v_n = 0.0, 0, 0
+                    v_loss = v_correct = v_n = 0
                     for xb, yb, _ in val_dl:
                         xb, yb = xb.to(self.device), yb.to(self.device)
-                        logits = model(xb)
-                        v_loss += criterion(logits, yb).item() * yb.numel()
-                        v_correct += (logits.argmax(dim=1) == yb).sum().item()
-                        v_n += yb.numel()
+                        lg = model(xb)
+                        v_loss    += criterion(lg, yb).item() * yb.numel()
+                        v_correct += (lg.argmax(1) == yb).sum().item()
+                        v_n       += yb.numel()
+                    val_loss = v_loss / v_n
+                    val_acc  = v_correct / v_n
+                    history["val_loss"].append(val_loss)
+                    history["val_acc"].append(val_acc)
 
-                    total_val_loss = v_loss / v_n
-                    total_val_acc = v_correct / v_n
-                    history["val_loss"].append(total_val_loss)
-                    history["val_acc"].append(total_val_acc)
-
-                    if total_val_acc > best_val_acc + min_impr:
-                        best_val_acc = total_val_acc
+                    if val_acc > best_val_acc + min_impr:
+                        best_val_acc = val_acc
                         no_improve = 0
                         torch.save(model.state_dict(), (fold_dir / "checkpoints" / "best.pt").as_posix())
                     else:
                         if stopping_criteria:
                             no_improve += 1
 
-                print(f"[{epoch:03d}] train loss={train_loss:.4f} acc={train_acc:.3f} | "
-                    f"val loss={total_val_loss:.4f} acc={total_val_acc:.3f}")
+                print(f"[Fold {fold_idx+1}/{len(folds)}] "
+                    f"[{epoch:03d}] train loss: {train_loss:.4f} acc: {train_acc:.3f} | "
+                    f"val loss: {val_loss:.4f} acc: {val_acc:.3f}")
 
                 if stopping_criteria and no_improve >= patience:
                     print(f"Early stopping at epoch {epoch} (best val acc: {best_val_acc:.4f})")
                     break
 
-            last_ckpt = None
-            best_ckpt = None
-            metrics_path = None
-
-            last_path = fold_dir / "checkpoints" / "last.pt"
-            torch.save(model.state_dict(), last_path.as_posix())
-            last_ckpt = last_path.as_posix()
-            bp = fold_dir / "checkpoints" / "best.pt"
-            if bp.exists():
-                best_ckpt = bp.as_posix()
-            metrics_path = (fold_dir / "metrics.json").as_posix()
-            with open(metrics_path, "w") as f:
+            # Save last and metrics per fold (side effects only)
+            torch.save(model.state_dict(), (fold_dir / "checkpoints" / "last.pt").as_posix())
+            with open((fold_dir / "metrics.json").as_posix(), "w") as f:
                 json.dump({"history": history, "best_val_acc": best_val_acc}, f, indent=2)
-
-        return {
-            "history": history,
-            "best_val_acc": best_val_acc if best_val_acc >= 0 else None,
-            "best_ckpt": best_ckpt,
-            "last_ckpt": last_ckpt,
-            "paths": {"metrics_json": metrics_path, "config_json": (fold_dir / "config.json").as_posix() if fold_dir else None},
-        }
         
     def run(self, subject: EEGSubject):
         return None
