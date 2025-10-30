@@ -30,7 +30,7 @@ class TrainerInterface(ABC):
         
 
     @abstractmethod
-    def run(self, subject: EEGSubjectInterface) -> None: ...
+    def test(self) -> None: ...
 
 class Trainer(TrainerInterface):
     def __init__(self, *, subject: EEGSubject, model_name: str):
@@ -227,9 +227,76 @@ class Trainer(TrainerInterface):
             with open((fold_dir / "metrics.json").as_posix(), "w") as f:
                 json.dump({"history": history, "best_val_acc": best_val_acc}, f, indent=2)
         
-    def run(self, subject: EEGSubject):
-        return None
+    def test(self):
+        torch.manual_seed(42)
+        np.random.seed(42)
 
-        
+        add_channel_dim = self.model_name.lower().startswith("cnn")
 
+        test_root = Path("outputs") / "test"
+        subject_dir = test_root / self.subject_name
+        subject_dir.mkdir(parents = True, exist_ok = True)
 
+        train_root = Path("outputs") / "train" / self.subject_name
+
+        num_folds = len(self.subject.folds)
+
+        mod = importlib.import_module(f"src.models.{self.model_name}")
+        ModelClass = getattr(mod, "Model")
+        model_kwargs = {"input_size": len(self.subject.trials[0].timestamps)}
+
+        total_acc = 0
+        for fold_idx in range(num_folds):
+            fold_dir = (subject_dir / f"fold{fold_idx + 1}")
+            fold_dir.mkdir(parents = True, exist_ok = True)
+
+            test_dl = self.create_test_dl(test_fold_idx = fold_idx, add_channel_dim = add_channel_dim)
+
+            ckpt_dir = train_root / f"fold{fold_idx+1}" / "checkpoints"
+            best = ckpt_dir / "best.pt"
+            last = ckpt_dir / "last.pt"
+
+            if best.exists():
+                weights_path = best.as_posix()
+                which = "best"
+            elif last.exists():
+                weights_path = last.as_posix()
+                which = "last"
+            else:
+                raise FileNotFoundError(f"No checkpoint found for fold {fold_idx+1} in {ckpt_dir}")
+            
+            model: nn.Module = ModelClass(**model_kwargs)
+            model.to(self.device)
+
+            state = torch.load(weights_path, map_location = self.device)
+            model.load_state_dict(state, strict = True)
+            model.eval()
+
+            total_n, correct = 0, 0
+            with torch.no_grad():
+                for xb, yb, _ in test_dl:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
+                    logits = model(xb)
+                    preds = logits.argmax(dim=1)
+                    correct += (preds == yb).sum().item()
+                    total_n += yb.numel()
+
+            acc = (correct/total_n) if total_n else 0.0
+
+            out_path = fold_dir / "test_results.json"
+            with open(out_path, "w") as f:
+                json.dump(
+                    {
+                        "test_acc": acc,
+                        "test_samples": int(total_n),
+                        "weights_path": str(weights_path) if weights_path is not None else None,
+                        "model_name": self.model_name,
+                    },
+                    f,
+                    indent=2,
+                )
+
+            total_acc += acc
+            print(f"[{self.subject_name}] test fold {fold_idx+1}: acc = {acc:.3f} n = {total_n}")
+        print(f"[{self.subject_name}] mean accuracy = {total_acc/num_folds:.3f}")
+            

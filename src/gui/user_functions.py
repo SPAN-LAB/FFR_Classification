@@ -6,6 +6,7 @@ from ..core.Trainer import Trainer
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
+TRAINERS: List[Trainer] = []
 
 @function_label("Map Class Labels")
 @param_labels(["CSV Filepath"])
@@ -46,20 +47,13 @@ def GLOBAL_split_into_folds(num_folds: int=5):
 ###############################################################################
 
 
-@function_label("Select Hardware")
-@param_labels(["Use GPU?"])
-def GLOBAL_set_device(use_gpu: bool = False):
-    for subject in SUBJECTS:
-        subject.setDevice(use_gpu)
-
-@function_label("TODO")
+@function_label("Test Model")
 @param_labels([])
-def GLOBAL_inference_model():
-    """
-    TODO Anu
-    Standalone function for inferencing on saved ONNX models.
-    """
-    return
+def GLOBAL_test_model():
+    for trainer in TRAINERS:
+        trainer.test()
+        
+        
 
 @function_label("Train Model") 
 @param_labels(["Use GPU?", "Model Name", 
@@ -75,6 +69,7 @@ def GLOBAL_train_model(use_gpu: bool,
         trainer = Trainer(subject = subject, model_name = model_name)
         trainer.train(use_gpu = use_gpu, num_epochs = num_epochs,
                             lr = lr, stopping_criteria = stopping_criteria)
+        TRAINERS.append(trainer)
 
 
 @function_label("Train with Multiple Subaveraging Sizes")
