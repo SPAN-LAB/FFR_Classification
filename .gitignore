@@ -24,8 +24,9 @@ venv/
 .vscode/
 
 # Project-specific
-src/outputs/
+outputs/
 data/
 
 #Pipeline txt files:
 src/*.txt
+*.txt
