@@ -80,7 +80,7 @@ class EEGSubject(EEGSubjectInterface):
         return self
     
     def subaverage(self, size: int) -> Self:
-        grouped_trials = self.grouped_trials(key=lambda trial: trial.mapped_label)
+        grouped_trials = self.grouped_trials(key=lambda trial: trial.raw_label)
         subaveraged_trials = [] 
 
         for _, trial_group in grouped_trials.items():
@@ -152,7 +152,7 @@ class EEGSubject(EEGSubjectInterface):
         
     def grouped_trials(
         self, 
-        key: Callable[[EEGTrial], Any]=lambda trial: trial.mapped_label
+        key: Callable[[EEGTrial], Any]=lambda trial: trial.raw_label
     ) -> dict[any, list[EEGTrial]]:
         # Divide into groups separated by their label (accessed by the key)
         g = {}
