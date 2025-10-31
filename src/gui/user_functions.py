@@ -2,7 +2,10 @@ from __future__ import annotations
 from typing import *
 from .utils import function_label, param_labels
 from ..core.EEGSubject import EEGSubject
+from ..core.EEGTrial import EEGTrial
+import copy
 from ..core.Trainer import Trainer
+from ..core.Plots import Plots
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
@@ -44,16 +47,11 @@ def GLOBAL_split_into_folds(num_folds: int=5):
     for subject in SUBJECTS:
         subject.fold(num_folds=num_folds)
 
-###############################################################################
-
-
 @function_label("Test Model")
 @param_labels([])
 def GLOBAL_test_model():
     for trainer in TRAINERS:
         trainer.test()
-        
-        
 
 @function_label("Train Model") 
 @param_labels(["Use GPU?", "Model Name", 
@@ -71,6 +69,57 @@ def GLOBAL_train_model(use_gpu: bool,
                             lr = lr, stopping_criteria = stopping_criteria)
         TRAINERS.append(trainer)
 
+@function_label("Load Grand Subject")
+@param_labels([])
+def GLOBAL_grand_load_subject():
+    """
+    Creates a pseudo-subject by concatenating trials from all currently loaded
+    subjects (in ORIGINAL_SUBJECTS) and replaces all subjects with this one.
+    """
+    if not ORIGINAL_SUBJECTS:
+        print("Grand load: no subjects loaded.")
+        return
+
+    combined_trials: List[EEGTrial] = []
+    next_index = 0
+    for subj in ORIGINAL_SUBJECTS:
+        for tr in getattr(subj, 'trials', []) or []:
+            combined_trials.append(
+                EEGTrial(
+                    data=tr.data,
+                    trial_index=next_index,
+                    timestamps=tr.timestamps,
+                    raw_label=tr.raw_label,
+                    mapped_label=getattr(tr, 'mapped_label', None)
+                )
+            )
+            next_index += 1
+
+    if not combined_trials:
+        print("Grand load: subjects contain no trials.")
+        return
+
+    pseudo = EEGSubject(trials=combined_trials, source_filepath="grand://combined")
+
+    # Replace all subjects with the grand subject and reflect in both lists
+    ORIGINAL_SUBJECTS.clear()
+    SUBJECTS.clear()
+    ORIGINAL_SUBJECTS.append(pseudo)
+    SUBJECTS.append(copy.deepcopy(pseudo))
+    print(f"Grand subject loaded with {len(pseudo.trials)} trials (replaced all subjects).")
+
+######################
+
+@function_label("Plot Subject Data")
+@param_labels([])
+def GLOBAL_plot_subject_data():
+    for subject in SUBJECTS:
+        Plots.plot_averaged_trials(subject)
+
+@function_label("Plot Grand Average")
+@param_labels(["Show components"])
+def GLOBAL_plot_grand_average(show_components: bool=True):
+    Plots.plot_grand_average(SUBJECTS, show_components=show_components)
 
 @function_label("Train with Multiple Subaveraging Sizes")
 @param_labels(["Model Name", "Start Size", "End Size", "Step Size", "Number of Epochs", "Learning Rate", "Stopping Criteria"])
