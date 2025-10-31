@@ -5,9 +5,9 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox, QScrollArea, QSizePolicy
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox, QScrollArea, QSizePolicy, QPlainTextEdit
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
 from PyQt5.QtGui import QFont, QFontDatabase
 from .GUIFunctionManager import GUIFunctionManager
 from . import user_functions
@@ -25,6 +25,38 @@ QComboBox { background: #1c1c1c; color: #e6e6e6; border: 1px solid #3a3a3a; bord
 QFrame#FunctionCard { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; }
 """
 
+
+class QtLogTee(QObject):
+    """
+    A stream-like object that writes to an underlying stream and emits text
+    to the GUI via a Qt signal. Use to tee stdout/stderr to the GUI.
+    """
+    text_emitted = pyqtSignal(str)
+
+    def __init__(self, stream):
+        super().__init__()
+        self._stream = stream
+
+    def write(self, text: str):
+        if not text:
+            return
+        try:
+            self._stream.write(text)
+        except Exception:
+            # If the underlying stream is unavailable, still emit to GUI
+            pass
+        self.text_emitted.emit(text)
+        # Process events so the GUI updates immediately, even during long operations
+        try:
+            QApplication.processEvents()
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except Exception:
+            pass
 
 class FunctionBlock(QFrame):
     """
@@ -307,6 +339,14 @@ class RightPaneView(QWidget):
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.setStretch(layout.count() - 1, 1)
 
+        # Simple logs panel
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(5000)
+        self.log_view.setPlaceholderText("Logs will appear here…")
+        self.log_view.setStyleSheet("QPlainTextEdit { background: #0f0f0f; color: #dcdcdc; border: 1px solid #2a2a2a; }")
+        layout.addWidget(self.log_view)
+
         self.refresh_summary()
 
     def refresh_summary(self):
@@ -371,6 +411,17 @@ class RightPaneView(QWidget):
             c = idx % max_cols
             card = self._make_subject_card(s)
             self.grid_layout.addWidget(card, r, c, Qt.AlignTop | Qt.AlignLeft)
+
+    def append_log(self, text: str):
+        # Append only meaningful text lines to avoid excessive blank lines
+        if not isinstance(text, str):
+            text = str(text)
+        # Split to handle partial writes gracefully
+        lines = text.splitlines()
+        for line in lines:
+            if line.strip() == "":
+                continue
+            self.log_view.appendPlainText(line)
 
     def _make_subject_card(self, summary: dict) -> QWidget:
         card = SquareCard()
@@ -956,6 +1007,17 @@ class MainWindowView(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     window = MainWindowView()
+    # Tee stdout/stderr to GUI logs
+    try:
+        stdout_tee = QtLogTee(sys.stdout)
+        stderr_tee = QtLogTee(sys.stderr)
+        stdout_tee.text_emitted.connect(window.right_pane_view.append_log)
+        stderr_tee.text_emitted.connect(window.right_pane_view.append_log)
+        sys.stdout = stdout_tee
+        sys.stderr = stderr_tee
+    except Exception:
+        # If tee setup fails, continue with normal stdout/stderr
+        pass
     window.show()
     sys.exit(app.exec_())
 
