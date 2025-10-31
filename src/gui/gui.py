@@ -1,6 +1,7 @@
 import sys
 import os
 import copy
+import traceback
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
@@ -794,7 +795,13 @@ class BuildFunctionView(QWidget):
                 if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
                     parent.right_pane_view.refresh_summary()
             except Exception as e:
-                QMessageBox.warning(self, "Execution error", f"Failed to run {name}: {e}")
+                tb = traceback.format_exc()
+                print(tb)
+                QMessageBox.warning(
+                    self,
+                    "Execution error",
+                    f"Failed to run {name}: {e}\n\nCheck console log for traceback."
+                )
                 # Remove highlight on failure before exiting
                 if hasattr(widget, 'set_running'):
                     widget.set_running(False)
