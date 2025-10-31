@@ -7,6 +7,10 @@ import importlib, json
 from pathlib import Path
 from typing import Dict, Optional
 
+from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.preprocessing import label_binarize
+import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -158,7 +162,7 @@ class Trainer(TrainerInterface):
             min_impr = 1e-3
             no_improve = 0
 
-            (fold_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+            (fold_dir / "checkpoints").mkdir(parents=True, exist_ok =True)
             with open(fold_dir / "config.json", "w") as f:
                 json.dump({
                     "model_name": self.model_name,
@@ -228,75 +232,127 @@ class Trainer(TrainerInterface):
                 json.dump({"history": history, "best_val_acc": best_val_acc}, f, indent=2)
         
     def test(self):
-        torch.manual_seed(42)
-        np.random.seed(42)
-
+        torch.manual_seed(42); np.random.seed(42)
         add_channel_dim = self.model_name.lower().startswith("cnn")
 
         test_root = Path("outputs") / "test"
         subject_dir = test_root / self.subject_name
-        subject_dir.mkdir(parents = True, exist_ok = True)
+        subject_dir.mkdir(parents=True, exist_ok=True)
 
         train_root = Path("outputs") / "train" / self.subject_name
-
         num_folds = len(self.subject.folds)
 
         mod = importlib.import_module(f"src.models.{self.model_name}")
         ModelClass = getattr(mod, "Model")
         model_kwargs = {"input_size": len(self.subject.trials[0].timestamps)}
 
-        total_acc = 0
-        for fold_idx in range(num_folds):
-            fold_dir = (subject_dir / f"fold{fold_idx + 1}")
-            fold_dir.mkdir(parents = True, exist_ok = True)
+        # Collect OOF predictions across folds (per-subject)
+        oof_true, oof_pred, oof_score = [], [], []
+        total_acc = 0.0
 
-            test_dl = self.create_test_dl(test_fold_idx = fold_idx, add_channel_dim = add_channel_dim)
+        for fold_idx in range(num_folds):
+            fold_dir = subject_dir / f"fold{fold_idx + 1}"
+            fold_dir.mkdir(parents=True, exist_ok=True)
+
+            test_dl = self.create_test_dl(test_fold_idx=fold_idx, add_channel_dim=add_channel_dim)
 
             ckpt_dir = train_root / f"fold{fold_idx+1}" / "checkpoints"
-            best = ckpt_dir / "best.pt"
-            last = ckpt_dir / "last.pt"
+            weights_path = (ckpt_dir / "best.pt")
+            if not weights_path.exists():
+                weights_path = (ckpt_dir / "last.pt")
+            if not weights_path.exists():
+                raise FileNotFoundError(f"No checkpoint for fold {fold_idx+1} in {ckpt_dir}")
 
-            if best.exists():
-                weights_path = best.as_posix()
-                which = "best"
-            elif last.exists():
-                weights_path = last.as_posix()
-                which = "last"
-            else:
-                raise FileNotFoundError(f"No checkpoint found for fold {fold_idx+1} in {ckpt_dir}")
-            
             model: nn.Module = ModelClass(**model_kwargs)
             model.to(self.device)
-
-            state = torch.load(weights_path, map_location = self.device)
-            model.load_state_dict(state, strict = True)
+            state = torch.load(weights_path.as_posix(), map_location=self.device)
+            model.load_state_dict(state, strict=True)
             model.eval()
 
-            total_n, correct = 0, 0
+            y_true, y_pred, y_prob = [], [], []
+
             with torch.no_grad():
                 for xb, yb, _ in test_dl:
                     xb, yb = xb.to(self.device), yb.to(self.device)
                     logits = model(xb)
-                    preds = logits.argmax(dim=1)
-                    correct += (preds == yb).sum().item()
-                    total_n += yb.numel()
+                    probs = torch.softmax(logits, dim=1)
+                    preds = probs.argmax(dim=1)
 
-            acc = (correct/total_n) if total_n else 0.0
+                    y_true.extend(yb.cpu().numpy())
+                    y_pred.extend(preds.cpu().numpy())
+                    y_prob.extend(probs.cpu().numpy())
 
-            out_path = fold_dir / "test_results.json"
-            with open(out_path, "w") as f:
-                json.dump(
-                    {
-                        "test_acc": acc,
-                        "test_samples": int(total_n),
-                        "weights_path": str(weights_path) if weights_path is not None else None,
-                        "model_name": self.model_name,
-                    },
-                    f,
-                    indent=2,
-                )
+            y_true = np.array(y_true)
+            y_pred = np.array(y_pred)
+            y_prob = np.array(y_prob)
 
+            # Save per-fold if you want (optional)
+            cm = confusion_matrix(y_true, y_pred)
+            acc = (y_pred == y_true).mean()
             total_acc += acc
-            print(f"[{self.subject_name}] test fold {fold_idx+1}: acc = {acc:.3f} n = {total_n}")
-        print(f"[{self.subject_name}] mean accuracy = {total_acc/num_folds:.3f}")
+
+            with open(fold_dir / "test_results.json", "w") as f:
+                json.dump({"test_acc": float(acc), "confusion_matrix": cm.tolist()}, f, indent=2)
+
+            # Append to OOF collections
+            oof_true.append(y_true)
+            oof_pred.append(y_pred)
+            oof_score.append(y_prob)
+
+            print(f"[{self.subject_name}] test fold {fold_idx+1}: acc = {acc:.3f} n = {y_true.size}")
+
+        # ---- Per-subject (overall) metrics from OOF predictions ----
+        oof_true = np.concatenate(oof_true, axis=0)
+        oof_pred = np.concatenate(oof_pred, axis=0)
+        oof_score = np.concatenate(oof_score, axis=0)
+
+        mean_acc = total_acc / num_folds
+        print(f"[{self.subject_name}] mean accuracy = {mean_acc:.3f}")
+
+        # Confusion Matrix (overall)
+        cm_overall = confusion_matrix(oof_true, oof_pred)
+        plt.figure()
+        plt.imshow(cm_overall, cmap="Blues")
+        plt.title("Overall Confusion Matrix (Per Subject)")
+        plt.xlabel("Predicted"); plt.ylabel("True")
+        for i in range(cm_overall.shape[0]):
+            for j in range(cm_overall.shape[1]):
+                plt.text(j, i, cm_overall[i, j], ha="center", va="center")
+        plt.tight_layout()
+        plt.savefig(subject_dir / "confusion_matrix_overall.png")
+        plt.close()
+
+        with open(subject_dir / "overall_metrics.json", "w") as f:
+            json.dump({
+                "mean_acc": float(mean_acc),
+                "confusion_matrix_overall": cm_overall.tolist()
+            }, f, indent=2)
+
+        # ROC (multi-class OvR) — uses OOF scores
+        classes = np.unique(oof_true)            # should be 0..C-1 if you used adjust_labels=True
+        y_true_bin = label_binarize(oof_true, classes=classes)
+
+        # Per-class ROC + AUC
+        plt.figure()
+        aucs = {}
+        for i, cls in enumerate(classes):
+            fpr, tpr, _ = roc_curve(y_true_bin[:, i], oof_score[:, i])
+            roc_auc = auc(fpr, tpr)
+            aucs[int(cls)] = float(roc_auc)
+            plt.plot(fpr, tpr, lw=2, label=f"class {cls} (AUC={roc_auc:.2f})")
+        # Micro-average ROC
+        fpr_micro, tpr_micro, _ = roc_curve(y_true_bin.ravel(), oof_score.ravel())
+        auc_micro = auc(fpr_micro, tpr_micro)
+        plt.plot(fpr_micro, tpr_micro, lw=2, linestyle="--", label=f"micro (AUC={auc_micro:.2f})")
+
+        plt.plot([0,1],[0,1],"k--", lw=1)
+        plt.xlabel("False Positive Rate"); plt.ylabel("True Positive Rate")
+        plt.title("Overall ROC (Per Subject, OOF)")
+        plt.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(subject_dir / "roc_overall.png")
+        plt.close()
+
+        with open(subject_dir / "roc_overall.json", "w") as f:
+            json.dump({"per_class_auc": aucs, "micro_auc": float(auc_micro)}, f, indent=2)
             
