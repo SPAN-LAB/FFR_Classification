@@ -753,6 +753,7 @@ class BuildFunctionView(QWidget):
 
     def run_pipeline(self):
         # Reset SUBJECTS to deep copies of ORIGINAL_SUBJECTS
+        user_functions.TRAINERS = []
         try:
             user_functions.SUBJECTS = [copy.deepcopy(s) for s in getattr(user_functions, 'ORIGINAL_SUBJECTS', [])]
         except Exception:
