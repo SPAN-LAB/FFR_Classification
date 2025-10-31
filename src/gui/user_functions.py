@@ -11,6 +11,12 @@ ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
 TRAINERS: List[Trainer] = []
 
+@function_label("Setup Labels")
+@param_labels([])
+def GLOBAL_setup_labels():
+    for subject in SUBJECTS:
+        subject.use_raw_labels()
+
 @function_label("Map Class Labels")
 @param_labels(["CSV Filepath"])
 def GLOBAL_map_class_labels(csv_filepath: str):
@@ -153,29 +159,16 @@ def GLOBAL_train_with_multiple_subaveraging(
         # Create deep copies of subjects for this subaveraging size
         subaveraged_subjects = []
         for subject in SUBJECTS:
-            # Create a deep copy to avoid modifying the original
             subject_copy = copy.deepcopy(subject)
-            # Ensure device is set (copy the device attribute if it exists)
-            if hasattr(subject, 'device'):
-                subject_copy.device = subject.device
-            else:
-                # Default to CPU if device was never set
-                subject_copy.setDevice(use_gpu=False)
-            # Apply subaveraging
             subject_copy.subaverage(size=size)
             subaveraged_subjects.append(subject_copy)
         
-        # Train on each subaveraged subject
-        size_results = []
+        # Train on each subaveraged subject (GPU by default)
         for idx, subject in enumerate(subaveraged_subjects):
             print(f"\n--- Subject {idx + 1}/{len(subaveraged_subjects)} (Subavg Size={size}) ---")
-            subject.train(
-                model_name=model_name,
-                num_epochs=num_epochs,
-                lr=lr,
-                output_dir=f"outputs/subavg_{size}_subject_{idx+1}",
-                stopping_criteria=stopping_criteria
-            )
+            trainer = Trainer(subject=subject, model_name=model_name)
+            trainer.train(use_gpu=True, num_epochs=num_epochs, lr=lr, stopping_criteria=stopping_criteria)
+            TRAINERS.append(trainer)
         
         results[size] = {
             "num_subjects": len(subaveraged_subjects),

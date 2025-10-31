@@ -63,7 +63,7 @@ class Trainer(TrainerInterface):
 
     def _trials_to_np(self, trials: list[EEGTrial], *, add_channel_dim: bool, adjust_labels: bool):
         X = np.stack([t.data for t in trials], axis=0).astype(np.float32)
-        y = np.asarray([int(t.mapped_label) for t in trials], dtype=np.int64)
+        y = np.asarray([int(t.raw_label) for t in trials], dtype=np.int64)
         
         if adjust_labels: y -= 1
         idx = np.asarray([t.trial_index for t in trials], dtype=np.int64)
