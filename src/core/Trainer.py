@@ -311,7 +311,7 @@ class Trainer(TrainerInterface):
 
         # Confusion Matrix (overall)
         cm_overall = confusion_matrix(oof_true, oof_pred)
-        plt.figure()
+        fig = plt.figure()
         plt.imshow(cm_overall, cmap="Blues")
         plt.title("Overall Confusion Matrix (Per Subject)")
         plt.xlabel("Predicted"); plt.ylabel("True")
@@ -319,8 +319,12 @@ class Trainer(TrainerInterface):
             for j in range(cm_overall.shape[1]):
                 plt.text(j, i, cm_overall[i, j], ha="center", va="center")
         plt.tight_layout()
-        plt.savefig(subject_dir / "confusion_matrix_overall.png")
-        plt.close()
+        fig_path = subject_dir / "confusion_matrix_overall.png"
+        fig.savefig(fig_path)
+        try:
+            plt.show(block=False)
+        except Exception:
+            pass
 
         with open(subject_dir / "overall_metrics.json", "w") as f:
             json.dump({
@@ -333,7 +337,7 @@ class Trainer(TrainerInterface):
         y_true_bin = label_binarize(oof_true, classes=classes)
 
         # Per-class ROC + AUC
-        plt.figure()
+        fig = plt.figure()
         aucs = {}
         for i, cls in enumerate(classes):
             fpr, tpr, _ = roc_curve(y_true_bin[:, i], oof_score[:, i])
@@ -350,8 +354,12 @@ class Trainer(TrainerInterface):
         plt.title("Overall ROC (Per Subject, OOF)")
         plt.legend(loc="lower right")
         plt.tight_layout()
-        plt.savefig(subject_dir / "roc_overall.png")
-        plt.close()
+        fig_path = subject_dir / "roc_overall.png"
+        fig.savefig(fig_path)
+        try:
+            plt.show(block=False)
+        except Exception:
+            pass
 
         with open(subject_dir / "roc_overall.json", "w") as f:
             json.dump({"per_class_auc": aucs, "micro_auc": float(auc_micro)}, f, indent=2)
