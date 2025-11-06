@@ -15,7 +15,6 @@ def GUI_load_subject_data(filepath: str):
         if subject.source_filepath == filepath:
             return
     new_subject = EEGSubject.init_from_filepath(filepath)
-    print(f"{len(new_subject.trials[0].data) = }")
     ORIGINAL_SUBJECTS.append(new_subject)
 
 @function_label("Filter Trials")

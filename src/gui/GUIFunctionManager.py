@@ -60,7 +60,7 @@ class GUIFunctionManager:
         self.functions_arr.remove(function)
 
     def run_function(self, function_label: str, **kwargs):
-        print("Running function: ", function_label)
+        print(f"Running {function_label}")
         # Find the function 
         function = self.possible_functions[function_label]
         function(**kwargs)
