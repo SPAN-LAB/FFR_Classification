@@ -16,9 +16,11 @@ from src.core.EEGSubject import EEGSubject
 from src.core.Plots import Plots
 from src.core.Trainer import Trainer
 
-subject = EEGSubject.init_from_filepath("path/to/ffr_subject.mat")
-subject.trim_by_timestamp(start_time=0.0, end_time=0.6)
-subject.subaverage(size=5)
+subject = (
+    EEGSubject.init_from_filepath("path/to/ffr_subject.mat")
+    .trim_by_timestamp(start_time=0.0, end_time=0.6)
+    .subaverage(size=5)
+)
 
 Plots.plot_averaged_trials(subject)
 
