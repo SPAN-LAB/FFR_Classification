@@ -51,7 +51,7 @@ pip install -r requirements.txt
 3. Launch the GUI.
 
 ```
-python main.py
+python -m main
 ```
 
 The GUI exposes the same preprocessing, visualization, and training functions that are available in code.
