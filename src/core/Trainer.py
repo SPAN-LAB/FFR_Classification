@@ -26,7 +26,7 @@ class TrainerInterface(ABC):
     stopping_criteria: bool
     subject_name: str
 
-    device: torch.device
+    
 
 
     @abstractmethod
@@ -72,7 +72,7 @@ class Trainer(TrainerInterface):
         return X, y, idx
     
     def create_train_val_dls(self, *, fold_idx,
-                             val_frac: float = 0.20, batch_size: int = 64,
+                             val_frac: float = 0.20, batch_size: int = 256,
                              add_channel_dim: bool = False,
                              adjust_labels: bool = True,
                              shuffle_train: bool = True):
@@ -105,7 +105,7 @@ class Trainer(TrainerInterface):
         val_dl   = make_dl(X_tr_full, y_tr_full, val_idx, shuffle=False)
         return train_dl, val_dl
     
-    def create_test_dl(self, *, test_fold_idx: int, batch_size: int = 64,
+    def create_test_dl(self, *, test_fold_idx: int, batch_size: int = 256,
                        add_channel_dim: bool = False, adjust_labels: bool = True):
         
         folds = self.subject.folds
@@ -169,7 +169,11 @@ class Trainer(TrainerInterface):
                     "model_kwargs": model_kwargs,
                     "num_epochs": num_epochs,
                     "lr": lr,
-                    "early_stopping": {"enabled": bool(stopping_criteria), "patience": patience, "min_impr": min_impr},
+                    "early_stopping": {
+                        "enabled": bool(stopping_criteria), 
+                        "patience": patience, 
+                        "min_impr": min_impr
+                    },
                     "selection": "best_val_acc"
                 }, f, indent=2)
         
