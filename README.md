@@ -2,12 +2,15 @@
 
 ## Overview
 
-FFR_Classification streamlines the ingestion, preprocessing, visualization, and modeling of frequency-following response (FFR) EEG data. It revolves around the `EEGSubject` and `EEGTrial` data structures and can be accessed either through a lightweight GUI or directly in Python.
+FFR_Classification is a toolbox for training machine-learning models to classify frequency-following response (FFR) EEG data. FFRs are scalp-recorded potentials that phase-lock to periodic auditory stimuli, showing how the brainstem tracks speech and tone contours. Building robust classifiers on these signals is challenging: researchers must align trials, denoise recordings, engineer features, and wire custom models together while keeping experiments reproducible.
+
+This toolbox streamlines that workflow. We make FFR classification accessible to both script-heavy and point-and-click users by packaging reusable data abstractions, preprocessing operators, neural network interfaces, and visualization tools into one pipeline. The same `EEGSubject` object can flow from ingestion to preprocessing, directly into neural network training loops, or into guided analyses inside the GUI.
 
 Highlights:
-- Standard preprocessing operators for trimming, folding, and subaveraging trials without copy-pasting boilerplate.
-- Plotting utilities that interface directly with `EEGSubject` and `EEGTrial`.
-- A `Trainer` class that also interfaces directly with `EEGSubject` to create PyTorch models with minimal configuration.
+- Pipeline-first design that ingests raw `.mat` files, keeps transformations chained on the `EEGSubject` API, and feeds the same object into downstream stages.
+- A suite of neural preprocessing interfaces (subaveraging, trimming, folding, label mapping) engineered to reduce boilerplate while staying faithful to FFR research conventions.
+- Ready-to-train machine-learning models: the `Trainer` dynamically loads CNN, RNN, FFNN and supports custom PyTorch architectures from `src/models`, handling device placement, cross-validation splits, and checkpointing.
+- Visualization utilities that tap directly into the live subject object for quick inspection of single trials, label-wise averages, and grand averages.
 
 ## Programmatic Use
 
@@ -48,7 +51,7 @@ pip install -r requirements.txt
 3. Launch the GUI.
 
 ```
-python main.py
+python -m main
 ```
 
 The GUI exposes the same preprocessing, visualization, and training functions that are available in code.
