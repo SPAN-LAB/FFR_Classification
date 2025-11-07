@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Self, Callable
 from abc import ABC, abstractmethod
 
-from .EEGTrial import EEGTrialInterface, EEGTrial
+from .eeg_trial import EEGTrialInterface, EEGTrial
 
 import numpy as np
 from pymatreader import read_mat

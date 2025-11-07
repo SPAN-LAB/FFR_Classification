@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import *
 from .utils import function_label, param_labels
 from .user_functions import SUBJECTS, ORIGINAL_SUBJECTS
-from ..core.EEGSubject import EEGSubject
+from ..core.eeg_subject import EEGSubject
 
 @function_label("Load Subject Data")
 @param_labels(["Filepath"])
