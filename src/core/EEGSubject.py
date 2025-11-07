@@ -15,25 +15,53 @@ class EEGSubjectInterface(ABC):
 
     @staticmethod
     @abstractmethod
-    def init_from_filepath(filepath: str) -> Self: ... 
+    def init_from_filepath(filepath: str, extract: Callable) -> Self: 
+        """
+        TODO
+        """
+        ... 
 
     @abstractmethod
-    def trim_by_index(self, start_index: int, end_index: int) -> Self: ... 
+    def trim_by_index(self, start_index: int, end_index: int) -> Self: 
+        """
+        TODO
+        """
+        ... 
 
     @abstractmethod
-    def trim_by_timestamp(self, start_time: float, end_time: float) -> Self: ...
+    def trim_by_timestamp(self, start_time: float, end_time: float) -> Self: 
+        """
+        TODO
+        """
+        ... 
 
     @abstractmethod
-    def subaverage(self, size: int) -> Self: ... 
+    def subaverage(self, size: int) -> Self:
+        """
+        TODO
+        """
+        ... 
 
     @abstractmethod
-    def fold(self, num_folds: int) -> Self: ...
+    def fold(self, num_folds: int) -> Self:
+        """
+        TODO
+        """
+        ... 
     
     @abstractmethod
-    def map_trial_labels(self, rule_filepath: str) -> Self: ...
+    def map_trial_labels(self, rule_filepath: str) -> Self:
+        """
+        TODO
+        """
+        ... 
 
     @abstractmethod
-    def grouped_trials(self, key: Callable[[EEGTrialInterface], Any]) -> dict[any, list[EEGTrialInterface]]: ...
+    def grouped_trials(self, key: Callable[[EEGTrialInterface], Any]) -> dict[any, list[EEGTrialInterface]]:
+        """
+        TODO
+        """
+        ... 
 
 class EEGSubject(EEGSubjectInterface):
     def __init__(
