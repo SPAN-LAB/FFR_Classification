@@ -1,8 +1,8 @@
 from typing import Any, Callable
 from abc import ABC, abstractmethod
 
-from .EEGTrial import EEGTrial, EEGTrialInterface
-from .EEGSubject import EEGSubject, EEGSubjectInterface
+from .eeg_trial import EEGTrial, EEGTrialInterface
+from .eeg_subject import EEGSubject, EEGSubjectInterface
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
