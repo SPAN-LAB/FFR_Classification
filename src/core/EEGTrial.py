@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from numpy import typing as npt
+import numpy as np
 
 class EEGTrialInterface(ABC):
     data: npt.NDArray # Currently a 1D array 
@@ -37,13 +38,7 @@ class EEGTrial(EEGTrialInterface):
         self.timestamps = self.timestamps[start_index: end_index + 1]
 
     def trim_by_timestamp(self, start_time: float, end_time: float):
-        start_index = -1
-        end_index = -1
-
-        for i, v in enumerate(self.timestamps):
-            if start_time <= v <= end_time:
-                if start_index == -1:
-                    start_index = i
-                end_index = i
-
-        self.trim_by_index(start_index, end_index)
+        start = int(np.searchsorted(self.timestamps, start_time, side="left"))
+        end = int(np.searchsorted(self.timestamps, end_time, side="right"))
+        self.timestamps = self.timestamps[start:end]
+        self.data = self.data[start:end]
