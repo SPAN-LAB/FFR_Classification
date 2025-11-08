@@ -123,38 +123,39 @@ class Trainer(TrainerInterface):
         torch.manual_seed(42)
         np.random.seed(42)
 
-        
+        # set device (no printing)
         self.set_device(use_gpu)
-        print(f"Using device: {self.device}")
 
         add_channel_dim = self.model_name.lower().startswith("cnn")
 
         if self.subject.folds is None:
-            self.subject.fold(num_folds = 5)   
+            self.subject.fold(num_folds=5)
         folds = self.subject.folds
 
-        #CHANGE LATER TO CHECK CONDITION:
+        # use raw labels for now
         self.subject.use_raw_labels()
-        
-        #CHANGE LATER TO ALLOW USER TO SET OUTPUT FOLDER
+
         root = Path("outputs") / "train"
         subject_dir = root / self.subject_name
 
         mod = importlib.import_module(f"src.models.{self.model_name}")
         ModelClass = getattr(mod, "Model")
         model_kwargs = {"input_size": len(self.subject.trials[0].timestamps)}
-        
+
+        per_fold_best = []  # <— collect best val acc per fold
+
         for fold_idx in range(len(folds)):
             fold_dir = subject_dir / f"fold{fold_idx + 1}"
 
-            train_dl, val_dl = self.create_train_val_dls(fold_idx = fold_idx,
-                                                          add_channel_dim = add_channel_dim)
-            
+            train_dl, val_dl = self.create_train_val_dls(
+                fold_idx=fold_idx, add_channel_dim=add_channel_dim
+            )
+
             model: nn.Module = ModelClass(**model_kwargs)
             model.to(self.device)
 
             criterion = nn.CrossEntropyLoss()
-            optimizer = optim.AdamW(model.parameters(), lr = lr)
+            optimizer = optim.AdamW(model.parameters(), lr=lr)
 
             history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
             best_val_acc = -1.0
@@ -162,7 +163,7 @@ class Trainer(TrainerInterface):
             min_impr = 1e-3
             no_improve = 0
 
-            (fold_dir / "checkpoints").mkdir(parents=True, exist_ok =True)
+            (fold_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
             with open(fold_dir / "config.json", "w") as f:
                 json.dump({
                     "model_name": self.model_name,
@@ -170,13 +171,12 @@ class Trainer(TrainerInterface):
                     "num_epochs": num_epochs,
                     "lr": lr,
                     "early_stopping": {
-                        "enabled": bool(stopping_criteria), 
-                        "patience": patience, 
+                        "enabled": bool(stopping_criteria),
+                        "patience": patience,
                         "min_impr": min_impr
                     },
                     "selection": "best_val_acc"
                 }, f, indent=2)
-        
 
             for epoch in range(1, num_epochs + 1):
                 model.train()
@@ -222,18 +222,21 @@ class Trainer(TrainerInterface):
                         if stopping_criteria:
                             no_improve += 1
 
-                print(f"[Fold {fold_idx+1}/{len(folds)}] "
-                    f"[{epoch:03d}] train loss: {train_loss:.4f} acc: {train_acc:.3f} | "
-                    f"val loss: {val_loss:.4f} acc: {val_acc:.3f}")
-
+                # (no per-epoch prints)
                 if stopping_criteria and no_improve >= patience:
-                    print(f"Early stopping at epoch {epoch} (best val acc: {best_val_acc:.4f})")
-                    break
+                    break  # (no early-stopping print)
 
-            # Save last and metrics per fold (side effects only)
+            # Save last and metrics per fold
             torch.save(model.state_dict(), (fold_dir / "checkpoints" / "last.pt").as_posix())
             with open((fold_dir / "metrics.json").as_posix(), "w") as f:
                 json.dump({"history": history, "best_val_acc": best_val_acc}, f, indent=2)
+
+            per_fold_best.append(float(best_val_acc))
+
+        # ---- single summary print per subject ----
+        mean_best = float(np.mean(per_fold_best)) if per_fold_best else float("nan")
+        print(f"[{self.subject_name}] {self.model_name} | folds={len(folds)} | mean_best_val_acc={mean_best:.3f}")
+
         
     def test(self):
         torch.manual_seed(42); np.random.seed(42)
