@@ -6,6 +6,9 @@ class ModelInterface(ABC):
     subjects: list[EEGSubject]
 
     @abstractmethod
+    def add_subjects(self, subjects: list[EEGSubject]): ...
+
+    @abstractmethod
     def evaluate(self) -> list[float]:
         """
         Evaluates the accuracy of the model using cross-validation in the following steps for EACH 
