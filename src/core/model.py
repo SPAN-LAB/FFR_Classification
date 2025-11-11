@@ -6,7 +6,23 @@ class ModelInterface(ABC):
     subjects: list[EEGSubject]
 
     @abstractmethod
-    def evaluate(self) -> float: ...
+    def evaluate(self) -> list[float]:
+        """
+        Evaluates the accuracy of the model using cross-validation in the following steps for EACH 
+        subject in `self.subjects`:
+        1. The subject data is split into folds (see `EEGSubject.fold`)
+        2. For `i` in 1 through n where n = number of folds:
+            - Let the test set be (`EEGSubject.trials`) - (trials in fold `i`)
+            - Let the train set be (`EEGSubject.trials`) - (trials NOT in fold `i`)
+            - Train the model on the train set's `EEGTrial` instances
+            - Use that model to create predictions on the test set's `EEGTrial` instances
+        3. After training on all folds, 1 prediction is made for every `EEGTrial` of the subject
+        4. We check each prediction against the actual label to obtain the accuracy of the model.
+        This is the accuracy of the model trained on this `EEGSubject`
+
+        :returns: list of accuracies of the model trained on each subject
+        """
+        ...
 
     @abstractmethod
     def train(self, output_path: str): ...
@@ -15,9 +31,18 @@ class ModelInterface(ABC):
     def infer(self, trials: list[EEGTrial]): ... 
 
 class NeuralNetwork(ModelInterface): 
-    def __init__(self, hyperparameters: dict[str, int]):
+    def __init__(self, hyperparameters: dict[str, any]):
         self.subjects = []
         self.model = None
+        self.hyperparameters = None
+
+        # Setup hyperparamters
+        self.set_hyperparameters(hyperparameters)
+    
+    def add_subjects(self, subjects: list[EEGSubject]):
+        self.subjects.extend(subjects)
+
+    def set_hyperparameters(self, hyperparameters: dict[str, any]):
         self.hyperparameters = hyperparameters
 
     def load(self, name: str):
