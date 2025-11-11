@@ -57,7 +57,7 @@ class NeuralNetwork(ModelInterface):
         # self.model = ???
         pass
 
-    def evaluate(self) -> float:
+    def evaluate(self) -> list[float]:
         """
         Evaluates the performance of the loaded model using cross validation.
         Returns a float between 0 and 1 representing the accuracy of the model.
@@ -72,5 +72,11 @@ class NeuralNetwork(ModelInterface):
     def train(self, output_path: str):
         """
         Creates a
+        """
+        pass
+
+    def infer(self, trials: list[EEGTrial]):
+        """
+        
         """
         pass
