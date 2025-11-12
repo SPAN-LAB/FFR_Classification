@@ -3,16 +3,15 @@ from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
 
 class ModelInterface(ABC):
-    subjects: list[EEGSubject]
+    subject: EEGSubject
+
+    def set_subject(self, subject: EEGSubject): 
+        self.subject = subject
 
     @abstractmethod
-    def add_subjects(self, subjects: list[EEGSubject]): ...
-
-    @abstractmethod
-    def evaluate(self) -> list[float]:
+    def evaluate(self) -> float:
         """
-        Evaluates the accuracy of the model using cross-validation in the following steps for EACH 
-        subject in `self.subjects`:
+        Evaluates the accuracy of the model using cross-validation in the following steps:
         1. The subject data is split into folds (see `EEGSubject.fold`)
         2. For `i` in 1 through n where n = number of folds:
             - Let the test set be (`EEGSubject.trials`) - (trials in fold `i`)
@@ -23,7 +22,7 @@ class ModelInterface(ABC):
         4. We check each prediction against the actual label to obtain the accuracy of the model.
         This is the accuracy of the model trained on this `EEGSubject`
 
-        :returns: list of accuracies of the model trained on each subject
+        :returns: accuracy of the model train on its subject data 
         """
         ...
 
@@ -35,15 +34,12 @@ class ModelInterface(ABC):
 
 class NeuralNetwork(ModelInterface): 
     def __init__(self, hyperparameters: dict[str, any]):
-        self.subjects = []
+        self.subject = None
         self.model = None
         self.hyperparameters = None
 
         # Setup hyperparamters
         self.set_hyperparameters(hyperparameters)
-    
-    def add_subjects(self, subjects: list[EEGSubject]):
-        self.subjects.extend(subjects)
 
     def set_hyperparameters(self, hyperparameters: dict[str, any]):
         self.hyperparameters = hyperparameters
@@ -57,7 +53,7 @@ class NeuralNetwork(ModelInterface):
         # self.model = ???
         pass
 
-    def evaluate(self) -> list[float]:
+    def evaluate(self) -> float:
         """
         Evaluates the performance of the loaded model using cross validation.
         Returns a float between 0 and 1 representing the accuracy of the model.
