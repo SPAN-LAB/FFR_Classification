@@ -10,14 +10,12 @@ Highlights:
 - Pipeline-first design that ingests raw `.mat` files, keeps transformations chained on the `EEGSubject` API, and feeds the same object into downstream stages.
 - A suite of neural preprocessing interfaces (subaveraging, trimming, folding, label mapping) engineered to reduce boilerplate while staying faithful to FFR research conventions.
 - Ready-to-train machine-learning models: the `Trainer` dynamically loads CNN, RNN, FFNN and supports custom PyTorch architectures from `src/models`, handling device placement, cross-validation splits, and checkpointing.
-- Visualization utilities that tap directly into the live subject object for quick inspection of single trials, label-wise averages, and grand averages.
+- Visualization wutilities that tap directly into the live subject object for quick inspection of single trials, label-wise averages, and grand averages.
 
 ## Programmatic Use
 
 ```python
-from src.core.EEGSubject import EEGSubject
-from src.core.Plots import Plots
-from src.core.Trainer import Trainer
+from src.core import EEGSubject, Plots, Trainer
 
 subject = (
     EEGSubject.init_from_filepath("path/to/ffr_subject.mat")
