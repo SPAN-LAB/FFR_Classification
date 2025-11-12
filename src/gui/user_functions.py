@@ -1,11 +1,11 @@
 from __future__ import annotations
 from typing import *
 from .utils import function_label, param_labels
-from ..core.EEGSubject import EEGSubject
-from ..core.EEGTrial import EEGTrial
+from ..core.eeg_subject import EEGSubject
+from ..core.eeg_trial import EEGTrial
 import copy
-from ..core.Trainer import Trainer
-from ..core.Plots import Plots
+from ..core.trainer import Trainer
+from ..core.plots import Plots
 
 ORIGINAL_SUBJECTS: List[EEGSubject] = []
 SUBJECTS: List[EEGSubject] = []
