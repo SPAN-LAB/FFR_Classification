@@ -22,28 +22,39 @@ class PipelineState:
             if file.endswith(".mat"):
                 subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
                 self.subjects.append(subject)
+        return self
 
     ### Pre-training processing functions ### 
 
-    def map_labels(rule_csv: str) -> PipelineState:
+    def map_labels(self, rule_csv: str) -> PipelineState:
         """
         Sets the labels for all trials according to the provided file.
 
         :param str rule_csv: The file containing the mapping rule.
         """
-        pass
+        for subject in self.subjects: 
+            subject.map_trial_labels(rule_csv)
+        return self
 
     def trim_by_timestamp(self, start_time: float, end_time: float) -> PipelineState: 
-        pass
+        for subject in self.subjects: 
+            subject.trim_by_timestamp(start_time, end_time)
+        return self
 
     def trim_by_index(self, start_index: int, end_index: int) -> PipelineState: 
-        pass
+        for subject in self.subjects: 
+            subject.trim_by_index(start_index, end_index)
+        return self
 
     def subaverage(self, size: int = 5) -> PipelineState:
-        pass 
+        for subject in self.subjects: 
+            subject.subaverage(size)
+        return self
 
     def fold(self, num_folds: int = 5) -> PipelineState:
-        pass 
+        for subject in self.subjects: 
+            subject.fold(num_folds)
+        return self
 
     ### ML functions ### 
 
