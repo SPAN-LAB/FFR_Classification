@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from ..core.eeg_subject import EEGSubject
 from ..core.eeg_trial import EEGTrial
 from typing import Any, Optional
+import torch
 
 
 class ModelInterface(ABC):
@@ -61,6 +62,26 @@ class NeuralNetworkInterface(ModelInterface, ABC):
         super().__init__()
         self.hyperparameters = hyperparameters
         self.model: Any | None = None  # NOTE: to be set by the build() method
+        self.device: Any | None = None  # NOTE: to be set by the set_device() method
+
+    @abstractmethod
+    def set_device(self, use_gpu: bool = False):
+        """
+        Configure the compute device for this model.
+
+        Args:
+            use_gpu: If True, try a GPU (CUDA first, then Apple MPS if available);
+                    otherwise force CPU.
+
+        Behavior:
+            - Must set `self.device` to a valid device.
+            - If the model has already been built, move it to `self.device`.
+            - All training/evaluation code must move input/label batches to
+              `self.device` before forward passes.
+
+        If a GPU is requested but none is available just use the CPU.
+        """
+        ...
 
     @abstractmethod
     def build(self) -> None:
