@@ -19,7 +19,7 @@ class ModelInterface(ABC):
             - Train the model on the train set's `EEGTrial` instances
             - Use that model to create predictions on the test set's `EEGTrial` instances
         3. After training on all folds, 1 prediction is made for every `EEGTrial` of the subject
-        4. We check each prediction against the actual label to obtain the accuracy of the model.
+        4. Each prediction is checked against the actual label to obtain the accuracy of the model.
         This is the accuracy of the model trained on this `EEGSubject`
 
         :returns: accuracy of the model train on its subject data 
