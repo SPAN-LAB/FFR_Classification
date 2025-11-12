@@ -1,16 +1,25 @@
 from abc import ABC, abstractmethod
 from ..core.eeg_subject import EEGSubject
 from ..core.eeg_trial import EEGTrial
-from typing import Any
+from typing import Any, Optional
 
 
 class ModelInterface(ABC):
-    @abstractmethod
-    def __init__(self, subject: EEGSubject):
+    def __init__(self):
         """
-        Initialize a model bound to exactly one subject
+        Initializes a model with no subject bound to it.
+        Call set_subject() after initializing.
         """
-        ...
+        self.subject: Optional[EEGSubject] = (
+            None  # NOTE: to be set by set_subject() method
+        )
+
+    def set_subject(self, subject: EEGSubject):
+        """
+        Binds this model class to exactly one subject.
+        Call this before calling any other methods in this class.
+        """
+        self.subject = subject
 
     @abstractmethod
     def evaluate(self) -> float:
@@ -39,20 +48,19 @@ class ModelInterface(ABC):
 
 class NeuralNetworkInterface(ModelInterface, ABC):
     """
-    Extends ModelInerface to add neural network specific behavior
+    Extends ModelInterface to add neural network specific behavior
     The following methods are what need to be defined in addition
     to the methods specified in ModelInterface
     """
 
-    model: Any | None  # NOTE: to be set by the build() method
-
-    @abstractmethod
-    def __init__(self, subject: EEGSubject, hyperparameters: dict[str, Any]):
+    def __init__(self, hyperparameters: dict[str, Any]):
         """
-        Adds hyperparameters to constructor/
+        Adds hyperparameters to constructor
         hyperparameters: dictionary that defines the hyperparameters the model will use (such as num of epochs, stopping criteria, learning rate, etc...)
         """
-        ...
+        super().__init__()
+        self.hyperparameters = hyperparameters
+        self.model: Any | None = None  # NOTE: to be set by the build() method
 
     @abstractmethod
     def build(self) -> None:
