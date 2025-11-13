@@ -1,48 +1,8 @@
-from abc import ABC, abstractmethod
-from .eeg_subject import EEGSubject
-from .eeg_trial import EEGTrial
-from .ffr_prep import FFRPrep
+from ...core import EEGSubject, EEGTrial
+from .model import ModelInterface
+from ...core import FFRPrep
 
 import torch
-
-class ModelInterface(ABC):
-    """
-    Abstract class representing any model used for FFR classification.
-    """
-    
-    subject: EEGSubject
-
-    def set_subject(self, subject: EEGSubject): 
-        """
-        Setter for `subject` attribute. 
-        
-        NOTE: The other methods cannot run until this method is called.
-        """
-        self.subject = subject
-
-    @abstractmethod
-    def evaluate(self) -> float:
-        """
-        Evaluates the accuracy of the model using cross-validation in the following steps:
-        1. The subject data is split into folds (see `EEGSubject.fold`)
-        2. For `i` in 1 through n where n = number of folds:
-            - Let the test set be (`EEGSubject.trials`) - (trials in fold `i`)
-            - Let the train set be (`EEGSubject.trials`) - (trials NOT in fold `i`)
-            - Train the model on the train set's `EEGTrial` instances
-            - Use that model to create predictions on the test set's `EEGTrial` instances
-        3. After training on all folds, 1 prediction is made for every `EEGTrial` of the subject
-        4. Each prediction is checked against the actual label to obtain the accuracy of the model.
-        This is the accuracy of the model trained on this `EEGSubject`
-
-        :returns: accuracy of the model train on its subject data 
-        """
-        ...
-
-    @abstractmethod
-    def train(self, output_path: str): ...
-
-    @abstractmethod
-    def infer(self, trials: list[EEGTrial]): ... 
 
 class NeuralNetwork(ModelInterface): 
     """
@@ -51,10 +11,10 @@ class NeuralNetwork(ModelInterface):
     """
 
     def __init__(self, hyperparameters: dict[str, any]):
-        self.subject = None
+        self.subject: EEGSubject | None = None
         self.model = None
         self.device = None
-        self.hyperparameters = None
+        self.hyperparameters: dict | None = None
 
         # Setup hyperparamters
         self.set_hyperparameters(hyperparameters)
