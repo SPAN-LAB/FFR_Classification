@@ -322,6 +322,11 @@ class Trainer(TrainerInterface):
         plt.imshow(cm_overall, cmap="Blues")
         plt.title("Overall Confusion Matrix (Per Subject)")
         plt.xlabel("Predicted"); plt.ylabel("True")
+        labels = np.unique(oof_true)
+        tick_positions = np.arange(len(labels))
+        tick_labels = [str(lbl) for lbl in labels]
+        plt.xticks(tick_positions, tick_labels)
+        plt.yticks(tick_positions, tick_labels)
         for i in range(cm_overall.shape[0]):
             for j in range(cm_overall.shape[1]):
                 plt.text(j, i, cm_overall[i, j], ha="center", va="center")
