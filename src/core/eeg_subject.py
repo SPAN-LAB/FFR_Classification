@@ -15,7 +15,7 @@ class EEGSubjectInterface(ABC):
 
     @staticmethod
     @abstractmethod
-    def init_from_filepath(filepath: str, extract: Callable) -> Self: 
+    def init_from_filepath(filepath: str, extract: Callable | None) -> Self: 
         """
         TODO
         """
@@ -78,12 +78,31 @@ class EEGSubject(EEGSubjectInterface):
         self.folds = None
 
     @staticmethod
-    def init_from_filepath(filepath: str) -> Self:
-        # Get the raw data
+    def init_from_filepath(filepath: str, extract: Callable = None) -> Self:
+
+        def default_extract(raw_mat_file: dict[str, Any]) -> dict[str, any]:
+            """
+            Default method of extracting the data from the raw .mat file. 
+
+            :returns: a dictionary with keys "data", "timestamps", and "labels".
+            """
+            output = {}
+            output["data"] = raw_mat_file["ffr_nodss"].T
+            output["timestamps"] = raw_mat_file["time"]
+            output["labels"] = raw_mat_file["labels"]
+            return output
+
+        # Get the raw data from the .mat file
         raw = read_mat(filepath)
-        raw_data = raw["ffr_nodss"]
-        timestamps = raw["time"]
-        labels = raw["#subsystem#"]["MCOS"][3]
+        
+        # Use the default extraction method if one isn't provided
+        if extract is None:
+            extract = default_extract
+        
+        extracted_data = extract(raw)
+        raw_data = extracted_data["data"]
+        timestamps = extracted_data["timestamps"]
+        labels = extracted_data["labels"]
 
         # Create the EEGTrial instances
         trials = []
