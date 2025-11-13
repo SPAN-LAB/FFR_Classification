@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox, QScrollArea, QSizePolicy, QPlainTextEdit
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject
-from PyQt5.QtGui import QFont, QFontDatabase
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPalette
 from .GUIFunctionManager import GUIFunctionManager
 from . import user_functions
 
@@ -340,6 +340,11 @@ class RightPaneView(QWidget):
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.setStretch(layout.count() - 1, 1)
 
+        # Listen for palette changes (light/dark mode toggles)
+        app = QApplication.instance()
+        if app is not None and hasattr(app, "paletteChanged"):
+            app.paletteChanged.connect(self._on_palette_changed)
+
         # Simple logs panel
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -428,13 +433,7 @@ class RightPaneView(QWidget):
         card = SquareCard()
         card.setObjectName("SubjectCard")
         card.setFrameShape(QFrame.StyledPanel)
-        card.setStyleSheet(
-            "QFrame#SubjectCard {"
-            "  background: #1a1a1a;"
-            "  border: 1px solid #2a2a2a;"
-            "  border-radius: 10px;"
-            "}"
-        )
+        card.setStyleSheet(self._subject_card_stylesheet())
         # Let the card determine its own square height based on width
         card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         layout = QVBoxLayout()
@@ -462,6 +461,35 @@ class RightPaneView(QWidget):
             layout.addLayout(row)
 
         return card
+
+    def _subject_card_stylesheet(self) -> str:
+        palette = QApplication.palette()
+        window_color = palette.color(QPalette.Window)
+        base_color = palette.color(QPalette.Base)
+
+        # Determine perceived brightness to decide on light vs dark adjustments
+        def luminance(color: QColor) -> float:
+            return 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
+
+        is_dark_mode = luminance(window_color) < luminance(base_color)
+
+        if is_dark_mode:
+            background = window_color.lighter(110)
+            border = window_color.lighter(140)
+        else:
+            background = window_color.darker(108)
+            border = window_color.darker(125)
+
+        return (
+            "QFrame#SubjectCard {"
+            f"  background: {background.name()};"
+            f"  border: 1px solid {border.name()};"
+            "  border-radius: 10px;"
+            "}"
+        )
+
+    def _on_palette_changed(self, *_args) -> None:
+        self.refresh_summary()
 
     def resizeEvent(self, event):
         # Reflow grid on resize to adapt column count
