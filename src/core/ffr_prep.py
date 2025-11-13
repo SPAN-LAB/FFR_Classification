@@ -4,22 +4,6 @@ class FFRPrep:
     def make_folds(self, subject, num_folds=5):
         subject.fold(num_folds=num_folds)
         return subject.folds
-    
-    def get_accuracy(subject: EEGSubject) -> float:
-        """
-        TODO @Kevin
-        """
-        num_correct = 0
-        for trial in subject.trials:
-            # Enforce that all trials have predicitions
-            if trial.prediction is None:
-                raise ValueError("Expected prediction not found.")
-
-            if trial.label == trial.prediction:
-                num_correct += 1
-        
-        return num_correct / len(subject.trials)
-
 
     # ---------------- Internal helper ----------------
     def _trials_to_np(self, trials, add_channel_dim=False, adjust_labels=False):
