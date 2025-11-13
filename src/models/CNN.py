@@ -1,4 +1,4 @@
-from .model_interface import NeuralNetworkInterface
+from .utils.model_interface import NeuralNetworkInterface
 from ..core.ffr_prep import FFRPrep
 from ..core.eeg_subject import EEGSubject
 from ..core.eeg_trial import EEGTrial
