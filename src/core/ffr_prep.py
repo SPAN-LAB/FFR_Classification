@@ -6,7 +6,7 @@ class FFRPrep:
         return subject.folds
 
     # ---------------- Internal helper ----------------
-    def _trials_to_np(self, trials, add_channel_dim=False, adjust_labels=False):
+    def _trials_to_np(self, trials, adjust_labels=True):
         import numpy as np
 
         X = np.stack([t.data for t in trials]).astype("float32")
@@ -14,10 +14,9 @@ class FFRPrep:
         idx = np.asarray([t.trial_index for t in trials], dtype=np.int64)
 
         if adjust_labels:
-            y -= 1
-        if add_channel_dim and X.ndim == 2:
-            X = X[:, None, :]  # [N, 1, T] for Conv1d
-        return X, y, idx
+            y -= 1  # NOTE: adjusts labels to 0-3 (assumes labels are 1,2,3,4)
+
+        return X, y, idx  # NOTE: default shape of dataloaders is (N,T)
 
     # ---------------- PyTorch versions ----------------
     def make_train_val_loaders(
@@ -26,8 +25,6 @@ class FFRPrep:
         fold_idx,
         val_frac=0.2,
         batch_size=256,
-        add_channel_dim=False,
-        adjust_labels=False,
     ):
         import torch
         from torch.utils.data import DataLoader, TensorDataset
@@ -35,7 +32,7 @@ class FFRPrep:
         import numpy as np
 
         pool = [t for i, f in enumerate(folds) if i != fold_idx for t in f]
-        X, y, idx = self._trials_to_np(pool, add_channel_dim, adjust_labels)
+        X, y, idx = self._trials_to_np(pool)
 
         sss = StratifiedShuffleSplit(
             n_splits=1, test_size=val_frac, random_state=42 + fold_idx
@@ -63,7 +60,7 @@ class FFRPrep:
         import torch
         from torch.utils.data import DataLoader, TensorDataset
 
-        X, y, idx = self._trials_to_np(folds[fold_idx], add_channel_dim, adjust_labels)
+        X, y, idx = self._trials_to_np(folds[fold_idx])
         ds = TensorDataset(
             torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(idx)
         )
@@ -77,7 +74,7 @@ class FFRPrep:
         from sklearn.model_selection import StratifiedShuffleSplit
 
         pool = [t for i, f in enumerate(folds) if i != fold_idx for t in f]
-        X, y, idx = self._trials_to_np(pool, add_channel_dim, adjust_labels)
+        X, y, idx = self._trials_to_np(pool)
 
         sss = StratifiedShuffleSplit(
             n_splits=1, test_size=val_frac, random_state=42 + fold_idx
@@ -93,5 +90,5 @@ class FFRPrep:
     def get_test_nparrays(
         self, folds, fold_idx, add_channel_dim=False, adjust_labels=False
     ):
-        X, y, idx = self._trials_to_np(folds[fold_idx], add_channel_dim, adjust_labels)
+        X, y, idx = self._trials_to_np(folds[fold_idx])
         return X, y, idx

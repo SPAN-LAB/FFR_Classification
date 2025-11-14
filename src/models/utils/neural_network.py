@@ -53,7 +53,7 @@ class NeuralNetwork(ModelInterface):
         Evaluates the performance of the loaded model using cross validation.
         Returns a float between 0 and 1 representing the accuracy of the model.
         """
-
+        # training_options
         num_epochs = self.hyperparameters["num_epochs"]
         learning_rate = self.hyperparameters["learning_rate"]
         batch_size = self.hyperparameters["batch_size"]
