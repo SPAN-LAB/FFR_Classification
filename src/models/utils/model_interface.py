@@ -11,12 +11,12 @@ class ModelInterface(ABC):
     
     subject: EEGSubject
     
-    @abstractmethod
-    def __init__(self):
+    def __init__(self, training_options: dict[str, any]):
         """
         TODO @Kevin figure this out 
         """
-        ...
+        self.subject = None
+        self.training_options = training_options
         
     def set_subject(self, subject: EEGSubject):
         """
