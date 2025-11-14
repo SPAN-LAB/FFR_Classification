@@ -12,7 +12,7 @@ from local.constants import ALL_PATH
 
 p = (
     AnalysisPipeline()
-    .load_subjects(ALL_PATH)
+    .load_subjects(folder_path=ALL_PATH)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .subaverage()
     .fold()
