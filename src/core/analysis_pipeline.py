@@ -15,17 +15,32 @@ class AnalysisPipeline:
     
     # MARK: IO
 
-    def load_subjects(self, folder_path: str) -> AnalysisPipeline:
+    def load_subjects(
+        self, *,
+        folder_path: str = None,
+        filepath_list: list[str] = None    
+    ) -> AnalysisPipeline:
         """
-        Load every `.mat` file in a directory as an `EEGSubject`.
+        Load every `.mat` file in a directory or list of filepaths as `EEGSubject` instances.
+
+        If both ``folder_path`` and ``file_path_list`` are provided, uses folder_path.
 
         :param str folder_path: The directory containing the `.mat` files.
+        :param str file_path_list: a list containing the path to the ``.mat`` files
         """
-        for file in os.listdir(folder_path):
-            if file.endswith(".mat"):
-                subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
-                print(f"load_subjects : Subject loaded")
-                self.subjects.append(subject)
+        if folder_path is not None:
+            print("Folder path is NOT none!!")
+            for file in os.listdir(folder_path):
+                if file.endswith(".mat"):
+                    subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
+                    print(f"load_subjects : Subject loaded")
+                    self.subjects.append(subject)
+        elif filepath_list is not None and len(filepath_list) > 0:
+            for filename in filepath_list:
+                if filename.endswith(".mat"):
+                    subject = EEGSubject.init_from_filepath(filename)
+                    print(f"load_subjects : Subject loaded")
+                    self.subjects.append(subject)
         return self
 
     # MARK: Pre-training processing functions
