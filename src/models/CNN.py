@@ -40,14 +40,6 @@ class _CNN1D(nn.Module):
 
 
 class CNNModel(TorchNNBase):
-    """
-    CNN that implements its own evaluate() using FFRPrep loaders,
-    training+testing each fold in-memory (no checkpoint I/O).
-    """
-
-    def __init__(self, hyperparameters: dict[str, Any]) -> None:
-        super().__init__(hyperparameters)
-
     def build(self) -> None:
         n_classes = int(self.hyperparameters.get("n_classes", 4))
         p_drop = float(self.hyperparameters.get("p_drop", 0.1))
