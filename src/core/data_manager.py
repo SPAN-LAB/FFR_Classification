@@ -59,22 +59,42 @@ class AnalysisPipeline:
             subject.fold(num_folds)
         return self
 
-    ### ML functions ### 
+    # MARK: ML functions
 
     def evaluate_model(self, model_name: str, hyperparameters: dict[str, any]) -> AnalysisPipeline:
-        concrete_model = 
+        concrete_model = find_model(model_name)
         for subject in self.subjects:
-            self.models.append()
+            # Construct the model 
+            model = concrete_model(hyperparameters)
+            model.set_subject(subject)
 
+            # Evaluate it
+            print(f"Accuracy: {model.eveluate()}")
+            self.models.append(model)
 
-    def train_model(self, output_path: str) -> AnalysisPipeline: 
+    def train_model(
+        self, 
+        model_name: str, 
+        hyperparameters: dict[str, any], 
+        output_path: str
+    ) -> AnalysisPipeline: 
         """
-        Train on 100% of the data 
+        TODO
         """
-        pass 
+        concrete_model = find_model(model_name)
+        for subject in self.subjects:
+            # Construct the model
+            model = concrete_model(hyperparameters)
+            model.set_subject(subject)
 
-    def infer_on_model(self, model: Model, trial: EEGTrial) -> AnalysisPipeline:
-        """
+            # Train and save to disk 
+            model.train(output_path)
         
+        return self
+
+    def infer_on_model(self, path_to_model: str, trial: EEGTrial) -> AnalysisPipeline:
         """
-        pass
+        TODO
+        """
+        # TODO
+        return self
