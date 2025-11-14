@@ -60,16 +60,29 @@ class TorchNNBase(ModelInterface):
                 "No subject set. Call set_subject() before calling evaluate"
             )
 
-        # Hyperparams
-        epochs = int(self.hyperparameters.get("epochs", 15))
-        lr = float(self.hyperparameters.get("lr", 1e-3))
-        weight_decay = float(self.hyperparameters.get("weight_decay", 0.0))
-        batch_size = int(self.hyperparameters.get("batch_size", 256))
-        val_frac = float(self.hyperparameters.get("val_frac", 0.20))
-        patience = int(self.hyperparameters.get("patience", 5))
-        min_impr = float(self.hyperparameters.get("min_impr", 1e-3))
-        adjust_labels = bool(self.hyperparameters.get("adjust_labels", True))
-        n_classes = int(self.hyperparameters.get("n_classes", 4))  # used for ROC
+        # Training options 
+        epochs = self.training_options["num_epochs"]
+        lr = self.training_options["learning_rate"]
+        batch_size = self.training_options["batch_size"]
+
+        # Hyperparameters
+        weight_decay = 0.0 
+        val_frac = 0.20
+        patience = 5
+        min_impr = 1e-3
+        adjust_labels = True
+        n_classes = 4
+
+        # # Hyperparams
+        # # epochs = int(self.hyperparameters.get("epochs", 15))
+        # # lr = float(self.hyperparameters.get("lr", 1e-3))
+        # weight_decay = float(self.hyperparameters.get("weight_decay", 0.0))
+        # # batch_size = int(self.hyperparameters.get("batch_size", 256))
+        # val_frac = float(self.hyperparameters.get("val_frac", 0.20))
+        # patience = int(self.hyperparameters.get("patience", 5))
+        # min_impr = float(self.hyperparameters.get("min_impr", 1e-3))
+        # adjust_labels = bool(self.hyperparameters.get("adjust_labels", True))
+        # n_classes = int(self.hyperparameters.get("n_classes", 4))  # used for ROC
 
         torch.manual_seed(42)
         np.random.seed(42)
@@ -190,8 +203,8 @@ class TorchNNBase(ModelInterface):
             "mean_best_val_acc": mean_best,
             "overall_acc": overall_acc,
             "subject": subj_name,
-            "device": str(self.device),
-            "hyperparameters": dict(self.hyperparameters),
+            "device": str(self.device)
+            # "hyperparameters": dict(self.hyperparameters),
         }
 
         # quick JSON summary artifact
@@ -212,6 +225,12 @@ class TorchNNBase(ModelInterface):
         # NOTE: Need to add predicted labels to EEGTrial objects, use this to build CMs and ROCs
         # return get_accuracy(self.subject)
         return overall_acc
+    
+    def train(self):
+        return 0
+    
+    def infer(self, trials: list[EEGTrial]):
+        return 0
     
     def build(self):
         """
