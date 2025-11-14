@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import *
-from utils import function_label, param_labels
-from user_functions import SUBJECTS, ORIGINAL_SUBJECTS
-from EEGDataStructures import EEGSubject
+from .utils import function_label, param_labels
+from .user_functions import SUBJECTS, ORIGINAL_SUBJECTS
+from ..core.eeg_subject import EEGSubject
 
 @function_label("Load Subject Data")
 @param_labels(["Filepath"])
@@ -14,7 +14,8 @@ def GUI_load_subject_data(filepath: str):
     for subject in ORIGINAL_SUBJECTS:
         if subject.source_filepath == filepath:
             return
-    ORIGINAL_SUBJECTS.append(EEGSubject.init_from_filepath(filepath))
+    new_subject = EEGSubject.init_from_filepath(filepath)
+    ORIGINAL_SUBJECTS.append(new_subject)
 
 @function_label("Filter Trials")
 @param_labels(["Subject Index", "Trials to remove"])

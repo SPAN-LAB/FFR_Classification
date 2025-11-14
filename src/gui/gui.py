@@ -1,16 +1,17 @@
 import sys
 import os
 import copy
+import traceback
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QPushButton, QLabel, QComboBox,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout
+    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox, QScrollArea, QSizePolicy, QPlainTextEdit
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QFontDatabase
-from GUIFunctionManager import GUIFunctionManager
-import user_functions
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPalette
+from .GUIFunctionManager import GUIFunctionManager
+from . import user_functions
 
 PIPELINE_FILE = "pipeline.txt"
 
@@ -25,6 +26,38 @@ QComboBox { background: #1c1c1c; color: #e6e6e6; border: 1px solid #3a3a3a; bord
 QFrame#FunctionCard { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; }
 """
 
+
+class QtLogTee(QObject):
+    """
+    A stream-like object that writes to an underlying stream and emits text
+    to the GUI via a Qt signal. Use to tee stdout/stderr to the GUI.
+    """
+    text_emitted = pyqtSignal(str)
+
+    def __init__(self, stream):
+        super().__init__()
+        self._stream = stream
+
+    def write(self, text: str):
+        if not text:
+            return
+        try:
+            self._stream.write(text)
+        except Exception:
+            # If the underlying stream is unavailable, still emit to GUI
+            pass
+        self.text_emitted.emit(text)
+        # Process events so the GUI updates immediately, even during long operations
+        try:
+            QApplication.processEvents()
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except Exception:
+            pass
 
 class FunctionBlock(QFrame):
     """
@@ -134,6 +167,14 @@ class FunctionBlockView(QFrame):
                     except Exception:
                         pass
                 editor.valueChanged.connect(self._notify_changed)
+            elif param_type is bool:
+                editor = QCheckBox()
+                if default_value is not None:
+                    try:
+                        editor.setChecked(bool(default_value))
+                    except Exception:
+                        pass
+                editor.stateChanged.connect(self._notify_changed)
             else:
                 editor = QLineEdit()
                 editor.setFixedWidth(140)
@@ -177,6 +218,8 @@ class FunctionBlockView(QFrame):
                 parts.append(f"{key}={int(editor.value())}")
             elif typ is float:
                 parts.append(f"{key}={float(editor.value())}")
+            elif typ is bool:
+                parts.append(f"{key}={'True' if editor.isChecked() else 'False'}")
             else:
                 parts.append(f"{key}={editor.text()}")
         return " ".join(parts)
@@ -188,6 +231,8 @@ class FunctionBlockView(QFrame):
                 args[key] = int(editor.value())
             elif typ is float:
                 args[key] = float(editor.value())
+            elif typ is bool:
+                args[key] = bool(editor.isChecked())
             else:
                 args[key] = editor.text()
         return args
@@ -202,6 +247,12 @@ class FunctionBlockView(QFrame):
                     editor.setValue(int(value))
                 elif typ is float:
                     editor.setValue(float(value))
+                elif typ is bool:
+                    # accept bool or truthy strings
+                    if isinstance(value, str):
+                        editor.setChecked(value.strip().lower() in ['1','true','yes','y','on'])
+                    else:
+                        editor.setChecked(bool(value))
                 else:
                     editor.setText(str(value))
             except Exception:
@@ -237,6 +288,25 @@ class FunctionBlockView(QFrame):
             self.setStyleSheet("")
 
 
+class SquareCard(QFrame):
+    """
+    A frame that keeps its height equal to its current width to form a square box.
+    """
+    def __init__(self):
+        super().__init__()
+        self._side = 150
+        self.setFixedWidth(self._side)
+        self.setFixedHeight(self._side)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+    def resizeEvent(self, event):
+        try:
+            # Maintain square size; do not grow with pane
+            self.setFixedWidth(self._side)
+            self.setFixedHeight(self._side)
+        finally:
+            super().resizeEvent(event)
+
 class RightPaneView(QWidget):
     """
     Placeholder right-side pane. Future widgets can be added here.
@@ -250,17 +320,38 @@ class RightPaneView(QWidget):
         layout.setSpacing(8)
         self.setLayout(layout)
 
-        # Top-left aligned subject grid
+        # Top-left aligned subject grid inside a scroll area
         self.grid_container = QWidget()
         self.grid_container.setObjectName("SubjectGrid")
         self.grid_layout = QGridLayout()
         self.grid_layout.setContentsMargins(4, 4, 4, 4)
         self.grid_layout.setHorizontalSpacing(8)
         self.grid_layout.setVerticalSpacing(8)
+        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.grid_container.setLayout(self.grid_layout)
 
-        layout.addWidget(self.grid_container)
-        layout.addStretch(0)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidget(self.grid_container)
+
+        layout.addWidget(self.scroll_area)
+        # Ensure scroll area grows to fill available space
+        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.setStretch(layout.count() - 1, 1)
+
+        # Listen for palette changes (light/dark mode toggles)
+        app = QApplication.instance()
+        if app is not None and hasattr(app, "paletteChanged"):
+            app.paletteChanged.connect(self._on_palette_changed)
+
+        # Simple logs panel
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(5000)
+        self.log_view.setPlaceholderText("Logs will appear here…")
+        self.log_view.setStyleSheet("QPlainTextEdit { background: #0f0f0f; color: #dcdcdc; border: 1px solid #2a2a2a; }")
+        layout.addWidget(self.log_view)
 
         self.refresh_summary()
 
@@ -272,17 +363,39 @@ class RightPaneView(QWidget):
             if w is not None:
                 w.setParent(None)
 
-        # Build summaries from EEGSubject.summary() for each loaded subject
+        # Build summaries directly from subject fields (no dependency on EEGSubject.summary())
         summaries = []
         try:
-            # Prefer modified subjects; fall back to originals if none
             subjects = user_functions.SUBJECTS if getattr(user_functions, 'SUBJECTS', []) else getattr(user_functions, 'ORIGINAL_SUBJECTS', [])
         except Exception:
             subjects = []
         for i, subj in enumerate(subjects):
-            s = subj.summary()
-            s["index"] = i
-            summaries.append(s)
+            try:
+                num_trials = len(getattr(subj, 'trials', []) or [])
+            except Exception:
+                num_trials = 0
+            # Prefer mapped_label if present; otherwise use raw_label
+            try:
+                labels = []
+                for t in (getattr(subj, 'trials', []) or []):
+                    label = getattr(t, 'mapped_label', None)
+                    if label is None:
+                        label = getattr(t, 'raw_label', None)
+                    labels.append(label)
+                num_classes = len({l for l in labels if l is not None})
+            except Exception:
+                num_classes = 0
+            try:
+                folds = getattr(subj, 'folds', None)
+                num_folds = len(folds) if folds else 0
+            except Exception:
+                num_folds = 0
+            summaries.append({
+                "index": i,
+                "num_trials": num_trials,
+                "num_classes": num_classes,
+                "num_folds": num_folds,
+            })
 
         if not summaries:
             placeholder = QLabel("No subjects loaded")
@@ -290,29 +403,39 @@ class RightPaneView(QWidget):
             self.grid_layout.addWidget(placeholder, 0, 0)
             return
 
-        # Determine number of columns based on current width (>=300px per column)
+        # Determine number of columns based on a simple minimum card width
         try:
             current_width = max(0, int(self.width()))
         except Exception:
             current_width = 0
-        max_cols = max(1, (current_width - 225) // 75)
+        card_min_width = 150
+        spacing = max(8, self.grid_layout.horizontalSpacing())
+        effective_width = max(1, current_width - (self.grid_layout.contentsMargins().left() + self.grid_layout.contentsMargins().right()))
+        max_cols = max(1, effective_width // (card_min_width + spacing))
         for idx, s in enumerate(summaries):
             r = idx // max_cols
             c = idx % max_cols
             card = self._make_subject_card(s)
-            self.grid_layout.addWidget(card, r, c)
+            self.grid_layout.addWidget(card, r, c, Qt.AlignTop | Qt.AlignLeft)
+
+    def append_log(self, text: str):
+        # Append only meaningful text lines to avoid excessive blank lines
+        if not isinstance(text, str):
+            text = str(text)
+        # Split to handle partial writes gracefully
+        lines = text.splitlines()
+        for line in lines:
+            if line.strip() == "":
+                continue
+            self.log_view.appendPlainText(line)
 
     def _make_subject_card(self, summary: dict) -> QWidget:
-        card = QFrame()
+        card = SquareCard()
         card.setObjectName("SubjectCard")
         card.setFrameShape(QFrame.StyledPanel)
-        card.setStyleSheet(
-            "QFrame#SubjectCard {"
-            "  background: #1a1a1a;"
-            "  border: 1px solid #2a2a2a;"
-            "  border-radius: 10px;"
-            "}"
-        )
+        card.setStyleSheet(self._subject_card_stylesheet())
+        # Let the card determine its own square height based on width
+        card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
@@ -326,7 +449,6 @@ class RightPaneView(QWidget):
             ("Trials", summary.get("num_trials", 0)),
             ("Classes", summary.get("num_classes", 0)),
             ("Folds", summary.get("num_folds", 0)),
-            ("Subaveraged", "Yes" if summary.get("is_subaveraged", False) else "No"),
         ]
         for label_text, value in rows:
             row = QHBoxLayout()
@@ -339,6 +461,35 @@ class RightPaneView(QWidget):
             layout.addLayout(row)
 
         return card
+
+    def _subject_card_stylesheet(self) -> str:
+        palette = QApplication.palette()
+        window_color = palette.color(QPalette.Window)
+        base_color = palette.color(QPalette.Base)
+
+        # Determine perceived brightness to decide on light vs dark adjustments
+        def luminance(color: QColor) -> float:
+            return 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
+
+        is_dark_mode = luminance(window_color) < luminance(base_color)
+
+        if is_dark_mode:
+            background = window_color.lighter(110)
+            border = window_color.lighter(140)
+        else:
+            background = window_color.darker(108)
+            border = window_color.darker(125)
+
+        return (
+            "QFrame#SubjectCard {"
+            f"  background: {background.name()};"
+            f"  border: 1px solid {border.name()};"
+            "  border-radius: 10px;"
+            "}"
+        )
+
+    def _on_palette_changed(self, *_args) -> None:
+        self.refresh_summary()
 
     def resizeEvent(self, event):
         # Reflow grid on resize to adapt column count
@@ -631,6 +782,7 @@ class BuildFunctionView(QWidget):
 
     def run_pipeline(self):
         # Reset SUBJECTS to deep copies of ORIGINAL_SUBJECTS
+        user_functions.TRAINERS = []
         try:
             user_functions.SUBJECTS = [copy.deepcopy(s) for s in getattr(user_functions, 'ORIGINAL_SUBJECTS', [])]
         except Exception:
@@ -671,7 +823,13 @@ class BuildFunctionView(QWidget):
                 if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
                     parent.right_pane_view.refresh_summary()
             except Exception as e:
-                QMessageBox.warning(self, "Execution error", f"Failed to run {name}: {e}")
+                tb = traceback.format_exc()
+                print(tb)
+                QMessageBox.warning(
+                    self,
+                    "Execution error",
+                    f"Failed to run {name}: {e}\n\nCheck console log for traceback."
+                )
                 # Remove highlight on failure before exiting
                 if hasattr(widget, 'set_running'):
                     widget.set_running(False)
@@ -744,6 +902,10 @@ class BuildFunctionView(QWidget):
         return result
 
     def _auto_cast(self, value: str):
+        # Try bool first (explicit tokens)
+        low = value.strip().lower()
+        if low in ['true','false','1','0','yes','no','y','n','on','off']:
+            return low in ['true','1','yes','y','on']
         try:
             return int(value)
         except ValueError:
@@ -800,7 +962,7 @@ class BuildFunctionView(QWidget):
 
     def _normalize_param_type(self, t):
         # Ensure built-in types for editor selection
-        if t in (int, float, str):
+        if t in (int, float, str, bool):
             return t
         name = getattr(t, '__name__', None) or getattr(t, '__qualname__', None)
         if isinstance(name, str):
@@ -811,6 +973,8 @@ class BuildFunctionView(QWidget):
                 return float
             if 'str' == lname or 'string' in lname:
                 return str
+            if 'bool' == lname or 'boolean' in lname:
+                return bool
         # Fallback: parse textual representation
         text = str(t).lower()
         if 'int' in text and 'print' not in text:
@@ -819,6 +983,8 @@ class BuildFunctionView(QWidget):
             return float
         if 'str' in text or 'string' in text:
             return str
+        if 'bool' in text or 'boolean' in text:
+            return bool
         # Default to str if unknown
         return str
 
@@ -877,6 +1043,17 @@ class MainWindowView(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     window = MainWindowView()
+    # Tee stdout/stderr to GUI logs
+    try:
+        stdout_tee = QtLogTee(sys.stdout)
+        stderr_tee = QtLogTee(sys.stderr)
+        stdout_tee.text_emitted.connect(window.right_pane_view.append_log)
+        stderr_tee.text_emitted.connect(window.right_pane_view.append_log)
+        sys.stdout = stdout_tee
+        sys.stderr = stderr_tee
+    except Exception:
+        # If tee setup fails, continue with normal stdout/stderr
+        pass
     window.show()
     sys.exit(app.exec_())
 

@@ -2,10 +2,9 @@ from __future__ import annotations
 from typing import *
 import inspect
 
-import user_functions
-import gui_functions
-from Specifications import FunctionSpecification as FuncSpec
-from Specifications import ArgumentSpecification as ArgSpec
+from . import user_functions
+from .Specification import FunctionSpecification as FuncSpec
+from .Specification import ArgumentSpecification as ArgSpec
 
 class GUIFunctionManager: 
     def __init__(self):
@@ -20,10 +19,15 @@ class GUIFunctionManager:
                 self._label_to_source[function.label] = "user"
 
         # GUI utility functions (not shown in Add list; callable programmatically)
-        for function_name, function in inspect.getmembers(gui_functions, inspect.isfunction):
-            if function_name.startswith("GUI"):
-                self.possible_functions[function.label] = function
-                self._label_to_source[function.label] = "gui"
+        try:
+            from . import builtin_functions  # type: ignore
+            for function_name, function in inspect.getmembers(builtin_functions, inspect.isfunction):
+                if function_name.startswith("GUI"):
+                    self.possible_functions[function.label] = function
+                    self._label_to_source[function.label] = "gui"
+        except Exception:
+            # Optional module; safe to skip if unavailable
+            pass
 
         # An ordered collection of the functions displayed in the GUI
         self.functions_arr: List[Callable] = []
@@ -56,7 +60,7 @@ class GUIFunctionManager:
         self.functions_arr.remove(function)
 
     def run_function(self, function_label: str, **kwargs):
-        print("Running function: ", function_label)
+        print(f"Running {function_label}")
         # Find the function 
         function = self.possible_functions[function_label]
         function(**kwargs)
