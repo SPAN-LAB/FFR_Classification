@@ -61,11 +61,11 @@ class AnalysisPipeline:
 
     # MARK: ML functions
 
-    def evaluate_model(self, model_name: str, hyperparameters: dict[str, any]) -> AnalysisPipeline:
+    def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
         concrete_model = find_model(model_name)
         for subject in self.subjects:
             # Construct the model 
-            model = concrete_model(hyperparameters)
+            model = concrete_model(training_options)
             model.set_subject(subject)
 
             # Evaluate it
