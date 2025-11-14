@@ -98,3 +98,8 @@ class AnalysisPipeline:
         """
         # TODO
         return self
+    
+# Type alias for ``AnalysisPipeline`` for more expressive use.
+# When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be 
+# called a ``PipelineState``
+PipelineState = AnalysisPipeline
