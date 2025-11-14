@@ -24,7 +24,7 @@ class FFNN(TorchNNBase, nn.Module):
         """
         ########################################
 
-        dropout_p = 0.5
+        dropout_p = 0.0
 
         # Calculate hidden layer sizes based on the input size so they gradually decrease
         hidden1 = floor(input_size / 2)  # ~400
