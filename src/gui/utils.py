@@ -1,5 +1,3 @@
-from typing import *
-
 def function_label(label: str):
     """
     Set a GUI-ready function label.
@@ -11,7 +9,7 @@ def function_label(label: str):
         return function
     return decorator
 
-def param_labels(labels: List[str]):
+def param_labels(labels: list[str]):
     """
     Conveniently set the GUI-ready parameter labels corresponding to a function's parameters.
     The order the labels must match the order of the function's parameters.
