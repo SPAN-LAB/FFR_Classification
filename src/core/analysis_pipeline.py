@@ -24,6 +24,7 @@ class AnalysisPipeline:
         for file in os.listdir(folder_path):
             if file.endswith(".mat"):
                 subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
+                print(f"load_subjects : Subject loaded")
                 self.subjects.append(subject)
         return self
 
@@ -37,26 +38,31 @@ class AnalysisPipeline:
         """
         for subject in self.subjects: 
             subject.map_trial_labels(rule_csv)
+        print(f"map_labels : done")
         return self
 
     def trim_by_timestamp(self, start_time: float, end_time: float) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_timestamp(start_time, end_time)
+        print(f"trim_by_timestamp : done")
         return self
 
     def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_index(start_index, end_index)
+        print(f"trim_by_index : done")
         return self
 
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
         for subject in self.subjects: 
             subject.subaverage(size)
+        print(f"subaverage : done")
         return self
 
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
         for subject in self.subjects: 
             subject.fold(num_folds)
+        print(f"fold : done")
         return self
 
     # MARK: ML functions
@@ -69,7 +75,7 @@ class AnalysisPipeline:
             model.set_subject(subject)
 
             # Evaluate it
-            print(f"Accuracy: {model.eveluate()}")
+            print(f"Accuracy: {model.evaluate()}")
             self.models.append(model)
 
     def train_model(
