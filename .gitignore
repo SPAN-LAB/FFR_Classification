@@ -30,3 +30,5 @@ data/
 #Pipeline txt files:
 src/*.txt
 *.txt
+
+pdemo.py
