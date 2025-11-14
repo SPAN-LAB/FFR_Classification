@@ -11,6 +11,9 @@ from .utils import ModelInterface
 
 
 class Jason_CNN(ModelInterface):
+    def __init__(self, training_options: dict[str, any]):
+        super().__init__(training_options)
+
     def evaluate(self) -> float:
         if self.subject is None:
             raise RuntimeError(
@@ -24,7 +27,7 @@ class Jason_CNN(ModelInterface):
 
         folds = subject.folds
         for fold in folds:
-            test_trials = list(fold.trials)
+            test_trials = fold
             train_trials = [t for t in subject.trials if t not in test_trials]
             self._train_on_trials(train_trials)
             predicted_labels = self.infer(test_trials)
@@ -32,3 +35,9 @@ class Jason_CNN(ModelInterface):
                 trial.prediction.prediction = label
         
         return get_accuracy(subject)
+
+    def train(self):
+        pass
+
+    def infer(self):
+        pass
