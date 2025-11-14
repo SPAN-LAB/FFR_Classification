@@ -1,4 +1,4 @@
-from .utils.model_interface import TorchNNBase
+from .utils import TorchNNBase
 from ..core.eeg_trial import EEGTrial
 
 import torch
