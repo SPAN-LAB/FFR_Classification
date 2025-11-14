@@ -29,7 +29,6 @@ class AnalysisPipeline:
         :param str file_path_list: a list containing the path to the ``.mat`` files
         """
         if folder_path is not None:
-            print("Folder path is NOT none!!")
             for file in os.listdir(folder_path):
                 if file.endswith(".mat"):
                     subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
