@@ -1,14 +1,9 @@
-from typing import Any
-from abc import ABC
-
 from ..core.eeg_subject import EEGSubject
 from ..core.eeg_trial import EEGTrial
 from ..core.ffr_prep import FFRPrep
 from ..core.ffr_proc import get_accuracy
 
 from .utils import ModelInterface
-
-
 
 class Jason_CNN(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
