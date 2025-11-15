@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from ...core import FFRPrep
 from ...core import EEGSubject
 from ...core import (
@@ -22,6 +23,9 @@ class TorchNNBase(ModelInterface):
 
         # Automatically attempt to use the GPU
         self.set_device()
+
+    @abstractmethod
+    def forward(self, x: torch.Tensor): ...
 
     def set_device(self, use_gpu: bool = True):
         """
@@ -132,7 +136,7 @@ class TorchNNBase(ModelInterface):
                 for xb, yb, _ in train_dl:
                     xb, yb = xb.to(self.device), yb.to(self.device)
                     optimizer.zero_grad(set_to_none=True)
-                    logits = self.model(xb)
+                    logits = self.forward(xb)
                     loss = criterion(logits, yb)
                     loss.backward()
                     optimizer.step()
@@ -170,7 +174,7 @@ class TorchNNBase(ModelInterface):
             with torch.no_grad():
                 for xb, yb, _ in test_dl:
                     xb, yb = xb.to(self.device), yb.to(self.device)
-                    lg = self.model(xb)
+                    lg = self.forward(xb)
                     probs = lg.softmax(dim=1)
                     preds = lg.argmax(1)
                     y_true.extend(yb.cpu().numpy())
