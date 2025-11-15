@@ -15,49 +15,49 @@ class EEGSubjectInterface(ABC):
 
     @staticmethod
     @abstractmethod
-    def init_from_filepath(filepath: str, extract: Callable | None) -> Self: 
+    def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject: 
         """
         TODO
         """
         ... 
 
     @abstractmethod
-    def trim_by_index(self, start_index: int, end_index: int) -> Self: 
+    def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject: 
         """
         TODO
         """
         ... 
 
     @abstractmethod
-    def trim_by_timestamp(self, start_time: float, end_time: float) -> Self: 
+    def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject: 
         """
         TODO
         """
         ... 
 
     @abstractmethod
-    def subaverage(self, size: int) -> Self:
+    def subaverage(self, size: int) -> EEGSubject:
         """
         TODO
         """
         ... 
 
     @abstractmethod
-    def fold(self, num_folds: int) -> Self:
+    def fold(self, num_folds: int) -> EEGSubject:
         """
         TODO
         """
         ... 
     
     @abstractmethod
-    def map_trial_labels(self, rule_filepath: str) -> Self:
+    def map_trial_labels(self, rule_filepath: str) -> EEGSubject:
         """
         TODO
         """
         ... 
 
     @abstractmethod
-    def grouped_trials(self, key: Callable[[EEGTrialInterface], Any]) -> dict[any, list[EEGTrialInterface]]:
+    def grouped_trials(self) -> dict[any, list[EEGTrialInterface]]:
         """
         TODO
         """
@@ -78,7 +78,7 @@ class EEGSubject(EEGSubjectInterface):
         self.folds = None
 
     @staticmethod
-    def init_from_filepath(filepath: str, extract: Callable = None) -> Self:
+    def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
 
         def default_extract(raw_mat_file: dict[str, Any]) -> dict[str, any]:
             """
@@ -116,17 +116,17 @@ class EEGSubject(EEGSubjectInterface):
         
         return EEGSubject(trials=trials, source_filepath=filepath)
     
-    def trim_by_index(self, start_index: int, end_index: int) -> Self:
+    def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject:
         for trial in self.trials:
             trial.trim_by_index(start_index, end_index)
         return self
 
-    def trim_by_timestamp(self, start_time: float, end_time: float) -> Self:
+    def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject:
         for trial in self.trials:
             trial.trim_by_timestamp(start_time, end_time)
         return self
     
-    def subaverage(self, size: int) -> Self:
+    def subaverage(self, size: int) -> EEGSubject:
         grouped_trials = self.grouped_trials(key=lambda trial: trial.raw_label)
         subaveraged_trials = [] 
 
@@ -156,7 +156,7 @@ class EEGSubject(EEGSubjectInterface):
         self.trials = subaveraged_trials
         return self
 
-    def fold(self, num_folds: int) -> Self:
+    def fold(self, num_folds: int) -> EEGSubject:
         folds = [[] for _ in range(num_folds)]
         grouped_trials = self.grouped_trials(key=lambda trial: trial.mapped_label)
 
