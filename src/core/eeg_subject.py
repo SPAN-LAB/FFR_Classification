@@ -18,6 +18,15 @@ class EEGSubjectInterface(ABC):
     def trial_size(self):
         ...
 
+    @abstractmethod
+    @property
+    def num_categories(self):
+        ...
+
+    @abstractmethod
+    def set_label_preference(self, pref: str | None):
+        ...
+
     @staticmethod
     @abstractmethod
     def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject: 
@@ -81,10 +90,6 @@ class EEGSubject(EEGSubjectInterface):
         self.trials = trials
         self.source_filepath = source_filepath
         self.folds = None
-
-    @property
-    def trial_size(self):
-        return len(self.trials[0])
 
     @staticmethod
     def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
@@ -215,3 +220,15 @@ class EEGSubject(EEGSubjectInterface):
             else:
                 g[trial.label] = [trial]
         return g
+    
+    @property
+    def trial_size(self):
+        return len(self.trials[0])
+    
+    def set_label_preference(self, pref: str | None = None):
+        for trial in self.trials:
+            trial.set_label_preference(pref)
+    
+    @property
+    def num_categories(self):
+        return len(self.grouped_trials().keys())
