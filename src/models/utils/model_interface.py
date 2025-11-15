@@ -8,16 +8,16 @@ class ModelInterface(ABC):
     """
     Abstract class representing any model used for FFR classification.
     """
-    
+
     subject: EEGSubject
-    
+
     @abstractmethod
     def __init__(self):
         """
-        TODO @Kevin figure this out 
+        TODO @Kevin figure this out
         """
         ...
-        
+
     def set_subject(self, subject: EEGSubject):
         """
         Binds this model class to exactly one subject.
@@ -46,7 +46,7 @@ class ModelInterface(ABC):
         ...
 
     @abstractmethod
-    def train(self): 
+    def train(self):
         """
         TODO @Kevin update
 
@@ -58,7 +58,7 @@ class ModelInterface(ABC):
         ...
 
     @abstractmethod
-    def infer(self, trials: list[EEGTrial]): 
+    def infer(self, trials: list[EEGTrial]):
         """
         Makes exactly 1 prediction on each trial in `trials`. Sets `EEGTrial.prediction` attribute
         of each trial.
@@ -66,3 +66,4 @@ class ModelInterface(ABC):
         :param trials: a list of the EEGTrials
         """
         ...
+

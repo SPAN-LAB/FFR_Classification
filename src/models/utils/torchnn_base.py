@@ -1,6 +1,8 @@
 from ...core import FFRPrep
 from ...core import EEGSubject
-from ...core import EEGTrial # This isn't being used now, but will be when ``infer`` is implemented
+from ...core import (
+    EEGTrial,
+)  # This isn't being used now, but will be when ``infer`` is implemented
 from .model_interface import ModelInterface
 
 import torch
@@ -42,7 +44,7 @@ class TorchNNBase(ModelInterface):
 
     def set_subject(self, subject: EEGSubject):
         """
-        Sets the subject and automatically builds the model since the model architecture depends on 
+        Sets the subject and automatically builds the model since the model architecture depends on
         and only on values obtained from a subject.
         """
         super().set_subject(subject)
@@ -60,13 +62,13 @@ class TorchNNBase(ModelInterface):
                 "No subject set. Call set_subject() before calling evaluate"
             )
 
-        # Training options 
+        # Training options
         epochs = self.training_options["num_epochs"]
         lr = self.training_options["learning_rate"]
         batch_size = self.training_options["batch_size"]
 
         # Hyperparameters
-        weight_decay = 0.0 
+        weight_decay = 0.0
         val_frac = 0.20
         patience = 5
         min_impr = 1e-3
@@ -203,7 +205,7 @@ class TorchNNBase(ModelInterface):
             "mean_best_val_acc": mean_best,
             "overall_acc": overall_acc,
             "subject": subj_name,
-            "device": str(self.device)
+            "device": str(self.device),
             # "hyperparameters": dict(self.hyperparameters),
         }
 
@@ -225,13 +227,7 @@ class TorchNNBase(ModelInterface):
         # NOTE: Need to add predicted labels to EEGTrial objects, use this to build CMs and ROCs
         # return get_accuracy(self.subject)
         return overall_acc
-    
-    def train(self):
-        return 0
-    
-    def infer(self, trials: list[EEGTrial]):
-        return 0
-    
+
     def build(self):
         """
         Define your model architecture here and initialize ``self.model`` with it.
@@ -242,3 +238,13 @@ class TorchNNBase(ModelInterface):
         throws error if self.subject is None
         """
         raise NotImplementedError("This method needs to be implemented")
+
+    def train(self):
+        """
+        To be implemented later
+        """
+
+    def infer(self, trials: list[EEGTrial]):
+        """
+        To be implemented later
+        """
