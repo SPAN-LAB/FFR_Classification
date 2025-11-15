@@ -13,6 +13,11 @@ class EEGSubjectInterface(ABC):
     source_filepath: str
     folds: list[list[EEGTrialInterface]]
 
+    @abstractmethod
+    @property
+    def trial_size(self):
+        ...
+
     @staticmethod
     @abstractmethod
     def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject: 
@@ -76,6 +81,10 @@ class EEGSubject(EEGSubjectInterface):
         self.trials = trials
         self.source_filepath = source_filepath
         self.folds = None
+
+    @property
+    def trial_size(self):
+        return len(self.trials[0])
 
     @staticmethod
     def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
@@ -197,15 +206,12 @@ class EEGSubject(EEGSubjectInterface):
 
         return self
         
-    def grouped_trials(
-        self, 
-        key: Callable[[EEGTrial], Any]=lambda trial: trial.raw_label
-    ) -> dict[any, list[EEGTrial]]:
-        # Divide into groups separated by their label (accessed by the key)
+    def grouped_trials(self) -> dict[any, list[EEGTrial]]:
+        # Divide into groups separated by their label 
         g = {}
         for trial in self.trials:
-            if key(trial) in g: 
-                g[key(trial)].append(trial)
+            if trial.label in g: 
+                g[trial.label].append(trial)
             else:
-                g[key(trial)] = [trial]
+                g[trial.label] = [trial]
         return g
