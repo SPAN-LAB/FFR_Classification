@@ -1,8 +1,7 @@
-from abc import ABC, abstractmethod
 from numpy import typing as npt
 import numpy as np
 
-class EEGTrialInterface(ABC):
+class EEGTrialInterface:
     data: npt.NDArray # Currently a 1D array 
     trial_index: int
     timestamps: npt.NDArray
@@ -12,11 +11,9 @@ class EEGTrialInterface(ABC):
     prediction_distribution: dict[any, float]
 
     @property
-    @abstractmethod
     def label(self): 
-        ... 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def set_label_preference(self, pref: str | None):
         """
         There are 3 different preference types: 
@@ -25,17 +22,16 @@ class EEGTrialInterface(ABC):
             - None : when the ``label`` property should default to the mapped label but 
                      use the raw label if the mapped one is None
         """
-        ...
-        
-    @abstractmethod
-    def trim_by_index(self, start_index: int, end_index: int): ... 
+        raise NotImplementedError("Implement this method.")
+    
+    def trim_by_index(self, start_index: int, end_index: int): 
+        raise NotImplementedError("Implement this method.")
+    
+    def trim_by_timestamp(self, start_time: float, end_time: float): 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
-    def trim_by_timestamp(self, start_time: float, end_time: float): ... 
-
-    @abstractmethod
     def __len__(self):
-        return len(self.timestamps)
+        raise NotImplementedError("Implement this method.")
 
 class EEGTrial(EEGTrialInterface):
     def __init__(
@@ -87,3 +83,6 @@ class EEGTrial(EEGTrialInterface):
         end = int(np.searchsorted(self.timestamps, end_time, side="right"))
         self.timestamps = self.timestamps[start:end]
         self.data = self.data[start:end]
+    
+    def __len__(self):
+        len(self.timestamps)

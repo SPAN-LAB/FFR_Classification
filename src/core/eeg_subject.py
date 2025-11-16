@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Any, Self, Callable
-from abc import ABC, abstractmethod
 
 from .eeg_trial import EEGTrialInterface, EEGTrial
 
@@ -8,74 +7,64 @@ import numpy as np
 from pymatreader import read_mat
 from random import shuffle
 
-class EEGSubjectInterface(ABC):
+class EEGSubjectInterface:
     trials: list[EEGTrialInterface]
     source_filepath: str
     folds: list[list[EEGTrialInterface]]
 
-    @abstractmethod
     @property
     def trial_size(self):
-        ...
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     @property
     def num_categories(self):
-        ...
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def set_label_preference(self, pref: str | None):
-        ...
+        raise NotImplementedError("Implement this method.")
 
     @staticmethod
-    @abstractmethod
     def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject: 
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject: 
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject: 
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def subaverage(self, size: int) -> EEGSubject:
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def fold(self, num_folds: int) -> EEGSubject:
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
     
-    @abstractmethod
     def map_trial_labels(self, rule_filepath: str) -> EEGSubject:
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
 
-    @abstractmethod
     def grouped_trials(self) -> dict[any, list[EEGTrialInterface]]:
         """
         TODO
         """
-        ... 
+        raise NotImplementedError("Implement this method.")
 
 class EEGSubject(EEGSubjectInterface):
     def __init__(
