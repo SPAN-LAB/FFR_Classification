@@ -85,4 +85,4 @@ class EEGTrial(EEGTrialInterface):
         self.data = self.data[start:end]
     
     def __len__(self):
-        len(self.timestamps)
+        return len(self.timestamps)
