@@ -2,8 +2,9 @@ from abc import ABC, abstractmethod
 from numpy import typing as npt
 import numpy as np
 
+
 class EEGTrialInterface(ABC):
-    data: npt.NDArray # Currently a 1D array 
+    data: npt.NDArray  # Currently a 1D array
     trial_index: int
     timestamps: npt.NDArray
     raw_label: any
@@ -13,40 +14,39 @@ class EEGTrialInterface(ABC):
 
     @property
     @abstractmethod
-    def label(self): 
-        ... 
+    def label(self): ...
 
     @abstractmethod
     def set_label_preference(self, pref: str | None):
         """
-        There are 3 different preference types: 
+        There are 3 different preference types:
             - "raw" : when the `` label`` property should return the raw label
             - "mapped" : when the ``label`` property should return the mapped label
-            - None : when the ``label`` property should default to the mapped label but 
+            - None : when the ``label`` property should default to the mapped label but
                      use the raw label if the mapped one is None
         """
         ...
-        
-    @abstractmethod
-    def trim_by_index(self, start_index: int, end_index: int): ... 
 
     @abstractmethod
-    def trim_by_timestamp(self, start_time: float, end_time: float): ... 
+    def trim_by_index(self, start_index: int, end_index: int): ...
 
     @abstractmethod
+    def trim_by_timestamp(self, start_time: float, end_time: float): ...
+
     def __len__(self):
         return len(self.timestamps)
+
 
 class EEGTrial(EEGTrialInterface):
     def __init__(
         self,
-        data, 
+        data,
         trial_index,
         timestamps,
         raw_label,
         mapped_label=None,
         prediction=None,
-        prediction_distribution=None
+        prediction_distribution=None,
     ):
         self.data = data
         self.trial_index = trial_index
@@ -71,7 +71,7 @@ class EEGTrial(EEGTrialInterface):
             return self.mapped_label
         else:
             raise ValueError("Unrecognized label preference")
-        
+
     def set_label_preference(self, pref: str | None = None):
         """
         "raw", "mapped", or None
@@ -79,11 +79,12 @@ class EEGTrial(EEGTrialInterface):
         self._label_preference = pref
 
     def trim_by_index(self, start_index: int, end_index: int):
-        self.data = self.data[start_index: end_index + 1]
-        self.timestamps = self.timestamps[start_index: end_index + 1]
+        self.data = self.data[start_index : end_index + 1]
+        self.timestamps = self.timestamps[start_index : end_index + 1]
 
     def trim_by_timestamp(self, start_time: float, end_time: float):
         start = int(np.searchsorted(self.timestamps, start_time, side="left"))
         end = int(np.searchsorted(self.timestamps, end_time, side="right"))
         self.timestamps = self.timestamps[start:end]
         self.data = self.data[start:end]
+

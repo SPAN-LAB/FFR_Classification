@@ -133,7 +133,7 @@ class EEGSubject(EEGSubjectInterface):
         return self
 
     def subaverage(self, size: int) -> EEGSubject:
-        grouped_trials = self.grouped_trials(key=lambda trial: trial.raw_label)
+        grouped_trials = self.grouped_trials()
         subaveraged_trials = []
 
         for _, trial_group in grouped_trials.items():
@@ -164,7 +164,7 @@ class EEGSubject(EEGSubjectInterface):
 
     def fold(self, num_folds: int) -> EEGSubject:
         folds = [[] for _ in range(num_folds)]
-        grouped_trials = self.grouped_trials(key=lambda trial: trial.mapped_label)
+        grouped_trials = self.grouped_trials()
 
         for _, trial_group in grouped_trials.items():
             shuffle(trial_group)
