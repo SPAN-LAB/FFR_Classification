@@ -9,8 +9,8 @@ class RNN(TorchNNBase, nn.Module):
         nn.Module.__init__(self)
 
     def build(self):
-        input_size = len(self.subject.trials[0].data)
-        num_classes = 4
+        input_size = self.subject.trial_size
+        num_classes = self.subject.num_categories
         hidden_size = 750
 
         self.model = nn.LSTM(
