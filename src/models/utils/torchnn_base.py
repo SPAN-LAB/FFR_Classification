@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from ...core import FFRPrep
+from ...core.ffr_proc import get_accuracy
 from ...core import EEGSubject
 from ...core import EEGTrial  # This isn't being used now but will be when ``infer`` is implemented
 from .model_interface import ModelInterface
@@ -46,6 +47,9 @@ class TorchNNBase(ModelInterface):
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
 
+    def forward(self, x):
+        raise NotImplementedError("Unimplemented method.")
+
     def evaluate(self) -> float:
         """
         Uses K-fold CV to train and test on EEGSubject data
@@ -59,7 +63,7 @@ class TorchNNBase(ModelInterface):
         batch_size = self.training_options["batch_size"]
         learning_rate = self.training_options["learning_rate"]
         num_epochs = self.training_options["num_epochs"]
-        weight_decay = self.training_options["weight_decay"]
+        weight_decay = self.training_options.get("weight_decay", 0.1)
         min_impr = self.training_options.get("min_impr", 1e-3)
 
         prep = FFRPrep()
@@ -68,6 +72,7 @@ class TorchNNBase(ModelInterface):
         total_correct = 0
         total_n = 0
         for i, fold in enumerate(folds):
+            print("Doing a fold")
             self.build()
             if self.model is not None:
                 self.model.to(self.device)
@@ -93,6 +98,7 @@ class TorchNNBase(ModelInterface):
             best_state = None
             no_improve = 0
             for ep in range(1, num_epochs + 1):
+                print("\tDoing an epoch")
                 self.model.train()
                 for (
                     x_batch,
@@ -118,6 +124,7 @@ class TorchNNBase(ModelInterface):
                         v_n += y_batch.numel()
 
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
+                print(f"\t{val_acc:.4f}")
 
                 if val_acc > best_val_acc + min_impr:
                     best_val_acc = val_acc
@@ -145,7 +152,8 @@ class TorchNNBase(ModelInterface):
 
                     total_correct += (preds == y_batch).sum().item()
                     total_n += y_batch.numel()
-
+        
+        # get_accuracy(self.subject)
         overall_acc = (total_correct / max(total_n, 1)) if total_n else 0.0
         return float(overall_acc)
 
