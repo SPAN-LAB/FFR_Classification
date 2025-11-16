@@ -1,9 +1,7 @@
 from abc import abstractmethod
 from ...core import FFRPrep
 from ...core import EEGSubject
-from ...core import (
-    EEGTrial,
-)  # This isn't being used now, but will be when ``infer`` is implemented
+from ...core import EEGTrial  # This isn't being used now but will be when ``infer`` is implemented
 from .model_interface import ModelInterface
 
 import torch
@@ -17,15 +15,14 @@ import json
 
 class TorchNNBase(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
-        self.training_options = training_options
+        # Initialies subject and training_options attributes
+        super().__init__(training_options)
+
         self.model = None
         self.device = None
 
         # Automatically attempt to use the GPU
         self.set_device()
-
-    @abstractmethod
-    def forward(self, x: torch.Tensor): ...
 
     def set_device(self, use_gpu: bool = True):
         """
@@ -46,63 +43,38 @@ class TorchNNBase(ModelInterface):
         if self.model is not None:
             self.model.to(dev)
 
-    def set_subject(self, subject: EEGSubject):
+    def forward(self, x: torch.Tensor): 
+        raise NotImplementedError("This method needs to be implemented")
+
+    def build(self):
         """
-        Sets the subject and automatically builds the model since the model architecture depends on
-        and only on values obtained from a subject.
+        Define your model architecture here and initialize ``self.model`` with it.
+
+        ___
+        input size and output size are computed from subject
+
+        throws error if self.subject is None
         """
-        super().set_subject(subject)
-        self.build()
+        raise NotImplementedError("This method needs to be implemented")
 
     def evaluate(self) -> float:
         """
         Original stuff was @Anu but AI helped merge original train and test methods
         NOTE AI warning
         """
-        if self.subject is not None:
-            subject: EEGSubject = self.subject
-        else:
-            raise RuntimeError(
-                "No subject set. Call set_subject() before calling evaluate"
-            )
 
-        # Training options
-        epochs = self.training_options["num_epochs"]
-        lr = self.training_options["learning_rate"]
-        batch_size = self.training_options["batch_size"]
+        # Preconditions: 
+        #     - self.subject != None
+        #     - self.model != None
 
-        # Hyperparameters
-        weight_decay = 0.0
-        val_frac = 0.20
-        patience = 5
-        min_impr = 1e-3
-        adjust_labels = True
-        n_classes = 4
-
-        # # Hyperparams
-        # # epochs = int(self.hyperparameters.get("epochs", 15))
-        # # lr = float(self.hyperparameters.get("lr", 1e-3))
-        # weight_decay = float(self.hyperparameters.get("weight_decay", 0.0))
-        # # batch_size = int(self.hyperparameters.get("batch_size", 256))
-        # val_frac = float(self.hyperparameters.get("val_frac", 0.20))
-        # patience = int(self.hyperparameters.get("patience", 5))
-        # min_impr = float(self.hyperparameters.get("min_impr", 1e-3))
-        # adjust_labels = bool(self.hyperparameters.get("adjust_labels", True))
-        # n_classes = int(self.hyperparameters.get("n_classes", 4))  # used for ROC
-
-        torch.manual_seed(42)
-        np.random.seed(42)
-
-        prep = FFRPrep()
-        folds = subject.folds or prep.make_folds(subject, num_folds=5)
-
-        if subject.trials[0].mapped_label is None:
-            subject.use_raw_labels()
+        num_epochs = self.training_options["num_epochs"]
+        learning_rate = self.training_options["learning_rate"]
+        batch_size = self.training_options["barch_size"]
 
         oof_true, oof_pred, oof_prob = [], [], []  # ← collect probs for ROC
         per_fold_best = []
 
-        for fold_idx in range(len(folds)):
+        for i, fold in self.subject.folds:
             # Fresh model per fold
             self.build()
             if self.model is not None:
@@ -231,17 +203,6 @@ class TorchNNBase(ModelInterface):
         # NOTE: Need to add predicted labels to EEGTrial objects, use this to build CMs and ROCs
         # return get_accuracy(self.subject)
         return overall_acc
-
-    def build(self):
-        """
-        Define your model architecture here and initialize ``self.model`` with it.
-
-        ___
-        input size and output size are computed from subject
-
-        throws error if self.subject is None
-        """
-        raise NotImplementedError("This method needs to be implemented")
 
     def train(self):
         """
