@@ -1,6 +1,6 @@
 from src.core import AnalysisPipeline
 
-from local.constants import ALL_PATH
+from local.constants import *
 # Replace this with a variable ``ALL_PATH``, a string representing the path to the directory
 # containing the data. Example:
 # 
