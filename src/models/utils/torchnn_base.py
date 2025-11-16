@@ -61,7 +61,7 @@ class TorchNNBase(ModelInterface):
         batch_size = self.training_options["batch_size"]
         learning_rate = self.training_options["learning_rate"]
         num_epochs = self.training_options["num_epochs"]
-        weight_decay = self.training_options["weight_decay"]
+        weight_decay = self.training_options.get("weight_decay", 0.1)
         min_impr = self.training_options.get("min_impr", 1e-3)
 
         prep = FFRPrep()
