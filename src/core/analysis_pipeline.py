@@ -1,9 +1,16 @@
 from __future__ import annotations
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
+
+from .utils import FunctionDetail as FD
+from .utils import ArgumentDetail as AD
+from .utils import Selection 
+from .utils.details import *
+
 from ..models.utils import ModelInterface
 from ..models.utils import find_model
 import os
+from copy import deepcopy
 
 class AnalysisPipeline:
     def __init__(self):
@@ -13,6 +20,10 @@ class AnalysisPipeline:
         self.subjects: list[EEGSubject] = []
         self.models: list[ModelInterface] = []
     
+    def save(self, *, to: PipelineState) -> AnalysisPipeline:
+        to = deepcopy(self)
+        return self
+
     # MARK: IO
 
     def load_subjects(
@@ -67,12 +78,14 @@ class AnalysisPipeline:
         print(f"trim_by_index : done")
         return self
 
+    @detail(subaverage_detail)
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
         for subject in self.subjects: 
             subject.subaverage(size)
         print(f"subaverage : done")
         return self
 
+    @detail(fold_detail)
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
         for subject in self.subjects: 
             subject.fold(num_folds)
