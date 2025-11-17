@@ -6,11 +6,16 @@ from .eeg_trial import EEGTrialInterface, EEGTrial
 import numpy as np
 from pymatreader import read_mat
 from random import shuffle
+from pathlib import Path
 
 class EEGSubjectInterface:
     trials: list[EEGTrialInterface]
-    source_filepath: str
-    folds: list[list[EEGTrialInterface]]
+    source_filepath: str | None
+    folds: list[list[EEGTrialInterface]] | None
+
+    @property
+    def name(self) -> str:
+        raise NotImplementedError("Implement this method.")
 
     @property
     def trial_size(self) -> int:
@@ -207,6 +212,14 @@ class EEGSubject(EEGSubjectInterface):
             else:
                 g[trial.label] = [trial]
         return g
+
+    @property
+    def name(self) -> str:
+        if self.source_filepath is None:
+            return "<Undeterminable name>"
+
+        filename = Path(self.source_filepath).name # Get filename from filepath
+        return filename.stem # Remove the extension
 
     @property
     def trial_size(self) -> int:
