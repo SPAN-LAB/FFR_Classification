@@ -33,22 +33,3 @@ fold_detail = FD(
     ],
     description="Divides each subject's trials into the number of groups (folds) provided."
 )
-
-def finder(self):
-    return {
-        "one": 1,
-        "two": 2,
-        "three": 3
-    }
-
-dummy_detail = FD(
-    label="Dummy",
-    argument_details=[
-        AD(
-            label="String",
-            type=Selection,
-            default_value=Selection(finder),
-            description="Something"
-        )
-    ]
-)
