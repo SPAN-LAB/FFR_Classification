@@ -50,7 +50,7 @@ class TorchNNBase(ModelInterface):
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
 
-    def evaluate(self) -> float:
+    def evaluate(self, verbose: bool = True) -> float:
         """
         Uses K-fold CV to train and test on EEGSubject data
         and returns overall accuracy as a float
@@ -72,6 +72,9 @@ class TorchNNBase(ModelInterface):
         total_correct = 0
         total_n = 0
         for i, fold in enumerate(folds):
+            if verbose:
+                print(f"\n===== Fold {i} =====")
+
             self.build()
             if self.model is not None:
                 self.model.to(self.device)
@@ -98,6 +101,10 @@ class TorchNNBase(ModelInterface):
             no_improve = 0
             for ep in range(1, num_epochs + 1):
                 self.model.train()
+
+                running_loss = 0.0
+                n_train = 0
+
                 for (
                     x_batch,
                     y_batch,
@@ -108,7 +115,11 @@ class TorchNNBase(ModelInterface):
                     loss = criterion(logits, y_batch)
                     loss.backward()
                     optimizer.step()
+                    batch_size = y_batch.size(0)
+                    running_loss += loss.item() * batch_size
+                    n_train += batch_size
 
+                avg_train_loss = running_loss / max(n_train, 1)
                 self.model.eval()
                 v_correct = v_n = 0
                 with torch.no_grad():
@@ -122,6 +133,11 @@ class TorchNNBase(ModelInterface):
                         v_n += y_batch.numel()
 
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
+
+                if verbose:
+                    print(
+                        f"train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
+                    )
 
                 if val_acc > best_val_acc + min_impr:
                     best_val_acc = val_acc
