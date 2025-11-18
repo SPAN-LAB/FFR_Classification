@@ -169,13 +169,8 @@ class TorchNNBase(ModelInterface):
                             prediction_distribution=dist,
                         )
 
-        overall_acc = (total_correct / max(total_n, 1)) if total_n else 0.0
-        print("theoretical acc:", ffr_proc.get_accuracy(self.subject, True))
-
-        print(self.subject.trials[32].prediction)
-        print(self.subject.trials[32].label)
-        print(self.subject.trials[32].predicted_true)
-        return float(overall_acc)
+        print("Theoretical dist:", self.subject.trials[32].prediction_distribution)
+        return ffr_proc.get_accuracy(self.subject, True)
 
     def train(self):
         """
