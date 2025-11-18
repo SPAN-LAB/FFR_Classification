@@ -21,7 +21,8 @@ class AnalysisPipeline:
         self.models: list[ModelInterface] = []
     
     def save(self, *, to: PipelineState) -> AnalysisPipeline:
-        to = deepcopy(self)
+        to.subjects = deepcopy(self.subjects)
+        to.models = deepcopy(self.models)
         return self
 
     # MARK: IO
