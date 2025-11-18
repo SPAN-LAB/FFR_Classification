@@ -1,4 +1,6 @@
 from abc import abstractmethod
+
+from src.core import ffr_proc
 from ...core import FFRPrep
 from ...core import EEGSubject
 from ...core import (
@@ -148,7 +150,31 @@ class TorchNNBase(ModelInterface):
                     total_correct += (preds == y_batch).sum().item()
                     total_n += y_batch.numel()
 
+                    probs_np = probs.cpu().numpy()
+                    preds_np = preds.cpu().numpy()
+                    idx_np = idx.cpu().numpy()
+
+                    for trial_idx, pred_label_0based, prob_vec in zip(
+                        idx_np, preds_np, probs_np
+                    ):
+                        # convert 0–3 → 1–4
+                        pred_label_1based = int(pred_label_0based) + 1
+
+                        # optionally also make the distribution keys 1–4
+                        dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
+
+                        self.subject.map_pred_to_trial(
+                            index=int(trial_idx),
+                            predicted_label=pred_label_1based,
+                            prediction_distribution=dist,
+                        )
+
         overall_acc = (total_correct / max(total_n, 1)) if total_n else 0.0
+        print("theoretical acc:", ffr_proc.get_accuracy(self.subject, True))
+
+        print(self.subject.trials[32].prediction)
+        print(self.subject.trials[32].label)
+        print(self.subject.trials[32].predicted_true)
         return float(overall_acc)
 
     def train(self):
