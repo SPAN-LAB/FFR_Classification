@@ -223,7 +223,16 @@ class EEGSubject(EEGSubjectInterface):
         for trial in self.trials:
             trial.set_label_preference(pref)
 
+    def map_pred_to_trial(
+        self,
+        index: int,
+        predicted_label: int,
+        prediction_distribution: dict[any, float],
+    ):
+        trial = self.trials[index]
+        trial.prediction = predicted_label
+        trial.prediction_distribution = prediction_distribution
+
     @property
     def num_categories(self):
         return len(self.grouped_trials().keys())
-
