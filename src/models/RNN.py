@@ -40,4 +40,4 @@ class RNN_model(TorchNNBase):
         hidden_size = 750
         self.model = RNN(
             input_size=input_size, hidden_size=hidden_size, num_classes=num_classes
-        )
+        ).to(self.device)
