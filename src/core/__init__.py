@@ -10,8 +10,7 @@ __all__ = [
     "EEGSubjectInterface",
     "EEGTrial",
     "EEGTrialInterface",
-    "Trainer",
-    "TrainerInterface",
     "Plots",
     "PlotsInterface",
 ]
+

@@ -1,4 +1,6 @@
 from abc import abstractmethod
+
+from src.core import ffr_proc
 from ...core import FFRPrep
 from ...core.ffr_proc import get_accuracy
 from ...core import EEGSubject
@@ -47,10 +49,7 @@ class TorchNNBase(ModelInterface):
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
 
-    def forward(self, x):
-        raise NotImplementedError("Unimplemented method.")
-
-    def evaluate(self) -> float:
+    def evaluate(self, verbose: bool = True) -> float:
         """
         Uses K-fold CV to train and test on EEGSubject data
         and returns overall accuracy as a float
@@ -72,7 +71,9 @@ class TorchNNBase(ModelInterface):
         total_correct = 0
         total_n = 0
         for i, fold in enumerate(folds):
-            print("Doing a fold")
+            if verbose:
+                print(f"\n===== Fold {i} =====")
+
             self.build()
             if self.model is not None:
                 self.model.to(self.device)
@@ -100,6 +101,10 @@ class TorchNNBase(ModelInterface):
             for ep in range(1, num_epochs + 1):
                 print("\tDoing an epoch")
                 self.model.train()
+
+                running_loss = 0.0
+                n_train = 0
+
                 for (
                     x_batch,
                     y_batch,
@@ -110,7 +115,11 @@ class TorchNNBase(ModelInterface):
                     loss = criterion(logits, y_batch)
                     loss.backward()
                     optimizer.step()
+                    batch_size = y_batch.size(0)
+                    running_loss += loss.item() * batch_size
+                    n_train += batch_size
 
+                avg_train_loss = running_loss / max(n_train, 1)
                 self.model.eval()
                 v_correct = v_n = 0
                 with torch.no_grad():
@@ -124,7 +133,11 @@ class TorchNNBase(ModelInterface):
                         v_n += y_batch.numel()
 
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
-                print(f"\t{val_acc:.4f}")
+
+                if verbose:
+                    print(
+                        f"train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
+                    )
 
                 if val_acc > best_val_acc + min_impr:
                     best_val_acc = val_acc
@@ -152,10 +165,28 @@ class TorchNNBase(ModelInterface):
 
                     total_correct += (preds == y_batch).sum().item()
                     total_n += y_batch.numel()
-        
-        # get_accuracy(self.subject)
-        overall_acc = (total_correct / max(total_n, 1)) if total_n else 0.0
-        return float(overall_acc)
+
+                    probs_np = probs.cpu().numpy()
+                    preds_np = preds.cpu().numpy()
+                    idx_np = idx.cpu().numpy()
+
+                    for trial_idx, pred_label_0based, prob_vec in zip(
+                        idx_np, preds_np, probs_np
+                    ):
+                        # convert 0–3 → 1–4
+                        pred_label_1based = int(pred_label_0based) + 1
+
+                        # optionally also make the distribution keys 1–4
+                        dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
+
+                        self.subject.map_pred_to_trial(
+                            index=int(trial_idx),
+                            predicted_label=pred_label_1based,
+                            prediction_distribution=dist,
+                        )
+
+        print("Theoretical dist:", self.subject.trials[32].prediction_distribution)
+        return ffr_proc.get_accuracy(self.subject, True)
 
     def train(self):
         """
