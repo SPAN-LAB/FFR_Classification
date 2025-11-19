@@ -28,7 +28,7 @@ class AnalysisPipeline:
 
     # MARK: IO
 
-    @gui_private
+    @gui_private()
     def load_subjects(
         self, *,
         folder_path: str = None,
