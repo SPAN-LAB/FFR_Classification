@@ -16,10 +16,10 @@ class EEGTrialInterface:
 
     def set_label_preference(self, pref: str | None):
         """
-        There are 3 different preference types: 
+        There are 3 different preference types:
             - "raw" : when the `` label`` property should return the raw label
             - "mapped" : when the ``label`` property should return the mapped label
-            - None : when the ``label`` property should default to the mapped label but 
+            - None : when the ``label`` property should default to the mapped label but
                      use the raw label if the mapped one is None
         """
         raise NotImplementedError("Implement this method.")
@@ -33,16 +33,17 @@ class EEGTrialInterface:
     def __len__(self):
         raise NotImplementedError("Implement this method.")
 
+
 class EEGTrial(EEGTrialInterface):
     def __init__(
         self,
-        data, 
+        data,
         trial_index,
         timestamps,
         raw_label,
         mapped_label=None,
         prediction=None,
-        prediction_distribution=None
+        prediction_distribution=None,
     ):
         self.data = data
         self.trial_index = trial_index
@@ -67,7 +68,7 @@ class EEGTrial(EEGTrialInterface):
             return self.mapped_label
         else:
             raise ValueError("Unrecognized label preference")
-        
+
     def set_label_preference(self, pref: str | None = None):
         """
         "raw", "mapped", or None
@@ -75,8 +76,8 @@ class EEGTrial(EEGTrialInterface):
         self._label_preference = pref
 
     def trim_by_index(self, start_index: int, end_index: int):
-        self.data = self.data[start_index: end_index + 1]
-        self.timestamps = self.timestamps[start_index: end_index + 1]
+        self.data = self.data[start_index : end_index + 1]
+        self.timestamps = self.timestamps[start_index : end_index + 1]
 
     def trim_by_timestamp(self, start_time: float, end_time: float):
         start = int(np.searchsorted(self.timestamps, start_time, side="left"))

@@ -36,14 +36,18 @@ class _CNN1D(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == 2:
-            x.unsqueeze(1)  # NOTE: changes shape to (N,1,T) as required by CNNs
+            x = x.unsqueeze(1)  # NOTE: changes shape to (N,1,T) as required by CNNs
         return self.net(x)
 
 
 class CNNModel(TorchNNBase):
+    def __init__(self, training_options: dict[str, any]):
+        TorchNNBase.__init__(self, training_options)
+        self.build()
+
     def build(self) -> None:
-        n_classes = int(self.hyperparameters.get("n_classes", 4))
-        p_drop = float(self.hyperparameters.get("p_drop", 0.1))
+        n_classes = int(self.training_options.get("n_classes", 4))
+        p_drop = float(self.training_options.get("p_drop", 0.1))
         self.model = _CNN1D(n_classes=n_classes, p_drop=p_drop).to(self.device)
 
     def train(self, output_path: str) -> None:
