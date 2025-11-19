@@ -2,7 +2,10 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import Callable
 
-
+class FunctionKind(Enum):
+    gui = auto()
+    gui_private = auto()
+    non_gui = auto()
 
 class Selection:
     def __init__(self, map: Callable[[], dict[str, any]]):
@@ -20,11 +23,13 @@ class FunctionDetail:
         self,
         label: str,
         argument_details: list[ArgumentDetail],
-        description: str | None = None
+        description: str | None = None,
+        kind: FunctionKind = FunctionKind.gui
     ):
         self.label = label
         self.argument_details = argument_details
         self.description = description
+        self.kind = kind
 
 class ArgumentDetail:
     def __init__(

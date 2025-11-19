@@ -20,6 +20,7 @@ class AnalysisPipeline:
         self.subjects: list[EEGSubject] = []
         self.models: list[ModelInterface] = []
     
+    @undetailed()
     def save(self, *, to: PipelineState) -> AnalysisPipeline:
         to.subjects = deepcopy(self.subjects)
         to.models = deepcopy(self.models)
@@ -27,6 +28,7 @@ class AnalysisPipeline:
 
     # MARK: IO
 
+    @gui_private
     def load_subjects(
         self, *,
         folder_path: str = None,
@@ -56,6 +58,7 @@ class AnalysisPipeline:
 
     # MARK: Pre-training processing functions
 
+    @detail(map_labels_detail)
     def map_labels(self, rule_csv: str) -> AnalysisPipeline:
         """
         Sets the labels for all trials according to the provided file.
@@ -67,12 +70,14 @@ class AnalysisPipeline:
         print(f"map_labels : done")
         return self
 
+    @detail(trim_by_timestamp_detail)
     def trim_by_timestamp(self, start_time: float, end_time: float) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_timestamp(start_time, end_time)
         print(f"trim_by_timestamp : done")
         return self
 
+    @detail(trim_by_index_detail)
     def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_index(start_index, end_index)
@@ -95,6 +100,7 @@ class AnalysisPipeline:
 
     # MARK: ML functions
 
+    @detail(evaluate_model_detail_2)
     def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
         concrete_model = find_model(model_name)
         for subject in self.subjects:
@@ -106,6 +112,7 @@ class AnalysisPipeline:
             print(f"Accuracy: {model.evaluate()}")
             self.models.append(model)
 
+    @detail(train_model_detail)
     def train_model(
         self, 
         model_name: str, 
@@ -126,6 +133,7 @@ class AnalysisPipeline:
         
         return self
 
+    @detail(infer_on_model_detail)
     def infer_on_model(self, path_to_model: str, trial: EEGTrial) -> AnalysisPipeline:
         """
         TODO
