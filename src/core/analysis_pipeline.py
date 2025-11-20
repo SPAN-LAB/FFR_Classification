@@ -29,31 +29,43 @@ class AnalysisPipeline:
     # MARK: IO
 
     @gui_private()
-    def load_subjects(
-        self, *,
-        folder_path: str = None,
-        filepath_list: list[str] = None    
-    ) -> AnalysisPipeline:
+    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
         """
         Load every `.mat` file in a directory or list of filepaths as `EEGSubject` instances.
 
-        If both ``folder_path`` and ``file_path_list`` are provided, uses folder_path.
-
-        :param str folder_path: The directory containing the `.mat` files.
-        :param str file_path_list: a list containing the path to the ``.mat`` files
+        :param path: Either a string path (file or directory) or a list of file paths.
         """
-        if folder_path is not None:
-            for file in os.listdir(folder_path):
-                if file.endswith(".mat"):
-                    subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
-                    print(f"load_subjects : Subject loaded")
-                    self.subjects.append(subject)
-        elif filepath_list is not None and len(filepath_list) > 0:
-            for filename in filepath_list:
-                if filename.endswith(".mat"):
-                    subject = EEGSubject.init_from_filepath(filename)
-                    print(f"load_subjects : Subject loaded")
-                    self.subjects.append(subject)
+
+        def load_subjects_helper(filepath: str, check_extension: bool = True):
+            if check_extension and not filepath.endswith(".mat"):
+                raise ValueError(f"File does not end with .mat: {filepath}")
+            subject = EEGSubject.init_from_filepath(filepath)
+            print(f"load_subjects : Subject loaded from {filepath}")
+            self.subjects.append(subject)
+
+        if type(path) is str:
+            
+            if os.path.isfile(path):
+                load_subjects_helper(path)
+            elif os.path.isdir(path):
+                files = []
+                for file in os.listdir(path):
+                    if file.endswith(".mat"):
+                        files.append(file)
+
+                if len(files) == 0:
+                    print(f"Warning: No .mat files found in directory: {path}")
+                for file in files:
+                    filepath = os.path.join(path, file)
+                    load_subjects_helper(filepath, check_extension=False)
+            else:
+                raise ValueError(f"Path does not exist: {path}")
+        elif type(path) is list:
+            for filepath in path:
+                load_subjects_helper(filepath)
+        else:
+            raise ValueError("Unrecognized input: path must be a string or list of strings")
+        
         return self
 
     # MARK: Pre-training processing functions
