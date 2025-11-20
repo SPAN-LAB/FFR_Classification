@@ -135,6 +135,7 @@ class TorchNNBase(ModelInterface):
         learning_rate = self.training_options["learning_rate"]
         num_epochs = self.training_options["num_epochs"]
         weight_decay = self.training_options.get("weight_decay", 0.1)
+        early_stopping = self.training_options.get("early_stopping", False)
         min_impr = self.training_options.get("min_impr", 1e-3)
 
         prep = FFRPrep()
@@ -142,7 +143,7 @@ class TorchNNBase(ModelInterface):
         folds = self.subject.folds
         total_correct = 0
         total_n = 0
-        self.debug_RNN()
+
         for i, fold in enumerate(folds):
             if verbose:
                 print(f"\n===== Fold {i + 1} =====")
@@ -217,9 +218,11 @@ class TorchNNBase(ModelInterface):
                     best_state = {
                         k: v.detach().cpu() for k, v in self.model.state_dict().items()
                     }
-                else:
+                elif early_stopping:
                     no_improve += 1
                     if no_improve >= 5:  # NOTE: using 5 in place of patience
+                        if verbose:
+                            print(f"Early stopping at epoch {ep}")
                         break
 
             if best_state is not None:
@@ -257,7 +260,6 @@ class TorchNNBase(ModelInterface):
                             prediction_distribution=dist,
                         )
 
-        print("Theoretical dist:", self.subject.trials[32].prediction_distribution)
         return ffr_proc.get_accuracy(self.subject, True)
 
     def train(self):
