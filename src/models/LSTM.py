@@ -16,10 +16,11 @@ class CNN_LSTM(nn.Module):
             input_size=64,
             hidden_size=hidden_size,
             batch_first=True,
-            bidirectional=False,
+            bidirectional=True,  # <-- now bidirectional
         )
         self.dropout = nn.Dropout(0.0)  # keep 0 for now
-        self.fc = nn.Linear(hidden_size, num_classes)
+        # hidden_size * 2 because fwd + bwd are concatenated
+        self.fc = nn.Linear(hidden_size * 2, num_classes)
 
     def forward(self, x: torch.Tensor):
         if x.ndim == 2:
@@ -28,10 +29,14 @@ class CNN_LSTM(nn.Module):
         feats = self.conv(x)  # [B, 64, T']
         feats = feats.transpose(1, 2)  # [B, T', 64]
 
-        _, (h_n, _) = self.lstm(feats)  # h_n: [1, B, H]
-        h = h_n[-1]  # [B, H]
+        _, (h_n, _) = self.lstm(feats)  # h_n: [num_layers * num_directions, B, H]
+        # For 1 layer, 2 directions: h_n[0] = forward, h_n[1] = backward
+        h_fwd = h_n[-2]  # [B, H]
+        h_bwd = h_n[-1]  # [B, H]
+        h = torch.cat([h_fwd, h_bwd], dim=1)  # [B, 2H]
+
         h = self.dropout(h)
-        return self.fc(h)
+        return self.fc(h)  # [B, num_classes]
 
 
 class RNN_model(TorchNNBase):
@@ -42,6 +47,7 @@ class RNN_model(TorchNNBase):
     def build(self):
         num_classes = 4
         hidden_size = 128
-        self.model = CNN_LSTM(num_classes=num_classes, hidden_size=hidden_size).to(
-            self.device
-        )
+        self.model = CNN_LSTM(
+            num_classes=num_classes,
+            hidden_size=hidden_size,
+        ).to(self.device)
