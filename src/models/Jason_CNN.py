@@ -11,7 +11,7 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from ..core.eeg_subject import EEGSubject
 from ..core.eeg_trial import EEGTrial
 from ..core.ffr_prep import FFRPrep
-from .model_interface import ModelInterface
+from .utils.model_interface import ModelInterface
 from typing import Any
 
 
