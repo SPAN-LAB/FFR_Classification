@@ -1,7 +1,9 @@
+
 from numpy import typing as npt
 import numpy as np
 
 class EEGTrialInterface:
+    subject: any
     data: npt.NDArray # Currently a 1D array 
     trial_index: int
     timestamps: npt.NDArray
@@ -12,6 +14,10 @@ class EEGTrialInterface:
 
     @property
     def label(self): 
+        raise NotImplementedError("Implement this method.")
+    
+    @property 
+    def enumerated_label(self):
         raise NotImplementedError("Implement this method.")
 
     def set_label_preference(self, pref: str | None):
@@ -33,10 +39,14 @@ class EEGTrialInterface:
     def __len__(self):
         raise NotImplementedError("Implement this method.")
 
+    def set_prediction(self, enumerated_label):
+        raise NotImplementedError("Implement this method.")
+
 
 class EEGTrial(EEGTrialInterface):
     def __init__(
         self,
+        subject,
         data,
         trial_index,
         timestamps,
@@ -45,6 +55,7 @@ class EEGTrial(EEGTrialInterface):
         prediction=None,
         prediction_distribution=None,
     ):
+        self.subject = subject
         self.data = data
         self.trial_index = trial_index
         self.timestamps = timestamps
@@ -74,6 +85,10 @@ class EEGTrial(EEGTrialInterface):
         "raw", "mapped", or None
         """
         self._label_preference = pref
+    
+    def set_prediction(self, enumerated_label):
+        reversed_labels_map = {value: key for key, value in self.subject.labels_map.items()}
+        self.prediction = reversed_labels_map[enumerated_label]
 
     def trim_by_index(self, start_index: int, end_index: int):
         self.data = self.data[start_index : end_index + 1]
@@ -87,3 +102,7 @@ class EEGTrial(EEGTrialInterface):
     
     def __len__(self):
         return len(self.timestamps)
+    
+    @property
+    def enumerated_label(self):
+        return self.subject.labels_map[self.label]

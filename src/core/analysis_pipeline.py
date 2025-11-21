@@ -121,7 +121,7 @@ class AnalysisPipeline:
             model.set_subject(subject)
 
             # Evaluate it
-            print(f"Accuracy: {model.evaluate()}")
+            print(f"Accuracy on {subject.name}: {model.evaluate()}")
             self.models.append(model)
 
     @detail(train_model_detail)

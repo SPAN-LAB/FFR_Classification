@@ -12,6 +12,7 @@ class EEGSubjectInterface:
     trials: list[EEGTrialInterface]
     source_filepath: str | None
     folds: list[list[EEGTrialInterface]] | None
+    labels_map: dict[str, int]
 
     @property
     def name(self) -> str:
@@ -79,6 +80,7 @@ class EEGSubject(EEGSubjectInterface):
         self.trials = trials
         self.source_filepath = source_filepath
         self.folds = None
+        self.labels_map = {}
 
     @staticmethod
     def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
@@ -107,18 +109,23 @@ class EEGSubject(EEGSubjectInterface):
         labels = extracted_data["labels"]
 
         # Create the EEGTrial instances
+        subject = EEGSubject()
         trials = []
         for i, trial in enumerate(raw_data):
             trials.append(
                 EEGTrial(
+                    subject=subject,
                     data=trial,
                     timestamps=timestamps,
                     trial_index=i,
                     raw_label=labels[i],
                 )
             )
+        subject.trials = trials
+        subject.source_filepath = filepath
+        subject.setup_labels_map()
 
-        return EEGSubject(trials=trials, source_filepath=filepath)
+        return subject
 
     def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject:
         for trial in self.trials:
@@ -149,6 +156,7 @@ class EEGSubject(EEGSubjectInterface):
                 subaveraged_data = np.mean(stacked_data, axis=0)
 
                 subaveraged_trial = EEGTrial(
+                    subject=self,
                     data=subaveraged_data,
                     trial_index=len(subaveraged_trials),
                     timestamps=chunk[0].timestamps,
@@ -170,10 +178,6 @@ class EEGSubject(EEGSubjectInterface):
                 folds[i % num_folds].append(trial)
         self.folds = folds
         return self
-
-    def use_raw_labels(self):
-        for tr in self.trials:
-            tr.mapped_label = tr.raw_label
 
     def map_trial_labels(self, rule_filepath: str) -> Self:
         # Create a dictionary that maps from raw label to mapped label
@@ -218,8 +222,8 @@ class EEGSubject(EEGSubjectInterface):
         if self.source_filepath is None:
             return "<Undeterminable name>"
 
-        filename = Path(self.source_filepath).name # Get filename from filepath
-        return filename.stem # Remove the extension
+        filename = Path(self.source_filepath).stem # Get filename from filepath (without extension)
+        return filename
 
     @property
     def trial_size(self) -> int:
@@ -229,15 +233,18 @@ class EEGSubject(EEGSubjectInterface):
         for trial in self.trials:
             trial.set_label_preference(pref)
 
-    def map_pred_to_trial(
-        self,
-        index: int,
-        predicted_label: int,
-        prediction_distribution: dict[any, float],
-    ):
-        trial = self.trials[index]
-        trial.prediction = predicted_label
-        trial.prediction_distribution = prediction_distribution
+    def setup_labels_map(self):
+        # Find all the labels 
+        labels_set = set()
+        labels_array = []
+        
+        for trial in self.trials:
+            if trial.label not in labels_set:
+                labels_array.append(trial.label)
+                labels_set.add(trial.label)
+
+        for i, label in enumerate(labels_array):
+            self.labels_map[label] = i
 
     @property
     def num_categories(self) -> int:
