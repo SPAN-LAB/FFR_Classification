@@ -1,4 +1,5 @@
 from .eeg_subject import EEGSubject
+from .eeg_trial import EEGTrial
 
 
 class FFRPrep:

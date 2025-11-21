@@ -18,7 +18,7 @@ def get_accuracy(subject: EEGSubject, enforce_saturation: bool = False) -> float
             else:
                 total_count += 1
 
-        if int(trial.label) == trial.prediction:
+        if trial.label == trial.prediction:
             num_correct += 1
 
     return num_correct / len(subject.trials)

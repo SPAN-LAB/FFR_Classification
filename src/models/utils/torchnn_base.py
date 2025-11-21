@@ -29,22 +29,19 @@ class TorchNNBase(ModelInterface):
 
     def set_device(self, use_gpu: bool = True):
         """
-        If ``use_gpu`` is true, finds either a CUDA- or MPS-enabled GPU device. If none are found,
-        or if ``use_gpu`` is false, uses the CPU instead.
+        Searches for a compatible GPU device if ``use_gpu`` is True. 
+        If one isn't found, or if ``use_gpu`` is False, uses the CPU instead. 
         """
-        if use_gpu and torch.cuda.is_available():
-            dev = torch.device("cuda")
-        elif (
-            use_gpu
-            and hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
-            dev = torch.device("mps")
+        if use_gpu:
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+                print("Set to MPS")
+            else:
+                self.device = torch.device("cpu")
         else:
-            dev = torch.device("cpu")
-        self.device = dev
-        if self.model is not None:
-            self.model.to(dev)
+            self.device = torch.device("cpu")
 
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
