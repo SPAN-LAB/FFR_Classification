@@ -1,6 +1,6 @@
 from src.core import AnalysisPipeline
 
-from local.constants import ALL_PATH
+#from local.constants import ALL_PATH
 # Replace this with a variable ``ALL_PATH``, a string representing the path to the directory
 # containing the data. Example:
 # 
@@ -8,11 +8,12 @@ from local.constants import ALL_PATH
 #
 # Using the ``ALL_PATH`` variable is NOT required. If you use a different variable name,
 # update the variable name in the ``.load_subjects(...)`` line.
-
+# ALL_PATH = "/Volumes/gurindapalli/projects/trial_classification/4tone_cell"
+ALL_PATH = ["/Volumes/gurindapalli/projects/trial_classification/4tone_cell/4T1015.mat"]
 
 p = (
     AnalysisPipeline()
-    .load_subjects(folder_path=ALL_PATH)
+    .load_subjects(filepath_list=ALL_PATH)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .subaverage()
     .fold()

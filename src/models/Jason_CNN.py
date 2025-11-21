@@ -36,13 +36,13 @@ class Jason_CNN(ModelInterface):
         batch_size: int = 32,
         val_split: float = 0.10,
         group_size: int = 5,
-        repeats: int = 6,
+        repeats: int = 0,
         bootstrap: bool = True,
         l2: float = 1e-5,
         sdrop: float = 0.10,
         head_drop: float = 0.30,
         lr: float = 1e-3,
-        signal_attr: str = "ffr_dss",
+        signal_attr: str = "data",
         label_attr: str = "mapped_label",
     ):
         super().__init__(training_options or {})
@@ -61,6 +61,8 @@ class Jason_CNN(ModelInterface):
         self.signal_attr = signal_attr
         self.label_attr = label_attr
         self.model: tf.keras.Model | None = None
+        self._label_to_idx: dict[int, int] | None = None
+        self._idx_to_label: dict[int, int] | None = None
 
     def _build_model(self, input_len: int, n_classes: int) -> tf.keras.Model:
         inp = layers.Input(shape=(input_len, 1))
@@ -179,29 +181,39 @@ class Jason_CNN(ModelInterface):
         return X, y
 
     def _train_on_trials(self, train_trials: Sequence[EEGTrial]) -> None:
-        """
-        Train the CNN on a list of EEGTrial objects, using:
-          - StratifiedShuffleSplit for train/val split
-          - subaverage-based augmentation
-          - class-balanced weights
-          - early stopping & ReduceLROnPlateau
-        """
-        X, y = self._trials_to_xy(train_trials, require_labels=True)
+        X, y_raw = self._trials_to_xy(train_trials, require_labels=True)
         n_samples = X.shape[0]
+        print(
+            f"[Jason_CNN] _train_on_trials: X shape={X.shape}, "
+            f"n_samples={n_samples}, unique labels={np.unique(y_raw)}"
+        )
 
         if n_samples < 2:
             raise RuntimeError("Not enough samples to train Jason_CNN.")
 
-        # IMPORTANT: we assume labels are already in [0, n_classes-1]
-        unique_labels = np.unique(y)
-        if unique_labels.min() < 0 or unique_labels.max() >= self.n_classes:
+        # Build mapping from raw labels (e.g. 1,2,3,4) to 0..n_classes-1
+        unique_labels = np.unique(y_raw)
+
+        # Optional sanity check: number of distinct labels matches n_classes
+        if len(unique_labels) != self.n_classes:
             raise ValueError(
-                f"Labels must be in [0, n_classes-1]. "
-                f"Got labels {unique_labels.tolist()} with n_classes={self.n_classes}. "
-                "Make sure EEGTrial.mapped_label is 0-based or adjust Jason_CNN."
+                f"Expected {self.n_classes} classes, "
+                f"but found labels {unique_labels.tolist()} "
+                f"(count={len(unique_labels)})."
             )
 
-        # Train/val split (analogous to your StratifiedShuffleSplit)
+        # Create mapping dicts
+        self._label_to_idx = {
+            int(label): idx for idx, label in enumerate(sorted(unique_labels))
+        }
+        self._idx_to_label = {idx: label for label, idx in self._label_to_idx.items()}
+
+        # Map raw labels to 0..n_classes-1
+        y = np.array([self._label_to_idx[int(l)] for l in y_raw], dtype=np.int32)
+
+        # --- rest of your original code, but now using y instead of y_raw ---
+
+        # Train/val split
         sss = StratifiedShuffleSplit(
             n_splits=1,
             test_size=self.val_split,
@@ -211,7 +223,7 @@ class Jason_CNN(ModelInterface):
         Xtr, ytr = X[tr_idx], y[tr_idx]
         Xval, yval = X[val_idx], y[val_idx]
 
-        # Subaverage augmentation (your subaverage())
+        # Subaverage augmentation
         Xtr_sa, ytr_sa = self._subaverage(Xtr, ytr)
 
         Xtr_parts = [Xtr]
@@ -222,8 +234,12 @@ class Jason_CNN(ModelInterface):
 
         Xtr_aug = np.concatenate(Xtr_parts, axis=0)
         ytr_aug = np.concatenate(ytr_parts, axis=0)
+        print(
+        f"[Jason_CNN] after subaverage: Xtr_aug={Xtr_aug.shape}, "
+        f"ytr_aug={ytr_aug.shape}"
+        )
 
-        # Build model (same architecture)
+        # Build model
         input_len = X.shape[1]
         self.model = self._build_model(input_len, self.n_classes)
 
@@ -236,10 +252,9 @@ class Jason_CNN(ModelInterface):
         try:
             final_dense.bias.assign(np.log(priors + 1e-8))
         except Exception:
-            # If for some reason it fails (e.g. custom layer), just skip
             pass
 
-        # Class weights (same idea as your script)
+        # Class weights
         class_weight = {
             i: float(len(ytr_aug) / (self.n_classes * max(class_counts[i], 1)))
             for i in range(self.n_classes)
@@ -263,7 +278,7 @@ class Jason_CNN(ModelInterface):
             validation_data=(Xval, yval),
             epochs=self.epochs,
             batch_size=self.batch_size,
-            verbose=0,
+            verbose=1,
             callbacks=[es, rlr],
             class_weight=class_weight,
         )
@@ -284,12 +299,18 @@ class Jason_CNN(ModelInterface):
 
         X, _ = self._trials_to_xy(trials, require_labels=False)
         probs = self.model.predict(X, batch_size=self.batch_size, verbose=0)
-        preds = np.argmax(probs, axis=1)
+        idx_preds = np.argmax(probs, axis=1)
 
-        for trial, label in zip(trials, preds):
-            trial.prediction.prediction = int(label)
+        if self._idx_to_label is not None:
+            label_preds = [int(self._idx_to_label[int(i)]) for i in idx_preds]
+        else:
+            # Fallback: assume indices are the labels
+            label_preds = [int(i) for i in idx_preds]
 
-        return preds.tolist()
+        for trial, label in zip(trials, label_preds):
+            trial.prediction = int(label)
+
+        return label_preds
 
     def train(self, output_path: str | None = None):
         if self.subject is None:
@@ -334,7 +355,15 @@ class Jason_CNN(ModelInterface):
         folds = subject.folds
 
         for fold in folds:
-            test_trials = list(fold.trials)
+            print(("doing a fold!"))
+            # Support both:
+            # - fold being an object with .trials
+            # - fold being just a list[EEGTrial]
+            if hasattr(fold, "trials"):
+                test_trials = list(fold.trials)
+            else:
+                test_trials = list(fold)
+
             train_trials = [t for t in subject.trials if t not in test_trials]
 
             self._train_on_trials(train_trials)
@@ -342,8 +371,7 @@ class Jason_CNN(ModelInterface):
             predicted_labels = self.infer(test_trials)
 
             for trial, label in zip(test_trials, predicted_labels):
-
-                trial.prediction.prediction = int(label)
+                trial.prediction = int(label)
 
             tf.keras.backend.clear_session()
             self.model = None

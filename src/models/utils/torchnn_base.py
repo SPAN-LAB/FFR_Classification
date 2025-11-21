@@ -103,6 +103,7 @@ class TorchNNBase(ModelInterface):
         per_fold_best = []
 
         for fold_idx in range(len(folds)):
+            print(f"Doing fold {fold_idx}")
             # Fresh model per fold
             self.build()
             if self.model is not None:
@@ -132,6 +133,7 @@ class TorchNNBase(ModelInterface):
             no_improve = 0
 
             for _ep in range(1, epochs + 1):
+                print(f"\tDoing epoch {_ep + 1}")
                 self.model.train()
                 for xb, yb, _ in train_dl:
                     xb, yb = xb.to(self.device), yb.to(self.device)
