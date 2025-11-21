@@ -224,20 +224,16 @@ class Jason_CNN(ModelInterface):
         Xval, yval = X[val_idx], y[val_idx]
 
         # Subaverage augmentation
-        Xtr_sa, ytr_sa = self._subaverage(Xtr, ytr)
+        #Xtr_sa, ytr_sa = self._subaverage(Xtr, ytr)
 
         Xtr_parts = [Xtr]
         ytr_parts = [ytr]
-        if Xtr_sa is not None:
-            Xtr_parts.append(Xtr_sa)
-            ytr_parts.append(ytr_sa)
+        if Xtr is not None:
+            Xtr_parts.append(Xtr)
+            ytr_parts.append(ytr)
 
         Xtr_aug = np.concatenate(Xtr_parts, axis=0)
         ytr_aug = np.concatenate(ytr_parts, axis=0)
-        print(
-        f"[Jason_CNN] after subaverage: Xtr_aug={Xtr_aug.shape}, "
-        f"ytr_aug={ytr_aug.shape}"
-        )
 
         # Build model
         input_len = X.shape[1]
@@ -346,35 +342,45 @@ class Jason_CNN(ModelInterface):
                 "No subject set. Call set_subject() before calling evaluate()."
             )
 
-        subject: EEGSubject = self.subject
-        prep = FFRPrep()
+        folds = self.subject.folds
 
-        if not subject.folds:
-            subject.folds = prep.make_folds(subject, num_folds=5)
-
-        folds = subject.folds
-
-        for fold in folds:
-            print(("doing a fold!"))
+        for i, fold in enumerate(folds):
+            print("doing a fold")
             # Support both:
             # - fold being an object with .trials
             # - fold being just a list[EEGTrial]
-            if hasattr(fold, "trials"):
-                test_trials = list(fold.trials)
-            else:
-                test_trials = list(fold)
 
-            train_trials = [t for t in subject.trials if t not in test_trials]
+            test_trials = fold # The trials for testing 
 
-            self._train_on_trials(train_trials)
+
+            # For all the folds 
+            # If it is the withheld fold, don't add it to the train trials 
+            # Otherwise, add all of the trials in the fold to the train trials 
+            train_trials = [] 
+            for j in range(len(folds)):
+                if j == i:
+                    continue
+                for trial in folds[j]:
+                    train_trials.append(trial)
+
+            # Train on trials
+            self._train_on_trials(train_trials) 
 
             predicted_labels = self.infer(test_trials)
 
             for trial, label in zip(test_trials, predicted_labels):
-                trial.prediction = int(label)
+                trial.prediction = int(label) # 1 to 4
 
             tf.keras.backend.clear_session()
             self.model = None
 
-        accuracy = get_accuracy(subject)
-        return accuracy
+        t = 0
+        s = 0
+
+        for trial in self.subject.trials:
+            t += 1
+            if int(trial.raw_label) == trial.prediction:
+                s += 1
+
+        # accuracy = get_accuracy(subject)
+        return s / t * 100
