@@ -15,7 +15,7 @@ subaverage_and_fold_result = PipelineState()
 
 p = (
     AnalysisPipeline()
-    .load_subjects(folder_path=ALL_PATH)
+    .load_subjects(ALL_PATH)
     .save(to=loading_result)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .save(to=trimming_result)

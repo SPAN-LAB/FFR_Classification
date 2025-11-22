@@ -117,7 +117,9 @@ class AnalysisPipeline:
         concrete_model = find_model(model_name)
         for subject in self.subjects:
             # Construct the model 
+            print("Trying to instantiate the model")
             model = concrete_model(training_options)
+            print("Done instantiating the model!")
             model.set_subject(subject)
 
             # Evaluate it
