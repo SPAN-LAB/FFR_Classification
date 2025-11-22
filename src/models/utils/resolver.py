@@ -3,6 +3,7 @@ import inspect
 import pkgutil
 
 from ...models.utils import ModelInterface
+# from  import Jason_CNN
 
 def _iter_model_classes():
     """
@@ -46,6 +47,7 @@ def find_model(name: str) -> type[ModelInterface]:
 
     for module_name, cls in _iter_model_classes():
         if module_name.lower() == name:
+            print("Found a module!")
             return cls
 
     raise ValueError(f"No model found matching '{name}'.")
