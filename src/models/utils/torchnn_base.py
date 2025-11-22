@@ -33,6 +33,7 @@ class TorchNNBase(ModelInterface):
         If ``use_gpu`` is true, finds either a CUDA- or MPS-enabled GPU device. If none are found,
         or if ``use_gpu`` is false, uses the CPU instead.
         """
+        print("Attempting to set the device")
         if use_gpu and torch.cuda.is_available():
             dev = torch.device("cuda")
         elif (
