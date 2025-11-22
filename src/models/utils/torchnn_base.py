@@ -1,6 +1,10 @@
+from abc import abstractmethod
+
+from src.core import ffr_proc
 from ...core import FFRPrep
+from ...core.ffr_proc import get_accuracy
 from ...core import EEGSubject
-from ...core import EEGTrial # This isn't being used now, but will be when ``infer`` is implemented
+from ...core import EEGTrial  # This isn't being used now but will be when ``infer`` is implemented
 from .model_interface import ModelInterface
 
 import torch
@@ -14,8 +18,10 @@ import json
 
 class TorchNNBase(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
-        self.training_options = training_options
-        self.model = None
+        # Initialies subject and training_options attributes
+        super().__init__(training_options)
+
+        self.model: nn.Module | None = None
         self.device = None
 
         # Automatically attempt to use the GPU
@@ -23,128 +29,185 @@ class TorchNNBase(ModelInterface):
 
     def set_device(self, use_gpu: bool = True):
         """
-        If ``use_gpu`` is true, finds either a CUDA- or MPS-enabled GPU device. If none are found,
-        or if ``use_gpu`` is false, uses the CPU instead.
+        Searches for a compatible GPU device if ``use_gpu`` is True. 
+        If one isn't found, or if ``use_gpu`` is False, uses the CPU instead. 
         """
-        if use_gpu and torch.cuda.is_available():
-            dev = torch.device("cuda")
-        elif (
-            use_gpu
-            and hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
-            dev = torch.device("mps")
+        if use_gpu:
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+                print("Set to MPS")
+            else:
+                self.device = torch.device("cpu")
         else:
-            dev = torch.device("cpu")
-        self.device = dev
-        if self.model is not None:
-            self.model.to(dev)
+            self.device = torch.device("cpu")
 
-    def set_subject(self, subject: EEGSubject):
+    def build(self):
+        raise NotImplementedError("This method needs to be implemented")
+
+    def debug_RNN(self, n_trials: int = 16, num_epochs: int = 200):
         """
-        Sets the subject and automatically builds the model since the model architecture depends on 
-        and only on values obtained from a subject.
+        Debug helper: try to overfit a tiny subset of the data.
+
+        Trains the current model on at most `n_trials` samples from the first
+        train fold. If the model / pipeline are correct, the accuracy on this
+        tiny set should approach 1.0.
         """
-        super().set_subject(subject)
+        if self.subject is None:
+            raise RuntimeError("Subject must be set before calling debug_RNN().")
+
+        # Build a fresh model
         self.build()
-
-    def evaluate(self) -> float:
-        """
-        Original stuff was @Anu but AI helped merge original train and test methods
-        NOTE AI warning
-        """
-        if self.subject is not None:
-            subject: EEGSubject = self.subject
-        else:
-            raise RuntimeError(
-                "No subject set. Call set_subject() before calling evaluate"
-            )
-
-        # Training options 
-        epochs = self.training_options["num_epochs"]
-        lr = self.training_options["learning_rate"]
-        batch_size = self.training_options["batch_size"]
-
-        # Hyperparameters
-        weight_decay = 0.0 
-        val_frac = 0.20
-        patience = 5
-        min_impr = 1e-3
-        adjust_labels = True
-        n_classes = 4
-
-        # # Hyperparams
-        # # epochs = int(self.hyperparameters.get("epochs", 15))
-        # # lr = float(self.hyperparameters.get("lr", 1e-3))
-        # weight_decay = float(self.hyperparameters.get("weight_decay", 0.0))
-        # # batch_size = int(self.hyperparameters.get("batch_size", 256))
-        # val_frac = float(self.hyperparameters.get("val_frac", 0.20))
-        # patience = int(self.hyperparameters.get("patience", 5))
-        # min_impr = float(self.hyperparameters.get("min_impr", 1e-3))
-        # adjust_labels = bool(self.hyperparameters.get("adjust_labels", True))
-        # n_classes = int(self.hyperparameters.get("n_classes", 4))  # used for ROC
-
-        torch.manual_seed(42)
-        np.random.seed(42)
+        if self.model is None:
+            raise RuntimeError("self.model is None after build() in debug_RNN().")
+        self.model.to(self.device)
 
         prep = FFRPrep()
-        folds = subject.folds or prep.make_folds(subject, num_folds=5)
+        folds = self.subject.folds
 
-        if subject.trials[0].mapped_label is None:
-            subject.use_raw_labels()
+        # Just use fold 0's training loader
+        train_dl, _ = prep.make_train_val_loaders(
+            folds=folds,
+            fold_idx=0,
+            batch_size=self.training_options["batch_size"],
+        )
 
-        oof_true, oof_pred, oof_prob = [], [], []  # ← collect probs for ROC
-        per_fold_best = []
+        try:
+            x_batch, y_batch = next(iter(train_dl))
+        except StopIteration:
+            raise RuntimeError("Training DataLoader is empty in debug_RNN().")
 
-        for fold_idx in range(len(folds)):
-            # Fresh model per fold
+        # Take only a small subset
+        x_batch = x_batch[:n_trials]
+        y_batch = y_batch[:n_trials]
+
+        x_batch = x_batch.to(self.device)
+        y_batch = y_batch.to(self.device)
+
+        print("[debug_RNN] x_batch shape:", x_batch.shape)
+        print("[debug_RNN] y_batch shape:", y_batch.shape, y_batch.dtype)
+        print("[debug_RNN] y_batch:", y_batch.tolist())
+        print(
+            "[debug_RNN] x_batch mean/std:", x_batch.mean().item(), x_batch.std().item()
+        )
+
+        criterion = nn.CrossEntropyLoss()
+        lr = self.training_options["learning_rate"]
+        weight_decay = self.training_options.get("weight_decay", 0.0)
+        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+
+        for ep in range(1, num_epochs + 1):
+            self.model.train()
+            optimizer.zero_grad(set_to_none=True)
+
+            logits = self.model(x_batch)
+            loss = criterion(logits, y_batch)
+            loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                preds = logits.argmax(dim=1)
+                acc = (preds == y_batch).float().mean().item()
+
+            print(f"[debug_RNN] epoch {ep:03d}: loss={loss.item():.4f}, acc={acc:.4f}")
+
+            # If we can perfectly fit this tiny subset, pipeline is probably OK
+            if acc == 1.0:
+                break
+        return acc
+
+    def evaluate(self, verbose: bool = True) -> float:
+        """
+        Uses K-fold CV to train and test on EEGSubject data
+        and returns overall accuracy as a float
+
+        Preconditions:
+            -self.subject != None
+            -self.model != None
+            -self.subject.folds != None
+        """
+        batch_size = self.training_options["batch_size"]
+        learning_rate = self.training_options["learning_rate"]
+        num_epochs = self.training_options["num_epochs"]
+        weight_decay = self.training_options.get("weight_decay", 0.1)
+        early_stopping = self.training_options.get("early_stopping", False)
+        min_impr = self.training_options.get("min_impr", 1e-3)
+
+        prep = FFRPrep()
+
+        folds = self.subject.folds
+        total_correct = 0
+        total_n = 0
+
+        for i, fold in enumerate(folds):
+            if verbose:
+                print(f"\n===== Fold {i + 1} =====")
+
             self.build()
             if self.model is not None:
                 self.model.to(self.device)
             else:
                 raise RuntimeError(
-                    "self.model is None. Set model before calling evaluate()"
+                    "Self.model is None. Set model before calling evaluate"
                 )
 
             train_dl, val_dl = prep.make_train_val_loaders(
-                folds=folds, fold_idx=fold_idx, val_frac=val_frac, batch_size=batch_size
+                folds=folds, fold_idx=i, batch_size=batch_size
             )
             test_dl = prep.make_test_loader(
-                folds=folds,
-                fold_idx=fold_idx,
-                batch_size=batch_size,
+                folds=folds, fold_idx=i, batch_size=batch_size
             )
 
             criterion = nn.CrossEntropyLoss()
             optimizer = optim.AdamW(
-                self.model.parameters(), lr=lr, weight_decay=weight_decay
+                self.model.parameters(), lr=learning_rate, weight_decay=weight_decay
             )
 
-            # Train with early stopping on val acc (keep best weights in memory)
+            # Train with early stopping on val acc:
             best_val_acc = -1.0
             best_state = None
             no_improve = 0
-
-            for _ep in range(1, epochs + 1):
+            for ep in range(1, num_epochs + 1):
+                print("\tDoing an epoch")
                 self.model.train()
-                for xb, yb, _ in train_dl:
-                    xb, yb = xb.to(self.device), yb.to(self.device)
+
+                running_loss = 0.0
+                n_train = 0
+
+                for (
+                    x_batch,
+                    y_batch,
+                ) in train_dl:
+                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
                     optimizer.zero_grad(set_to_none=True)
-                    logits = self.model(xb)
-                    loss = criterion(logits, yb)
+                    logits = self.model(x_batch)
+                    loss = criterion(logits, y_batch)
                     loss.backward()
                     optimizer.step()
+                    batch_size = y_batch.size(0)
+                    running_loss += loss.item() * batch_size
+                    n_train += batch_size
 
-                # Validate
+                avg_train_loss = running_loss / max(n_train, 1)
                 self.model.eval()
                 v_correct = v_n = 0
                 with torch.no_grad():
-                    for xb, yb, _ in val_dl:
-                        xb, yb = xb.to(self.device), yb.to(self.device)
-                        lg = self.model(xb)
-                        v_correct += (lg.argmax(1) == yb).sum().item()
-                        v_n += yb.numel()
+                    for x_batch, y_batch in val_dl:
+                        x_batch, y_batch = (
+                            x_batch.to(self.device),
+                            y_batch.to(self.device),
+                        )
+                        logits = self.model(x_batch)
+                        v_correct += (logits.argmax(1) == y_batch).sum().item()
+                        v_n += y_batch.numel()
+
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
+
+                if verbose:
+                    print(
+                        f"train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
+                    )
 
                 if val_acc > best_val_acc + min_impr:
                     best_val_acc = val_acc
@@ -152,93 +215,56 @@ class TorchNNBase(ModelInterface):
                     best_state = {
                         k: v.detach().cpu() for k, v in self.model.state_dict().items()
                     }
-                else:
+                elif early_stopping:
                     no_improve += 1
-                    if no_improve >= patience:
+                    if no_improve >= 5:  # NOTE: using 5 in place of patience
+                        if verbose:
+                            print(f"Early stopping at epoch {ep}")
                         break
 
             if best_state is not None:
                 self.model.load_state_dict(best_state, strict=True)
                 self.model.to(self.device)
-            per_fold_best.append(float(best_val_acc))
 
-            # Test on held-out fold
+            # Test on held out fold:
             self.model.eval()
-            y_true, y_pred, y_prob = [], [], []
             with torch.no_grad():
-                for xb, yb, _ in test_dl:
-                    xb, yb = xb.to(self.device), yb.to(self.device)
-                    lg = self.model(xb)
-                    probs = lg.softmax(dim=1)
-                    preds = lg.argmax(1)
-                    y_true.extend(yb.cpu().numpy())
-                    y_pred.extend(preds.cpu().numpy())
-                    y_prob.extend(probs.cpu().numpy())  # (B, n_classes)
+                for x_batch, y_batch, idx in test_dl:
+                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
+                    logits = self.model(x_batch)
+                    probs = logits.softmax(dim=1)
+                    preds = logits.argmax(1)
 
-            oof_true.append(np.asarray(y_true))
-            oof_pred.append(np.asarray(y_pred))
-            oof_prob.append(np.asarray(y_prob))
+                    total_correct += (preds == y_batch).sum().item()
+                    total_n += y_batch.numel()
 
-        if not oof_true:
-            return 0.0
+                    probs_np = probs.cpu().numpy()
+                    preds_np = preds.cpu().numpy()
+                    idx_np = idx.cpu().numpy()
 
-        y_true_all = np.concatenate(oof_true, axis=0)
-        y_pred_all = np.concatenate(oof_pred, axis=0)
-        P = np.concatenate(oof_prob, axis=0)  # shape (N, n_classes)
-        overall_acc = float((y_pred_all == y_true_all).mean())
-        mean_best = float(np.mean(per_fold_best)) if per_fold_best else float("nan")
+                    for trial_idx, pred_label_0based, prob_vec in zip(
+                        idx_np, preds_np, probs_np
+                    ):
+                        # convert 0–3 → 1–4
+                        pred_label_1based = int(pred_label_0based) + 1
 
-        subj_name = Path(subject.source_filepath).stem
-        print(
-            f"[{subj_name}] folds={len(folds)} | mean_best_val_acc={mean_best:.3f} | overall_acc={overall_acc:.3f}"
-        )
+                        # optionally also make the distribution keys 1–4
+                        dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
 
-        # cache for plotting
-        self.last_eval = {
-            "y_true": y_true_all,
-            "y_pred": y_pred_all,
-            "probs": P,
-            "classes": list(range(n_classes)),
-            "folds": len(folds),
-            "mean_best_val_acc": mean_best,
-            "overall_acc": overall_acc,
-            "subject": subj_name,
-            "device": str(self.device)
-            # "hyperparameters": dict(self.hyperparameters),
-        }
+                        self.subject.map_pred_to_trial(
+                            index=int(trial_idx),
+                            predicted_label=pred_label_1based,
+                            prediction_distribution=dist,
+                        )
 
-        # quick JSON summary artifact
-        out_dir = Path("outputs") / "eval"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        with (out_dir / f"{subj_name}_summary.json").open("w") as f:
-            json.dump(
-                {
-                    "subject": subj_name,
-                    "folds": len(folds),
-                    "mean_best_val_acc": float(mean_best),
-                    "overall_acc": float(overall_acc),
-                    "device": str(self.device),
-                },
-                f,
-                indent=2,
-            )
-        # NOTE: Need to add predicted labels to EEGTrial objects, use this to build CMs and ROCs
-        # return get_accuracy(self.subject)
-        return overall_acc
-    
+        return ffr_proc.get_accuracy(self.subject, True)
+
     def train(self):
-        return 0
-    
+        """
+        To be implemented later
+        """
+
     def infer(self, trials: list[EEGTrial]):
-        return 0
-    
-    def build(self):
         """
-        Define your model architecture here and initialize ``self.model`` with it.
-
-        ___
-        input size and output size are computed from subject
-
-        throws error if self.subject is None
+        To be implemented later
         """
-        raise NotImplementedError("This method needs to be implemented")

@@ -1,9 +1,16 @@
 from __future__ import annotations
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
+
+from .utils import FunctionDetail as FD
+from .utils import ArgumentDetail as AD
+from .utils import Selection 
+from .utils.details import *
+
 from ..models.utils import ModelInterface
 from ..models.utils import find_model
 import os
+from copy import deepcopy
 
 class AnalysisPipeline:
     def __init__(self):
@@ -13,37 +20,57 @@ class AnalysisPipeline:
         self.subjects: list[EEGSubject] = []
         self.models: list[ModelInterface] = []
     
+    @undetailed()
+    def save(self, *, to: PipelineState) -> AnalysisPipeline:
+        to.subjects = deepcopy(self.subjects)
+        to.models = deepcopy(self.models)
+        return self
+
     # MARK: IO
 
-    def load_subjects(
-        self, *,
-        folder_path: str = None,
-        filepath_list: list[str] = None    
-    ) -> AnalysisPipeline:
+    @gui_private()
+    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
         """
         Load every `.mat` file in a directory or list of filepaths as `EEGSubject` instances.
 
-        If both ``folder_path`` and ``file_path_list`` are provided, uses folder_path.
-
-        :param str folder_path: The directory containing the `.mat` files.
-        :param str file_path_list: a list containing the path to the ``.mat`` files
+        :param path: Either a string path (file or directory) or a list of file paths.
         """
-        if folder_path is not None:
-            for file in os.listdir(folder_path):
-                if file.endswith(".mat"):
-                    subject = EEGSubject.init_from_filepath(os.path.join(folder_path, file))
-                    print(f"load_subjects : Subject loaded")
-                    self.subjects.append(subject)
-        elif filepath_list is not None and len(filepath_list) > 0:
-            for filename in filepath_list:
-                if filename.endswith(".mat"):
-                    subject = EEGSubject.init_from_filepath(filename)
-                    print(f"load_subjects : Subject loaded")
-                    self.subjects.append(subject)
+
+        def load_subjects_helper(filepath: str, check_extension: bool = True):
+            if check_extension and not filepath.endswith(".mat"):
+                raise ValueError(f"File does not end with .mat: {filepath}")
+            subject = EEGSubject.init_from_filepath(filepath)
+            print(f"load_subjects : Subject loaded from {filepath}")
+            self.subjects.append(subject)
+
+        if type(path) is str:
+            
+            if os.path.isfile(path):
+                load_subjects_helper(path)
+            elif os.path.isdir(path):
+                files = []
+                for file in os.listdir(path):
+                    if file.endswith(".mat"):
+                        files.append(file)
+
+                if len(files) == 0:
+                    print(f"Warning: No .mat files found in directory: {path}")
+                for file in files:
+                    filepath = os.path.join(path, file)
+                    load_subjects_helper(filepath, check_extension=False)
+            else:
+                raise ValueError(f"Path does not exist: {path}")
+        elif type(path) is list:
+            for filepath in path:
+                load_subjects_helper(filepath)
+        else:
+            raise ValueError("Unrecognized input: path must be a string or list of strings")
+        
         return self
 
     # MARK: Pre-training processing functions
 
+    @detail(map_labels_detail)
     def map_labels(self, rule_csv: str) -> AnalysisPipeline:
         """
         Sets the labels for all trials according to the provided file.
@@ -55,24 +82,28 @@ class AnalysisPipeline:
         print(f"map_labels : done")
         return self
 
+    @detail(trim_by_timestamp_detail)
     def trim_by_timestamp(self, start_time: float, end_time: float) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_timestamp(start_time, end_time)
         print(f"trim_by_timestamp : done")
         return self
 
+    @detail(trim_by_index_detail)
     def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_index(start_index, end_index)
         print(f"trim_by_index : done")
         return self
 
+    @detail(subaverage_detail)
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
         for subject in self.subjects: 
             subject.subaverage(size)
         print(f"subaverage : done")
         return self
 
+    @detail(fold_detail)
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
         for subject in self.subjects: 
             subject.fold(num_folds)
@@ -81,6 +112,7 @@ class AnalysisPipeline:
 
     # MARK: ML functions
 
+    @detail(evaluate_model_detail_2)
     def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
         concrete_model = find_model(model_name)
         for subject in self.subjects:
@@ -89,9 +121,10 @@ class AnalysisPipeline:
             model.set_subject(subject)
 
             # Evaluate it
-            print(f"Accuracy: {model.evaluate()}")
+            print(f"Accuracy on {subject.name}: {model.evaluate()}")
             self.models.append(model)
 
+    @detail(train_model_detail)
     def train_model(
         self, 
         model_name: str, 
@@ -112,6 +145,7 @@ class AnalysisPipeline:
         
         return self
 
+    @detail(infer_on_model_detail)
     def infer_on_model(self, path_to_model: str, trial: EEGTrial) -> AnalysisPipeline:
         """
         TODO
