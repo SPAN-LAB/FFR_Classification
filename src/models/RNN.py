@@ -12,7 +12,7 @@ class RNN(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.0)
         self.fc = nn.Linear(hidden_size * 2, num_classes)
 
     def forward(self, x: torch.Tensor):

@@ -46,6 +46,77 @@ class TorchNNBase(ModelInterface):
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
 
+    def debug_RNN(self, n_trials: int = 16, num_epochs: int = 200):
+        """
+        Debug helper: try to overfit a tiny subset of the data.
+
+        Trains the current model on at most `n_trials` samples from the first
+        train fold. If the model / pipeline are correct, the accuracy on this
+        tiny set should approach 1.0.
+        """
+        if self.subject is None:
+            raise RuntimeError("Subject must be set before calling debug_RNN().")
+
+        # Build a fresh model
+        self.build()
+        if self.model is None:
+            raise RuntimeError("self.model is None after build() in debug_RNN().")
+        self.model.to(self.device)
+
+        prep = FFRPrep()
+        folds = self.subject.folds
+
+        # Just use fold 0's training loader
+        train_dl, _ = prep.make_train_val_loaders(
+            folds=folds,
+            fold_idx=0,
+            batch_size=self.training_options["batch_size"],
+        )
+
+        try:
+            x_batch, y_batch = next(iter(train_dl))
+        except StopIteration:
+            raise RuntimeError("Training DataLoader is empty in debug_RNN().")
+
+        # Take only a small subset
+        x_batch = x_batch[:n_trials]
+        y_batch = y_batch[:n_trials]
+
+        x_batch = x_batch.to(self.device)
+        y_batch = y_batch.to(self.device)
+
+        print("[debug_RNN] x_batch shape:", x_batch.shape)
+        print("[debug_RNN] y_batch shape:", y_batch.shape, y_batch.dtype)
+        print("[debug_RNN] y_batch:", y_batch.tolist())
+        print(
+            "[debug_RNN] x_batch mean/std:", x_batch.mean().item(), x_batch.std().item()
+        )
+
+        criterion = nn.CrossEntropyLoss()
+        lr = self.training_options["learning_rate"]
+        weight_decay = self.training_options.get("weight_decay", 0.0)
+        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+
+        for ep in range(1, num_epochs + 1):
+            self.model.train()
+            optimizer.zero_grad(set_to_none=True)
+
+            logits = self.model(x_batch)
+            loss = criterion(logits, y_batch)
+            loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                preds = logits.argmax(dim=1)
+                acc = (preds == y_batch).float().mean().item()
+
+            print(f"[debug_RNN] epoch {ep:03d}: loss={loss.item():.4f}, acc={acc:.4f}")
+
+            # If we can perfectly fit this tiny subset, pipeline is probably OK
+            if acc == 1.0:
+                break
+        return acc
+
     def evaluate(self, verbose: bool = True) -> float:
         """
         Uses K-fold CV to train and test on EEGSubject data
@@ -60,6 +131,7 @@ class TorchNNBase(ModelInterface):
         learning_rate = self.training_options["learning_rate"]
         num_epochs = self.training_options["num_epochs"]
         weight_decay = self.training_options.get("weight_decay", 0.1)
+        early_stopping = self.training_options.get("early_stopping", False)
         min_impr = self.training_options.get("min_impr", 1e-3)
 
         prep = FFRPrep()
@@ -67,9 +139,10 @@ class TorchNNBase(ModelInterface):
         folds = self.subject.folds
         total_correct = 0
         total_n = 0
+
         for i, fold in enumerate(folds):
             if verbose:
-                print(f"\n===== Fold {i} =====")
+                print(f"\n===== Fold {i + 1} =====")
 
             self.build()
             if self.model is not None:
@@ -142,9 +215,11 @@ class TorchNNBase(ModelInterface):
                     best_state = {
                         k: v.detach().cpu() for k, v in self.model.state_dict().items()
                     }
-                else:
+                elif early_stopping:
                     no_improve += 1
                     if no_improve >= 5:  # NOTE: using 5 in place of patience
+                        if verbose:
+                            print(f"Early stopping at epoch {ep}")
                         break
 
             if best_state is not None:
@@ -182,7 +257,6 @@ class TorchNNBase(ModelInterface):
                             prediction_distribution=dist,
                         )
 
-        print("Theoretical dist:", self.subject.trials[32].prediction_distribution)
         return ffr_proc.get_accuracy(self.subject, True)
 
     def train(self):
