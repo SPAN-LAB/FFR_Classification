@@ -169,7 +169,7 @@ class TorchNNBase(ModelInterface):
             best_state = None
             no_improve = 0
             for ep in range(1, num_epochs + 1):
-                print("\tDoing an epoch")
+
                 self.model.train()
 
                 running_loss = 0.0
@@ -251,11 +251,15 @@ class TorchNNBase(ModelInterface):
                         # optionally also make the distribution keys 1–4
                         dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
 
-                        self.subject.map_pred_to_trial(
-                            index=int(trial_idx),
-                            predicted_label=pred_label_1based,
-                            prediction_distribution=dist,
-                        )
+                        # self.subject.map_pred_to_trial(
+                        #     index=int(trial_idx),
+                        #     predicted_label=pred_label_1based,
+                        #     prediction_distribution=dist,
+                        # )
+
+                        # @Kevin changed this 
+                        self.subject.trials[trial_idx].set_prediction(int(pred_label_0based))
+                        self.subject.trials[trial_idx].prediction_distribution = dist
 
         return ffr_proc.get_accuracy(self.subject, True)
 
