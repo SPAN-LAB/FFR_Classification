@@ -1,4 +1,6 @@
 from .eeg_subject import EEGSubject
+from .eeg_trial import EEGTrial
+
 
 class FFRPrep:
     def make_folds(self, subject, num_folds=5):
@@ -42,9 +44,8 @@ class FFRPrep:
         def make_dl(idxs, shuffle):
             X_t = torch.from_numpy(X[idxs])
             y_t = torch.from_numpy(y[idxs])
-            i_t = torch.from_numpy(idx[idxs])
             return DataLoader(
-                TensorDataset(X_t, y_t, i_t), batch_size=batch_size, shuffle=shuffle
+                TensorDataset(X_t, y_t), batch_size=batch_size, shuffle=shuffle
             )
 
         return make_dl(tr_idx, True), make_dl(val_idx, False)
