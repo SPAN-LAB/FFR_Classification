@@ -28,7 +28,7 @@ class TorchNNBase(ModelInterface):
         # Automatically attempt to use the GPU
         self.set_device()
 
-    def set_device(self, use_gpu: bool = False):
+    def set_device(self, use_gpu: bool = True):
         """
         If ``use_gpu`` is true, finds either a CUDA- or MPS-enabled GPU device. If none are found,
         or if ``use_gpu`` is false, uses the CPU instead.
