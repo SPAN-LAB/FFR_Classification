@@ -46,6 +46,10 @@ class Jason_CNN(ModelInterface):
         label_attr: str = "mapped_label",
     ):
         super().__init__(training_options or {})
+        opts = training_options or {}
+        epochs = opts.get("num_epochs", epochs)
+        batch_size = opts.get("batch_size", batch_size)
+        lr = opts.get("learning_rate", lr)
         self.n_classes = n_classes
         self.ds_factor = ds_factor
         self.epochs = epochs
@@ -381,6 +385,6 @@ class Jason_CNN(ModelInterface):
             t += 1
             if int(trial.raw_label) == trial.prediction:
                 s += 1
-
+        
         # accuracy = get_accuracy(subject)
         return s / t * 100
