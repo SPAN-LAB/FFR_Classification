@@ -18,19 +18,18 @@ import json
 
 class TorchNNBase(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
-        # Initialies subject and training_options attributes
+        # Initialize ``self.training_options``
         super().__init__(training_options)
 
         self.model: nn.Module | None = None
         self.device = None
 
-        # Automatically attempt to use the GPU
-        self.set_device()
+        self.set_device() # Automatically attempt to use the GPU
 
     def set_device(self, use_gpu: bool = True):
         """
-        Searches for a compatible GPU device if ``use_gpu`` is True. 
-        If one isn't found, or if ``use_gpu`` is False, uses the CPU instead. 
+        Searches for a compatible GPU device if ``use_gpu`` is True.
+        If one isn't found, or if ``use_gpu`` is False, uses the CPU instead.
         """
         if use_gpu:
             if torch.cuda.is_available():
@@ -130,6 +129,9 @@ class TorchNNBase(ModelInterface):
         batch_size = self.training_options["batch_size"]
         learning_rate = self.training_options["learning_rate"]
         num_epochs = self.training_options["num_epochs"]
+        weight_decay = self.training_options["weight_decay"]
+
+
         weight_decay = self.training_options.get("weight_decay", 0.1)
         early_stopping = self.training_options.get("early_stopping", False)
         min_impr = self.training_options.get("min_impr", 1e-3)
@@ -185,9 +187,9 @@ class TorchNNBase(ModelInterface):
                     loss = criterion(logits, y_batch)
                     loss.backward()
                     optimizer.step()
-                    batch_size = y_batch.size(0)
-                    running_loss += loss.item() * batch_size
-                    n_train += batch_size
+                    current_batch_size = y_batch.size(0)
+                    running_loss += loss.item() * current_batch_size
+                    n_train += current_batch_size
 
                 avg_train_loss = running_loss / max(n_train, 1)
                 self.model.eval()
@@ -251,17 +253,10 @@ class TorchNNBase(ModelInterface):
                         # optionally also make the distribution keys 1–4
                         dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
 
-                        # self.subject.map_pred_to_trial(
-                        #     index=int(trial_idx),
-                        #     predicted_label=pred_label_1based,
-                        #     prediction_distribution=dist,
-                        # )
-
-                        # @Kevin changed this 
                         self.subject.trials[trial_idx].set_prediction(int(pred_label_0based))
                         self.subject.trials[trial_idx].prediction_distribution = dist
 
-        return ffr_proc.get_accuracy(self.subject, True)
+        return get_accuracy(self.subject, True)
 
     def train(self):
         """
