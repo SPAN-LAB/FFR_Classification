@@ -12,37 +12,27 @@ class FFNN(TorchNNBase, nn.Module):
         nn.Module.__init__(self)
 
     def build(self):
-        # TODO hardcoded values; remove later
-        input_size = len(self.subject.trials[0].data)
-        num_classes = 4 
-        """
-        This part should become:
+        input_size = self.subject.trial_size
+        output_size = self.subject.num_categories
 
-            input_size = subject.num_datapoints
-            output_size = subject.num_possible_labels
+        # dropout_probability = 0.0
 
-        """
-        ########################################
-
-        dropout_p = 0.0
-
-        # Calculate hidden layer sizes based on the input size so they gradually decrease
-        hidden1 = floor(input_size / 2)  # ~400
-        hidden2 = floor(hidden1 / 2)  # ~80
-        hidden3 = floor(hidden2 / 2)  # ~40
+        h1 = floor(input_size / 2)
+        h2 = floor(h1 / 2)
+        h3 = floor(h2 / 2)
 
         # Model architecture
         self.model = nn.Sequential(
-            nn.Linear(input_size, hidden1),
+            nn.Linear(input_size, h1),
             nn.ReLU(),
-            nn.Dropout(dropout_p),
-            nn.Linear(hidden1, hidden2),
+            # nn.Dropout(dropout_probability),
+            nn.Linear(h1, h2),
             nn.ReLU(),
-            nn.Dropout(dropout_p),
-            nn.Linear(hidden2, hidden3),
+            # nn.Dropout(dropout_probability),
+            nn.Linear(h2, h3),
             nn.ReLU(),
-            nn.Dropout(dropout_p),
-            nn.Linear(hidden3, num_classes),
+            # nn.Dropout(dropout_probability),
+            nn.Linear(h3, output_size),
         )
 
     def forward(self, x):

@@ -7,8 +7,7 @@ from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
 from ..models.utils import ModelInterface
 from ..models.utils import find_model
-from utils import detail, undetailed, gui_private
-import utils.details as details
+from .utils import detail, undetailed, gui_private, details
 
 
 class AnalysisPipeline:
