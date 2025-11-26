@@ -4,7 +4,7 @@ import numpy as np
 
 class EEGTrialInterface:
     subject: any
-    data: npt.NDArray # Currently a 1D array 
+    data: npt.NDArray
     trial_index: int
     timestamps: npt.NDArray
     raw_label: any
@@ -13,10 +13,10 @@ class EEGTrialInterface:
     prediction_distribution: dict[any, float]
 
     @property
-    def label(self): 
+    def label(self):
         raise NotImplementedError("Implement this method.")
-    
-    @property 
+
+    @property
     def enumerated_label(self):
         raise NotImplementedError("Implement this method.")
 
@@ -29,11 +29,11 @@ class EEGTrialInterface:
                      use the raw label if the mapped one is None
         """
         raise NotImplementedError("Implement this method.")
-    
-    def trim_by_index(self, start_index: int, end_index: int): 
+
+    def trim_by_index(self, start_index: int, end_index: int):
         raise NotImplementedError("Implement this method.")
-    
-    def trim_by_timestamp(self, start_time: float, end_time: float): 
+
+    def trim_by_timestamp(self, start_time: float, end_time: float):
         raise NotImplementedError("Implement this method.")
 
     def __len__(self):
@@ -85,7 +85,7 @@ class EEGTrial(EEGTrialInterface):
         "raw", "mapped", or None
         """
         self._label_preference = pref
-    
+
     def set_prediction(self, enumerated_label):
         reversed_labels_map = {value: key for key, value in self.subject.labels_map.items()}
         self.prediction = reversed_labels_map[enumerated_label]
@@ -99,10 +99,10 @@ class EEGTrial(EEGTrialInterface):
         end = int(np.searchsorted(self.timestamps, end_time, side="right"))
         self.timestamps = self.timestamps[start:end]
         self.data = self.data[start:end]
-    
+
     def __len__(self):
         return len(self.timestamps)
-    
+
     @property
     def enumerated_label(self):
         return self.subject.labels_map[self.label]

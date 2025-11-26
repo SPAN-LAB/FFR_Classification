@@ -27,9 +27,9 @@ subaverage_detail = FD(
     label="Subaverage Trials",
     argument_details=[
         AD(
-            label="Number of Trials", 
-            type=int, 
-            default_value=5, 
+            label="Number of Trials",
+            type=int,
+            default_value=5,
             description="The number of trials to combine through subaveraging."
         )
     ],

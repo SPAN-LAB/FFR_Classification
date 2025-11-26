@@ -4,7 +4,7 @@ from .eeg_trial import EEGTrial
 
 from .utils import FunctionDetail as FD
 from .utils import ArgumentDetail as AD
-from .utils import Selection 
+from .utils import Selection
 from .utils.details import *
 
 from ..models.utils import ModelInterface
@@ -19,7 +19,7 @@ class AnalysisPipeline:
         """
         self.subjects: list[EEGSubject] = []
         self.models: list[ModelInterface] = []
-    
+
     @undetailed()
     def save(self, *, to: PipelineState) -> AnalysisPipeline:
         to.subjects = deepcopy(self.subjects)
@@ -44,7 +44,7 @@ class AnalysisPipeline:
             self.subjects.append(subject)
 
         if type(path) is str:
-            
+
             if os.path.isfile(path):
                 load_subjects_helper(path)
             elif os.path.isdir(path):
@@ -65,7 +65,7 @@ class AnalysisPipeline:
                 load_subjects_helper(filepath)
         else:
             raise ValueError("Unrecognized input: path must be a string or list of strings")
-        
+
         return self
 
     # MARK: Pre-training processing functions
@@ -77,35 +77,35 @@ class AnalysisPipeline:
 
         :param str rule_csv: The file containing the mapping rule.
         """
-        for subject in self.subjects: 
+        for subject in self.subjects:
             subject.map_trial_labels(rule_csv)
         print(f"map_labels : done")
         return self
 
     @detail(trim_by_timestamp_detail)
-    def trim_by_timestamp(self, start_time: float, end_time: float) -> AnalysisPipeline: 
-        for subject in self.subjects: 
+    def trim_by_timestamp(self, start_time: float, end_time: float) -> AnalysisPipeline:
+        for subject in self.subjects:
             subject.trim_by_timestamp(start_time, end_time)
         print(f"trim_by_timestamp : done")
         return self
 
     @detail(trim_by_index_detail)
-    def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline: 
-        for subject in self.subjects: 
+    def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline:
+        for subject in self.subjects:
             subject.trim_by_index(start_index, end_index)
         print(f"trim_by_index : done")
         return self
 
     @detail(subaverage_detail)
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
-        for subject in self.subjects: 
+        for subject in self.subjects:
             subject.subaverage(size)
         print(f"subaverage : done")
         return self
 
     @detail(fold_detail)
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
-        for subject in self.subjects: 
+        for subject in self.subjects:
             subject.fold(num_folds)
         print(f"fold : done")
         return self
@@ -116,7 +116,7 @@ class AnalysisPipeline:
     def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
         concrete_model = find_model(model_name)
         for subject in self.subjects:
-            # Construct the model 
+            # Construct the model
             model = concrete_model(training_options)
             model.set_subject(subject)
 
@@ -126,11 +126,11 @@ class AnalysisPipeline:
 
     @detail(train_model_detail)
     def train_model(
-        self, 
-        model_name: str, 
-        hyperparameters: dict[str, any], 
+        self,
+        model_name: str,
+        hyperparameters: dict[str, any],
         output_path: str
-    ) -> AnalysisPipeline: 
+    ) -> AnalysisPipeline:
         """
         TODO
         """
@@ -140,9 +140,9 @@ class AnalysisPipeline:
             model = concrete_model(hyperparameters)
             model.set_subject(subject)
 
-            # Train and save to disk 
+            # Train and save to disk
             model.train(output_path)
-        
+
         return self
 
     @detail(infer_on_model_detail)
@@ -152,8 +152,8 @@ class AnalysisPipeline:
         """
         # TODO
         return self
-    
+
 # Type alias for ``AnalysisPipeline`` for more expressive use.
-# When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be 
+# When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
