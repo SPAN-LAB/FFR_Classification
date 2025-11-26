@@ -8,7 +8,7 @@ import seaborn as sns
 import numpy as np
 from math import ceil
 
-class PlotsInterface(ABC): 
+class PlotsInterface(ABC):
 
     @staticmethod
     @abstractmethod
@@ -39,10 +39,10 @@ class Plots(PlotsInterface):
             plt.show(block=False)
         except Exception:
             pass
-        return ax 
+        return ax
 
     @staticmethod
-    def plot_averaged_trials(subject: EEGSubject, key: Callable[[EEGTrial], Any]=lambda trial: trial.raw_label): 
+    def plot_averaged_trials(subject: EEGSubject, key: Callable[[EEGTrial], Any]=lambda trial: trial.raw_label):
         show_components = False
         # Group trials by key (label) and plot each label in its own subplot (2 x n grid)
         grouped = subject.grouped_trials(key=key)

@@ -30,19 +30,19 @@ class EEGSubjectInterface:
         raise NotImplementedError("Implement this method.")
 
     @staticmethod
-    def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject: 
+    def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject:
         """
         TODO
         """
         raise NotImplementedError("Implement this method.")
 
-    def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject: 
+    def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject:
         """
         TODO
         """
         raise NotImplementedError("Implement this method.")
 
-    def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject: 
+    def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject:
         """
         TODO
         """
@@ -59,7 +59,7 @@ class EEGSubjectInterface:
         TODO
         """
         raise NotImplementedError("Implement this method.")
-    
+
     def map_trial_labels(self, rule_filepath: str) -> EEGSubject:
         """
         TODO
@@ -234,10 +234,10 @@ class EEGSubject(EEGSubjectInterface):
             trial.set_label_preference(pref)
 
     def setup_labels_map(self):
-        # Find all the labels 
+        # Find all the labels
         labels_set = set()
         labels_array = []
-        
+
         for trial in self.trials:
             if trial.label not in labels_set:
                 labels_array.append(trial.label)

@@ -43,4 +43,3 @@ class ArgumentDetail:
         self.type = type
         self.default_value = default_value
         self.description = description
-
