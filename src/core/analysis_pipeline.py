@@ -89,7 +89,8 @@ class AnalysisPipeline:
         print(f"trim_by_timestamp : done")
         return self
 
-    @detail(trim_by_index_detail)
+    # @detail(trim_by_index_detail)
+    @undetailed()
     def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline: 
         for subject in self.subjects: 
             subject.trim_by_index(start_index, end_index)
