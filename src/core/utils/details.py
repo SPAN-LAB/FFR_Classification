@@ -23,30 +23,17 @@ def gui_private():
         return func
     return decorator
 
-subaverage_detail = FD(
-    label="Subaverage Trials",
+map_labels_detail = FD(
+    label="Map Labels",
     argument_details=[
         AD(
-            label="Number of Trials",
-            type=int,
-            default_value=5,
-            description="The number of trials to combine through subaveraging."
+            label="CSV Filepath",
+            type=str,
+            default_value="",
+            description="The path to a CSV file specifying how the labels are mapped."
         )
     ],
-    description="Combines trials through subaveraging. This can help reduce noise in your data."
-)
-
-fold_detail = FD(
-    label="Split into Folds",
-    argument_details=[
-        AD(
-            label="Number of Folds",
-            type=int,
-            default_value=5,
-            description="The number of groups to split the subject's trials into."
-        )
-    ],
-    description="Divides each subject's trials into the number of groups (folds) provided."
+    description="Maps the labels of each trial of each subject according to the provided file."
 )
 
 trim_by_timestamp_detail = FD(
@@ -87,42 +74,33 @@ trim_by_index_detail = FD(
     description="Keeps only the datapoints recorded between the provided indices."
 )
 
-map_labels_detail = FD(
-    label="Map Labels",
+subaverage_detail = FD(
+    label="Subaverage Trials",
     argument_details=[
         AD(
-            label="CSV Filepath",
-            type=str,
-            default_value="",
-            description="The path to a CSV file specifying how the labels are mapped."
+            label="Number of Trials",
+            type=int,
+            default_value=5,
+            description="The number of trials to combine through subaveraging."
         )
     ],
-    description="Maps the labels of each trial of each subject according to the provided file."
+    description="Combines trials through subaveraging. This can help reduce noise in your data."
+)
+
+fold_detail = FD(
+    label="Split into Folds",
+    argument_details=[
+        AD(
+            label="Number of Folds",
+            type=int,
+            default_value=5,
+            description="The number of groups to split the subject's trials into."
+        )
+    ],
+    description="Divides each subject's trials into the number of groups (folds) provided."
 )
 
 evaluate_model_detail = FD(
-    label="Evaluate Model",
-    argument_details=[
-        AD(
-            label="Model Name",
-            type=str,
-            default_value="FFNN",
-            description="The filename of the model."
-        ),
-        AD(
-            label="Training Options",
-            type=dict[str, any],
-            default_value={
-                "num_epochs": 20,
-                "batch_size": 32,
-                "learning_rate": 0.001,
-                "weight_decay": 0.1
-            }
-        )
-    ]
-)
-
-evaluate_model_detail_2 = FD(
     label="Evaluate Model",
     argument_details=[
         AD(
