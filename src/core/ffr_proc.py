@@ -22,3 +22,25 @@ def get_accuracy(subject: EEGSubject, enforce_saturation: bool = False) -> float
             num_correct += 1
 
     return num_correct / len(subject.trials)
+
+def get_per_label_accuracy(subject: EEGSubject, enforce_saturation: bool = False) -> dict[any, float]:
+    """
+    Initialize the results dictionary, where each value is a 2-element tupple containing the number
+    of correctly classified trials and the total number of trials for that label respectively
+    """
+    results = {}
+    for label in subject.labels_map.keys():
+        results[label] = [0, 0]
+
+    for trial in subject.trials:
+        results[trial.label][1] += 1
+        if trial.label == trial.prediction:
+            results[trial.label][0] += 1
+
+    output = {}
+    for key, value in results.items():
+        if value[1] != 0:
+            output[key] = value[0] / value[1]
+        else:
+            output[key] = 0
+    return output
