@@ -15,13 +15,14 @@ def get_accuracy(subject: EEGSubject, enforce_saturation: bool = False) -> float
         if trial.prediction is None:
             if enforce_saturation:
                 raise ValueError("Expected prediction not found.")
-            else:
-                total_count += 1
+        else:
+            total_count += 1
 
         if trial.label == trial.prediction:
             num_correct += 1
-
-    return num_correct / len(subject.trials)
+    if total_count == 0:
+        return float("nan")
+    return num_correct / total_count
 
 def get_per_label_accuracy(subject: EEGSubject, enforce_saturation: bool = False) -> dict[any, float]:
     """
@@ -33,7 +34,12 @@ def get_per_label_accuracy(subject: EEGSubject, enforce_saturation: bool = False
         results[label] = [0, 0]
 
     for trial in subject.trials:
-        results[trial.label][1] += 1
+        if trial.prediction is None:
+            if enforce_saturation:
+                raise ValueError("Expected prediction not found.")
+        else:
+            results[trial.label][1] += 1
+        
         if trial.label == trial.prediction:
             results[trial.label][0] += 1
 
@@ -42,5 +48,5 @@ def get_per_label_accuracy(subject: EEGSubject, enforce_saturation: bool = False
         if value[1] != 0:
             output[key] = value[0] / value[1]
         else:
-            output[key] = 0
+            output[key] = float("nan")
     return output

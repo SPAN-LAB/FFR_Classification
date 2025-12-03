@@ -32,3 +32,4 @@ src/*.txt
 *.txt
 
 pdemo.py
+/analysis_outputs
