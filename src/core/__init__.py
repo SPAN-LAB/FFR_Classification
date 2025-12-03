@@ -5,15 +5,13 @@ from .ffr_proc import get_accuracy, get_per_label_accuracy
 from . import ffr_proc
 from .analysis_pipeline import AnalysisPipeline, PipelineState
 
-from .plots import Plots, PlotsInterface
+
 
 __all__ = [
     "EEGSubject",
     "EEGSubjectInterface",
     "EEGTrial",
     "EEGTrialInterface",
-    "Plots",
-    "PlotsInterface",
     "get_accuracy",
     "ffr_procw"
 ]

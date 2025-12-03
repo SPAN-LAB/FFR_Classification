@@ -3,16 +3,21 @@ import pandas as pd
 
 from ..core import AnalysisPipeline
 from ..core import get_accuracy, get_per_label_accuracy
+from ..core.plots import plot_confusion_matrix, plot_roc_curve
 
-
-def investigate_subaverage_size_vs_accuracy(
+def accuarcy_against_subaverage_size(
     subaverage_sizes: list[int],
-    training_options: dict[str, any],
     subject_filepaths: list[str],
     model_names: list[str],
-    output_folder_path: str
+    training_options: dict[str, any],
+    output_folder_path: str,
+    include_null_case: bool = True,
 ):
-    def internal(model_name, subject_filepath):
+    # Include a case where no subaveraging is done (subaverage size = 1)
+    if include_null_case and subaverage_sizes[0] != 1:
+        subaverage_sizes.insert(index=0, object=1)
+
+    def internal(subject_filepath, model_name):
         """
         Performs the analysis on a single model and single subject
         """
@@ -33,6 +38,9 @@ def investigate_subaverage_size_vs_accuracy(
             )
 
             subject = p.subjects[0]
+            
+            plot_confusion_matrix(subject=subject, filepath=f"{output_folder_path}/{model_name}/{subject.name}/confusion/{subaverage_size}.svg")
+            plot_roc_curve(subject=subject, filepath=f"{output_folder_path}/{model_name}/{subject.name}/roc/{subaverage_size}.svg")
 
             # Ensure that labels and headers are arranged consistently for all subaverage sizes
             if labels is None:
@@ -60,4 +68,4 @@ def investigate_subaverage_size_vs_accuracy(
 
     for model_name in model_names:
         for subject_filepath in subject_filepaths:
-            internal(model_name=model_name, subject_filepath=subject_filepath)
+            internal(subject_filepath=subject_filepath, model_name=model_name)

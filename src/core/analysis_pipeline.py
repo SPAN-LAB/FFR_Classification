@@ -125,6 +125,10 @@ class AnalysisPipeline:
                 self.models.append(model)
             except Exception as e:
                 print(f"⚠️  Error evaluating {subject.name}: {e}")
+            
+            # accuracy = model.evaluate()
+            # print(f"Accuracy on {subject.name}: {accuracy}")
+            # self.models.append(model)
         
         return self
 
