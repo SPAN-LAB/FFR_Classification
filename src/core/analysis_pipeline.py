@@ -119,8 +119,14 @@ class AnalysisPipeline:
             model.set_subject(subject)
 
             # Evaluate it
-            print(f"Accuracy on {subject.name}: {model.evaluate()}")
-            self.models.append(model)
+            try:
+                accuracy = model.evaluate()
+                print(f"Accuracy on {subject.name}: {accuracy}")
+                self.models.append(model)
+            except Exception as e:
+                print(f"⚠️  Error evaluating {subject.name}: {e}")
+        
+        return self
 
     @detail(details.train_model_detail)
     def train_model(
