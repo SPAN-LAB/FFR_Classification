@@ -9,3 +9,4 @@ PyQt5>=5.15.0
 torch>=2.0.0
 pymatreader>=1.0.0
 tensorflow>=2.20.0
+pandas>=2.3.3
