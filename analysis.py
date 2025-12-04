@@ -21,7 +21,7 @@ def test_subaverage():
     # These are constants specific to the subaveraging investigation
     SUBAVERAGE_SIZES = [2, 5, 10, 20, 40, 80]
     INCLUDE_NO_SUBAVERAGING_CASE = True # Includes a case where no subaveraging is performed
-    OUTPUT_FOLDER_PATH = "analysis_output/accuracy_against_subaverage_size"
+    OUTPUT_FOLDER_PATH = "analysis_outputs/accuracy_against_subaverage_size"
 
     accuracy_against_subaverage_size(
         subaverage_sizes=SUBAVERAGE_SIZES,
