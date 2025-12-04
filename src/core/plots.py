@@ -413,6 +413,9 @@ def plot_confusion_matrix(
         if enforce_saturation and trial.prediction is None:
             raise ValueError("Expected a trial but found None.")
         else:
+            # print(f"{trial.enumerated_label = }")
+            # print(f"{subject.labels_map = }")
+            # print(f"{subject.labels_map[trial.prediction] = }")
             matrix[trial.enumerated_label][subject.labels_map[trial.prediction]] += 1
     
     # Plotting

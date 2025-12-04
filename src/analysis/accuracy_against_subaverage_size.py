@@ -1,11 +1,13 @@
 from pathlib import Path
 import pandas as pd
 
-from ..core import AnalysisPipeline
+from .utils import get_subject_loaded_pipelines
+
+from ..core import AnalysisPipeline, PipelineState
 from ..core import get_accuracy, get_per_label_accuracy
 from ..core.plots import plot_confusion_matrix, plot_roc_curve
 
-def accuarcy_against_subaverage_size(
+def accuracy_against_subaverage_size(
     subaverage_sizes: list[int],
     subject_filepaths: list[str],
     model_names: list[str],
@@ -15,7 +17,10 @@ def accuarcy_against_subaverage_size(
 ):
     # Include a case where no subaveraging is done (subaverage size = 1)
     if include_null_case and subaverage_sizes[0] != 1:
-        subaverage_sizes.insert(index=0, object=1)
+        subaverage_sizes.insert(0, 1)
+
+    # Cached subject-loaded pipeline states
+    subject_loaded_pipelines = get_subject_loaded_pipelines(subject_filepaths)
 
     def internal(subject_filepath, model_name):
         """
@@ -26,16 +31,22 @@ def accuarcy_against_subaverage_size(
         headers = ["Subaverage Size", "Accuracy"]
 
         for subaverage_size in subaverage_sizes:
+            test = PipelineState()
             p = (
-                AnalysisPipeline()
-                .load_subjects(subject_filepath)
+                subject_loaded_pipelines[subject_filepath].deepcopy()
                 .subaverage(size=subaverage_size)
+                .save(to=test)
                 .fold(num_folds=5)
                 .evaluate_model(
                     model_name=model_name,
                     training_options=training_options
                 )
             )
+            # print(f"{len(p.subjects) = }")
+            # print(f"{len(test.subjects) = }")
+            # print(f"{len(p.subjects[0].trials) = }")
+            
+            # print(f"On this iteration, there were {len(test.subjects[0].trials)} trials after subaveraging")
 
             subject = p.subjects[0]
             
