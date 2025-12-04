@@ -20,9 +20,17 @@ class AnalysisPipeline:
 
     @undetailed()
     def save(self, *, to: PipelineState) -> AnalysisPipeline:
-        to.subjects = deepcopy(self.subjects)
-        to.models = deepcopy(self.models)
+        copy = self.deepcopy()
+        to.subjects = copy.subjects
+        to.models = copy.models
         return self
+        
+    @undetailed()
+    def deepcopy(self) -> AnalysisPipeline:
+        copy = PipelineState()
+        copy.subjects = deepcopy(self.subjects)
+        copy.models = deepcopy(self.models)
+        return copy
 
     # MARK: IO
 
@@ -98,7 +106,7 @@ class AnalysisPipeline:
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
         for subject in self.subjects:
             subject.subaverage(size)
-        print("subaverage : done")
+        print(f"subaverage ({size}) : done")
         return self
 
     @detail(details.fold_detail)
