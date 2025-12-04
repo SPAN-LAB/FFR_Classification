@@ -33,3 +33,5 @@ src/*.txt
 
 pdemo.py
 /analysis_outputs
+*.csv
+*.svg
