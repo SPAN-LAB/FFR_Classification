@@ -16,6 +16,21 @@ def get_mats(folder_path: str) -> list[str]:
     return files
 
 def get_subject_loaded_pipelines(subject_filepaths: list[str]) -> dict[str, PipelineState]:
+    """
+    Returns a dictionary where each key is the filepath to a subject's data, and the value 
+    associated with that key is an `AnalysisPipeline` object whose `subjects` attribute contains one
+    `EEGSubject` which was loaded from the filepath. 
+    
+    Parameters
+    ----------
+    subject_filepaths : list[str]
+        a list containing the filepaths to the subjects
+    
+    Returns
+    -------
+    dict[str, AnalysisPipeline]
+        a dictionary where each value is an AnalysisPipeline loaded using its key
+    """
     states = {}
     for subject_filepath in subject_filepaths:
         states[subject_filepath] = AnalysisPipeline().load_subjects(subject_filepath)

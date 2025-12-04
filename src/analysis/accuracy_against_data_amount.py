@@ -12,7 +12,7 @@ from ..core.plots import plot_confusion_matrix, plot_roc_curve
 
 
 def accuracy_against_data_amount(
-    min_trials: int,
+    min_trials: int, 
     stride: int,
     subject_filepaths: list[str],
     model_names: list[str],
