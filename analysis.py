@@ -3,16 +3,17 @@ from src.models.utils import find_models
 from src.analysis import accuracy_against_subaverage_size
 from src.analysis import accuracy_against_data_amount
 
+from local.constants import *
 
-SUBJECT_FILENAMES = ["REPLACE ME IF YOU AGREE MAC IS THE BEST"]
+SUBJECT_FILENAMES = [GOOD_D_PATH, BAD_D_PATH]
 # Alternatively, use 
 #     `SUBJECT_FILENAMES = get_mats("PATH TO FOLDER CONTAINING MAT FILES")`
 MODEL_NAMES = ["FFNN"]
 # Alternatively, automatically detect models with
 #     `MODEL_NAMES = find_models()
 TRAINING_OPTIONS = {
-    "num_epochs": 20,
-    "batch_size": 512,
+    "num_epochs": 40,
+    "batch_size": 1024,
     "learning_rate": 0.001,
     "weight_decay": 0.1
 }
@@ -49,3 +50,5 @@ def test_data_amount():
 
 if __name__ == "__main__":
     test_subaverage()
+    test_data_amount()
+    
