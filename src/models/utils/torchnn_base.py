@@ -1,5 +1,8 @@
 from abc import abstractmethod
 
+from ...printing import lprint, unlock
+from ...printing import ulprint as print
+
 from src.core import ffr_proc
 from ...core import FFRPrep
 from ...core.ffr_proc import get_accuracy
@@ -143,8 +146,8 @@ class TorchNNBase(ModelInterface):
         total_n = 0
 
         for i, fold in enumerate(folds):
-            if verbose:
-                print(f"\n===== Fold {i + 1} =====")
+            # if verbose:
+            #     print(f"\n===== Fold {i + 1} =====")
 
             self.build()
             if self.model is not None:
@@ -207,8 +210,8 @@ class TorchNNBase(ModelInterface):
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
 
                 if verbose:
-                    print(
-                        f"train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
+                    lprint(
+                        f"Fold [{i + 1}/{len(folds)}], train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
                     )
 
                 if val_acc > best_val_acc + min_impr:
@@ -223,6 +226,8 @@ class TorchNNBase(ModelInterface):
                         if verbose:
                             print(f"Early stopping at epoch {ep}")
                         break
+
+            unlock()
 
             if best_state is not None:
                 self.model.load_state_dict(best_state, strict=True)

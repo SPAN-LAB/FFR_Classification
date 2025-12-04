@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 
+from ..printing import ulprint as print
+from ..printing import lprint, lock
+
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
 from ..models.utils import ModelInterface
