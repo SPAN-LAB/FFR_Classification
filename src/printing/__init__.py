@@ -1,16 +1,13 @@
 from .printing import StationaryPrinter
 
-sprint = StationaryPrinter.sprint
-lprint = StationaryPrinter.lprint
-ulprint = StationaryPrinter.ulprint
+printl = StationaryPrinter.printl
+print = StationaryPrinter.print
 lock = StationaryPrinter.lock
 unlock = StationaryPrinter.unlock
 
 __all__ = [
-    "StationaryPrinter",
-    "sprint",
-    "lprint",
-    "ulprint",
+    "printl"
+    "print",
     "lock",
     "unlock"
 ]

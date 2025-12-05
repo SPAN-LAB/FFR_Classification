@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 
-from ..printing import ulprint as print
-from ..printing import lprint, lock
+from ..printing import print, printl
 
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial

@@ -1,7 +1,6 @@
 from abc import abstractmethod
 
-from ...printing import lprint, unlock
-from ...printing import ulprint as print
+from ...printing import print, printl, unlock
 
 from src.core import ffr_proc
 from ...core import FFRPrep
@@ -210,7 +209,7 @@ class TorchNNBase(ModelInterface):
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
 
                 if verbose:
-                    lprint(
+                    printl(
                         f"Fold [{i + 1}/{len(folds)}], train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
                     )
 
