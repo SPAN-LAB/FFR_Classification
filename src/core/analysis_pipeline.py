@@ -22,6 +22,20 @@ class AnalysisPipeline:
 
     @undetailed()
     def save(self, *, to: PipelineState) -> AnalysisPipeline:
+        """
+        Captures the state of this instance in the provided instance. 
+        
+        Parameters
+        ----------
+        to : PipelineState
+            the PipelineState instance the variables of this instance should be deeply copied to
+        
+        Returns
+        -------
+        This object (NOT the one this object's state was saved to)
+        """
+        if not isinstance(to, PipelineState):
+            raise ValueError("Warning: the argument is invalid.")
         copy = self.deepcopy()
         to.subjects = copy.subjects
         to.models = copy.models
@@ -29,6 +43,13 @@ class AnalysisPipeline:
         
     @undetailed()
     def deepcopy(self) -> AnalysisPipeline:
+        """
+        Creates a deep copy of this object and returns a reference to it. 
+        
+        Returns
+        -------
+        The reference to the deep copy of this object.
+        """
         copy = PipelineState()
         copy.subjects = deepcopy(self.subjects)
         copy.models = deepcopy(self.models)
@@ -39,9 +60,18 @@ class AnalysisPipeline:
     @gui_private()
     def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
         """
-        Load every `.mat` file in a directory or list of filepaths as `EEGSubject` instances.
-
-        :param path: Either a string path (file or directory) or a list of file paths.
+        Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
+        instances and adds them to this object's subjects list. 
+        
+        Parameters
+        ----------
+        path : str | list[str]
+            A file path or directory path. If a file path is provided, its extension must be .mat.
+            If a directory path is provided, then any and every .mat file in it is loaded.
+            
+        Returns
+        -------
+        A reference to this object.
         """
 
         def load_subjects_helper(filepath: str, check_extension: bool = True):
@@ -81,9 +111,26 @@ class AnalysisPipeline:
     @detail(details.map_labels_detail)
     def map_labels(self, rule_csv: str) -> AnalysisPipeline:
         """
-        Sets the labels for all trials according to the provided file.
-
-        :param str rule_csv: The file containing the mapping rule.
+        Maps the labels of all subjects' EEGTrials using the contents of the file pointed to by the 
+        provided file path. 
+        
+        Example: 
+            If the contents of rule_csv are:
+                1, 1, 2, 3, 4
+                2, 5, 6, 7, 8
+                3, 9, 10,11,12
+            Then for all EEGTrial instances across all subjects this object stores, if their 
+            raw_label is 1, 2, 3, or 4, then their mapped_label is set to 1; if their raw_label is 
+            5, 6, 7, or 8, then their mapped_label is set to 2. 
+        
+        Parameters
+        ----------
+        rule_csv : str 
+            Path to the CSV file containing the mapping rule. 
+        
+        Returns
+        -------
+        A refernece to this object
         """
         for subject in self.subjects:
             subject.map_trial_labels(rule_csv)
@@ -92,6 +139,21 @@ class AnalysisPipeline:
 
     @detail(details.trim_by_timestamp_detail)
     def trim_by_timestamp(self, start_time: float, end_time: float) -> AnalysisPipeline:
+        """
+        Trims the data contained within all EEGTrials across all subjects. A datapoint is kept 
+        iff its corresponding timestamp falls between start_time and end_time (inclusive).
+        
+        Parameters
+        ----------
+        start_time : float 
+            The minimum timestamp of a datapoint.
+        end_time : float 
+            The maximum timestamp of a datapoint. 
+            
+        Returns
+        -------
+        A reference to this object.
+        """
         for subject in self.subjects:
             subject.trim_by_timestamp(start_time, end_time)
         print("trim_by_timestamp : done")
@@ -99,6 +161,9 @@ class AnalysisPipeline:
 
     @detail(details.trim_by_index_detail)
     def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline:
+        """
+        TODO @Kevin
+        """
         for subject in self.subjects:
             subject.trim_by_index(start_index, end_index)
         print("trim_by_index : done")
@@ -106,6 +171,20 @@ class AnalysisPipeline:
 
     @detail(details.subaverage_detail)
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
+        """
+        Subaverages the trials of each subject. Subaveraging is performed by replacing `size` trials
+        with an averaged trial. If the number of remaining trials is less than `size`, those trials
+        are not included in the subaveraged trials.
+        
+        Parameters
+        ----------
+        size : int 
+            The number of trials to combine into one subaveraging.
+        
+        Returns
+        -------
+        A reference to this object.
+        """
         for subject in self.subjects:
             subject.subaverage(size)
         print(f"subaverage ({size}) : done")
@@ -113,6 +192,20 @@ class AnalysisPipeline:
 
     @detail(details.fold_detail)
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
+        """
+        Folds the trials of each subject. That is, the trials of each subject are split across 
+        `num_folds` groups in a stratified manner. This populates each subject's `folds` attribute 
+        with `num_folds` elements, each a list containing the `EEGTrial`s of the individual fold.
+        
+        Paramters
+        ---------
+        num_folds : int 
+            The number of groups to split each subject's trials into.
+        
+        Returns 
+        -------
+        The refernece to this object.
+        """
         for subject in self.subjects:
             subject.fold(num_folds)
         print("fold : done")
@@ -122,6 +215,9 @@ class AnalysisPipeline:
 
     @detail(details.evaluate_model_detail)
     def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
+        """
+        TODO @Kevin
+        """
         concrete_model = find_model(model_name)
         for subject in self.subjects:
             # Construct the model
