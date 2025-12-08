@@ -6,7 +6,9 @@ from .eeg_subject import EEGSubject
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import pandas as pd
 from math import ceil
+from pathlib import Path
 
 def plot_single_trial(trial: EEGTrial):
     # Create a simple line plot of timestamps (x) vs data (y)
@@ -292,8 +294,12 @@ def plot_roc_curve(
     y_scores = []
     
     for trial in subject.trials:
-        if enforce_saturation and (trial.prediction is None or trial.prediction_distribution is None):
-            raise ValueError("Expected predictions and prediction distributions but found None.")
+        if trial.prediction is None or trial.prediction_distribution is None:
+            if enforce_saturation:
+                raise ValueError("Expected predictions and prediction distributions but found None.")
+            else:
+                # Skip trials without predictions (e.g., when model evaluation failed)
+                continue
         
         if trial.prediction_distribution is not None:
             # Extract probabilities in the correct order based on sorted labels
@@ -320,7 +326,8 @@ def plot_roc_curve(
                 y_scores.append(trial.prediction_distribution)
     
     if not y_true:
-        raise ValueError("No trials with prediction distributions found.")
+        print(f"⚠️  Warning: No valid predictions found for {subject.name}. Skipping ROC curve plot.")
+        return
     
     # Convert to numpy arrays
     y_true = np.array(y_true)
@@ -409,14 +416,24 @@ def plot_confusion_matrix(
     for label in labels:
         matrix.append([0 for _ in labels])
     
+    # Count valid predictions
+    valid_predictions_count = 0
+    
     for trial in subject.trials:
-        if enforce_saturation and trial.prediction is None:
-            raise ValueError("Expected a trial but found None.")
-        else:
-            # print(f"{trial.enumerated_label = }")
-            # print(f"{subject.labels_map = }")
-            # print(f"{subject.labels_map[trial.prediction] = }")
-            matrix[trial.enumerated_label][subject.labels_map[trial.prediction]] += 1
+        if trial.prediction is None:
+            if enforce_saturation:
+                raise ValueError("Expected a trial prediction but found None.")
+            else:
+                # Skip trials without predictions (e.g., when model evaluation failed)
+                continue
+        
+        matrix[trial.enumerated_label][subject.labels_map[trial.prediction]] += 1
+        valid_predictions_count += 1
+    
+    # Check if we have any valid predictions
+    if valid_predictions_count == 0:
+        print(f"⚠️  Warning: No valid predictions found for {subject.name}. Skipping confusion matrix plot.")
+        return
     
     # Plotting
     plt.figure(figsize=(10, 8))
@@ -437,7 +454,6 @@ def plot_confusion_matrix(
     
     if filepath is not None:
         # Create the necessary folders if they don't exist in the filepath
-        from pathlib import Path
         filepath_obj = Path(filepath)
         if not filepath_obj.parent.exists():
             print(f"Creating directory: {filepath_obj.parent}")
@@ -445,6 +461,92 @@ def plot_confusion_matrix(
         
         # Save the plot
         plt.savefig(filepath)
+    
+    # Show plot if requested
+    if show_popup:
+        plt.show()
+    
+    plt.close()
+
+def plot_csv_data(
+    csv_filepath: str,
+    output_filepath: str | None = None,
+    title: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    show_popup: bool = False
+):
+    """
+    Plot data from a CSV file where the first column is the x-axis
+    and each remaining column is a separate line on the y-axis.
+    
+    Parameters
+    ----------
+    csv_filepath : str
+        Path to the CSV file to plot
+    output_filepath : str, optional
+        Path to save the plot (if None, plot is not saved)
+    title : str, optional
+        Title for the plot (if None, uses CSV filename)
+    xlabel : str, optional
+        Label for x-axis (if None, uses first column name)
+    ylabel : str, optional
+        Label for y-axis (defaults to "Value")
+    show_popup : bool
+        Whether to show the plot in a popup window
+    """
+    
+    # Read the CSV file
+    df = pd.read_csv(csv_filepath)
+    
+    if df.empty:
+        print(f"⚠️  Warning: CSV file {csv_filepath} is empty. Skipping plot.")
+        return
+    
+    if len(df.columns) < 2:
+        print(f"⚠️  Warning: CSV file {csv_filepath} has less than 2 columns. Need at least x and y data.")
+        return
+    
+    # Extract column names
+    x_column = df.columns[0]
+    y_columns = df.columns[1:]
+    
+    # Set up the plot
+    plt.figure(figsize=(12, 8))
+    
+    # Use seaborn color palette for beautiful colors
+    colors = sns.color_palette("husl", len(y_columns))
+    
+    # Plot each y column
+    for i, (y_col, color) in enumerate(zip(y_columns, colors)):
+        plt.plot(df[x_column], df[y_col], linewidth=2.5, color=color, 
+                marker='o', markersize=4, label=y_col, alpha=0.8)
+    
+    # Labels and title
+    plt.xlabel(xlabel if xlabel else x_column, fontsize=12)
+    plt.ylabel(ylabel if ylabel else "Value", fontsize=12)
+    
+    if title:
+        plt.title(title, fontsize=14)
+    else:
+        # Use CSV filename as title
+        csv_name = Path(csv_filepath).stem
+        plt.title(f"{csv_name}", fontsize=14)
+    
+    # Add grid and legend
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='best', fontsize=10, framealpha=0.9)
+    plt.tight_layout()
+    
+    # Save if output path provided
+    if output_filepath is not None:
+        output_path = Path(output_filepath)
+        if not output_path.parent.exists():
+            print(f"Creating directory: {output_path.parent}")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        plt.savefig(output_filepath, dpi=300, bbox_inches='tight')
+        print(f"Plot saved to: {output_filepath}")
     
     # Show plot if requested
     if show_popup:
