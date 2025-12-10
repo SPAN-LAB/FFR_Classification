@@ -12,7 +12,7 @@ from ..models.utils import find_model
 from .utils import detail, undetailed, gui_private, details
 
 
-class AnalysisPipeline:
+class rAnalysisPipeline:
     def __init__(self):
         """
         Initialize the pipeline container with an empty subject list.
@@ -266,6 +266,10 @@ class AnalysisPipeline:
         TODO
         """
         # TODO
+        return self
+    
+    def log(self, msg: str) -> AnalysisPipeline:
+        print(msg)
         return self
 
 # Type alias for ``AnalysisPipeline`` for more expressive use.
