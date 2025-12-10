@@ -1,37 +1,15 @@
 **/.DS_Store
 **/__pycache__
-src/*.txt
-src/outputs
-**/*.mat
-# macOS cruft
-.DS_Store
 
-# Python caches & build artifacts
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-dist/
-build/
-.eggs/
-.ipynb_checkpoints/
-
-# Virtual env / IDE
-.venv/
-venv/
-.idea/
-.vscode/
-
-# Project-specific
-outputs/
-data/
-
-#Pipeline txt files:
-src/*.txt
 *.txt
+!requirements.txt
+
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.csv
+*.mat
 
 pdemo.py
-/analysis_outputs
-*.csv
-*.svg
+panalysis.py
