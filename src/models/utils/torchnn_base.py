@@ -210,7 +210,7 @@ class TorchNNBase(ModelInterface):
 
                 if verbose:
                     printl(
-                        f"Fold [{i + 1}/{len(folds)}], train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
+                        f"Fold [{i + 1}/{len(folds)}], Epoch [{ep}/{num_epochs}], train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
                     )
 
                 if val_acc > best_val_acc + min_impr:
