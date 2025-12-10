@@ -173,8 +173,9 @@ class AnalysisPipeline:
     def subaverage(self, size: int = 5) -> AnalysisPipeline:
         """
         Subaverages the trials of each subject. Subaveraging is performed by replacing `size` trials
-        with an averaged trial. If the number of remaining trials is less than `size`, those trials
-        are not included in the subaveraged trials.
+        with their average. This may improve the signal-to-noise ratio of your data. If the number 
+        of remaining trials is less than `size`, those trials are not included in the subaveraged 
+        trials.
         
         Parameters
         ----------
