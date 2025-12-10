@@ -1,12 +1,12 @@
-numpy>=2.0.0
+# numpy>=2.0.0
 pandas>=2.0.0
 scipy>=1.10.0
-matplotlib>=3.10.0
+# matplotlib>=3.10.0
 seaborn>=0.13.0
 scikit-learn>=1.7.0
-h5py>=3.0.0
+# h5py>=3.0.0
 PyQt5>=5.15.0
 torch>=2.0.0
 pymatreader>=1.0.0
-tensorflow>=2.20.0
+tensorflow>=2.16.0
 pandas>=2.3.3
