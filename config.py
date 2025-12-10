@@ -1,9 +1,0 @@
-
-
-
-PRINT_EPOCH_COMPLETION = True
-PRINT_EACH_EPOCH = True
-
-
-
-
