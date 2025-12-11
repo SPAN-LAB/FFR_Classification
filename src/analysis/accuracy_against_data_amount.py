@@ -92,8 +92,9 @@ def accuracy_against_data_amount(
         # Save the results
         output_filepath = Path(output_folder_path) / model_name
         output_filepath.mkdir(parents=True, exist_ok=True)
-        _data_amounts = ["Data Amount"] + data_amounts
-        _times = ["Time"] + durations
+        end = time_keeper.end_time()
+        _data_amounts = ["Data Amount"] + data_amounts + ["Total"]
+        _times = ["Time"] + durations + [end]
         save_times(
             _data_amounts, 
             _times, 
@@ -104,7 +105,7 @@ def accuracy_against_data_amount(
         df = pd.DataFrame(results, columns=headers)
         df.to_csv(output_filepath, index=False)
 
-        print(f"{(time_keeper.end_time()):.4f}s elapsed in total; results saved to: {output_filepath}")
+        print(f"{(end):.4f}s elapsed in total; results saved to: {output_filepath}")
         return results
 
     for model_name in model_names:
