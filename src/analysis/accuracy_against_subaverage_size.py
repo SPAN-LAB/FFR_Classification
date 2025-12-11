@@ -1,7 +1,8 @@
 from pathlib import Path
 import pandas as pd
 
-from .utils import get_subject_loaded_pipelines
+from .utils import get_subject_loaded_pipelines, save_times
+from ..time import TimeKeeper
 
 from ..core import AnalysisPipeline, PipelineState
 from ..core import get_accuracy, get_per_label_accuracy
@@ -29,6 +30,8 @@ def accuracy_against_subaverage_size(
         results = []
         labels = None
         headers = ["Subaverage Size", "Accuracy"]
+        time_keeper = TimeKeeper()
+        durations = [] # The duration elapsed for each iteration in the for-loop below
 
         for subaverage_size in subaverage_sizes:
             test = PipelineState()
@@ -65,16 +68,30 @@ def accuracy_against_subaverage_size(
                 row_data.append(per_label_accuracies[label])
 
             results.append(row_data)
+            t = time_keeper.lap_time()
+            durations.append(t)
+            print(f"{(t):.4f}s elapsed for size = {subaverage_size}")
 
         # Save the results
         output_filepath = Path(output_folder_path) / model_name
         output_filepath.mkdir(parents=True, exist_ok=True)
+        _subaverage_sizes = ["Subaverage Size"] + subaverage_sizes
+        _times = ["Time"] + durations
+        
+        save_times(
+            _subaverage_sizes, 
+            _times, 
+            output_filepath / f"{Path(subject_filepath).stem}.txt"
+        )
         output_filepath = output_filepath / f"{Path(subject_filepath).stem}.csv"
+        
+        # Save the times
+        # save_times(subaverage_sizes, durations, output_filepath / f"{Path(subject_filepath).stem}.txt")
+        
 
         df = pd.DataFrame(results, columns=headers)
         df.to_csv(output_filepath, index=False)
-
-        print(f"Results saved to: {output_filepath}")
+        print(f"{(time_keeper.end_time()):.4f}s elapsed in total; results saved to: {output_filepath}")
         return results
 
     for model_name in model_names:

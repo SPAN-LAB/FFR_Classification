@@ -35,3 +35,13 @@ def get_subject_loaded_pipelines(subject_filepaths: list[str]) -> dict[str, Pipe
     for subject_filepath in subject_filepaths:
         states[subject_filepath] = AnalysisPipeline().load_subjects(subject_filepath)
     return states
+
+def save_times(indices, times, filepath):
+    if len(indices) != len(times):
+        raise ValueError("Arrays must have the same length.")
+    
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        for x, y in zip(indices, times):
+            f.write(f"{x},{y}\n")

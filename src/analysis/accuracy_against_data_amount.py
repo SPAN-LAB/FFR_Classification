@@ -7,6 +7,8 @@ from ..core import AnalysisPipeline, PipelineState
 from ..core import get_accuracy, get_per_label_accuracy
 
 from .utils import get_subject_loaded_pipelines
+from .utils import save_times
+from ..time import TimeKeeper
 
 from ..core.plots import plot_confusion_matrix, plot_roc_curve
 
@@ -32,9 +34,13 @@ def accuracy_against_data_amount(
         results = []
         labels = None
         headers = ["Data Amount", "Accuracy"]
+        time_keeper = TimeKeeper()
+        durations = []
+        data_amounts = []
 
         data_amount = min_trials
         while data_amount < len(subject_loaded_pipelines[subject_filepath].subjects[0].trials):
+            data_amounts.append(data_amount)
             base = subject_loaded_pipelines[subject_filepath]
             p0 = PipelineState()
             base.save(to=p0)
@@ -77,18 +83,28 @@ def accuracy_against_data_amount(
                 row_data.append(per_label_accuracies[label])
             
             results.append(row_data)
+            t = time_keeper.lap_time()
+            durations.append(t)
+            print(f"{(t):.4f}s elapsed for data_amount = {data_amount}")
             
             data_amount += stride
         
         # Save the results
         output_filepath = Path(output_folder_path) / model_name
         output_filepath.mkdir(parents=True, exist_ok=True)
+        _data_amounts = ["Data Amount"] + data_amounts
+        _times = ["Time"] + durations
+        save_times(
+            _data_amounts, 
+            _times, 
+            output_filepath / f"{Path(subject_filepath).stem}.txt"
+        )
         output_filepath = output_filepath / f"{Path(subject_filepath).stem}.csv"
 
         df = pd.DataFrame(results, columns=headers)
         df.to_csv(output_filepath, index=False)
 
-        print(f"Results saved to: {output_filepath}")
+        print(f"{(time_keeper.end_time()):.4f}s elapsed in total; results saved to: {output_filepath}")
         return results
 
     for model_name in model_names:
