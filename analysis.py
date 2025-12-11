@@ -23,6 +23,8 @@ TRAINING_OPTIONS = {
     "weight_decay": 0.1
 }
 
+DEFER_LOADING_SUBJECTS = True
+
 
 def test_subaverage():
     """
@@ -43,7 +45,8 @@ def test_subaverage():
         model_names=MODEL_NAMES,
         training_options=TRAINING_OPTIONS,
         output_folder_path=OUTPUT_FOLDER_PATH,
-        include_null_case=INCLUDE_NO_SUBAVERAGING_CASE
+        include_null_case=INCLUDE_NO_SUBAVERAGING_CASE,
+        defer_subject_loading=DEFER_LOADING_SUBJECTS
     )
 
 def test_data_amount():
@@ -66,9 +69,11 @@ def test_data_amount():
         subject_filepaths=SUBJECT_FILENAMES,
         model_names=MODEL_NAMES,
         training_options=TRAINING_OPTIONS,
-        output_folder_path=OUTPUT_FOLDER_PATH
+        output_folder_path=OUTPUT_FOLDER_PATH,
+        defer_subject_loading=DEFER_LOADING_SUBJECTS
     )
 
 
 if __name__ == "__main__":
     test_subaverage()
+    # test_data_amount()
