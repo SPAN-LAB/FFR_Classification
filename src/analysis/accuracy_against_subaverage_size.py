@@ -75,8 +75,9 @@ def accuracy_against_subaverage_size(
         # Save the results
         output_filepath = Path(output_folder_path) / model_name
         output_filepath.mkdir(parents=True, exist_ok=True)
-        _subaverage_sizes = ["Subaverage Size"] + subaverage_sizes
-        _times = ["Time"] + durations
+        end = time_keeper.end_time()
+        _subaverage_sizes = ["Subaverage Size"] + subaverage_sizes + ["Total"]
+        _times = ["Time"] + durations + [end]
         
         save_times(
             _subaverage_sizes, 
@@ -91,7 +92,7 @@ def accuracy_against_subaverage_size(
 
         df = pd.DataFrame(results, columns=headers)
         df.to_csv(output_filepath, index=False)
-        print(f"{(time_keeper.end_time()):.4f}s elapsed in total; results saved to: {output_filepath}")
+        print(f"{(end):.4f}s elapsed in total; results saved to: {output_filepath}")
         return results
 
     for model_name in model_names:
