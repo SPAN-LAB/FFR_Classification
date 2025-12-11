@@ -2,6 +2,7 @@ from sys import stdout
 
 class StationaryPrinter:
     is_locked: bool = False
+    last_length: int = 0
     
     @staticmethod
     def printl(printable):
@@ -16,9 +17,16 @@ class StationaryPrinter:
         printable
             The content to be printed. This can be anything compatible with the generic `print`.
         """
+        
+        text = str(printable)
         StationaryPrinter.lock()
-        print(f"\r{printable}", end="")
+
+        # Clear previous text fully
+        stdout.write("\r" + " " * StationaryPrinter.last_length)
+        stdout.write("\r" + text)
         stdout.flush()
+
+        StationaryPrinter.last_length = len(text)
     
     @staticmethod
     def print(printable):
@@ -66,6 +74,7 @@ class StationaryPrinter:
         if was_locked:
             print()
         cls.is_locked = False
+        cls.last_length = 0
         return was_locked
 
 if __name__ == "__main__":

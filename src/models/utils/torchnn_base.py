@@ -1,6 +1,7 @@
 from abc import abstractmethod
 
 from ...printing import print, printl, unlock
+from ...time import TimeKeeper
 
 from src.core import ffr_proc
 from ...core import FFRPrep
@@ -36,13 +37,16 @@ class TorchNNBase(ModelInterface):
         if use_gpu:
             if torch.cuda.is_available():
                 self.device = torch.device("cuda")
+                print("Using CUDA for GPU computations")
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 self.device = torch.device("mps")
-                print("Set to MPS")
+                print("Using MPS for GPU computations")
             else:
                 self.device = torch.device("cpu")
+                print("Using CPU for torch computations")
         else:
             self.device = torch.device("cpu")
+            print("Using CPU for torch computations")
 
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
@@ -143,10 +147,9 @@ class TorchNNBase(ModelInterface):
         folds = self.subject.folds
         total_correct = 0
         total_n = 0
-
+        
         for i, fold in enumerate(folds):
-            # if verbose:
-            #     print(f"\n===== Fold {i + 1} =====")
+            fold_time_keeper = TimeKeeper()
 
             self.build()
             if self.model is not None:
@@ -210,7 +213,7 @@ class TorchNNBase(ModelInterface):
 
                 if verbose:
                     printl(
-                        f"Fold [{i + 1}/{len(folds)}], Epoch [{ep}/{num_epochs}], train loss={avg_train_loss:.4f}, val accuracy={val_acc:.4f}"
+                        f"Fold [{i + 1}/{len(folds)}] ({fold_time_keeper.peek_time():.1f}s total), Epoch [{ep}/{num_epochs}] ({fold_time_keeper.lap_time():.3f}s / epoch), train loss={avg_train_loss:.3f}, val acc={val_acc:.3f}"
                     )
 
                 if val_acc > best_val_acc + min_impr:
