@@ -5,9 +5,6 @@ from math import floor
 
 class FFNN(TorchNNBase, nn.Module):
     def __init__(self, training_options: dict[str, any]):
-        """
-        NOTE: This method MUST be copied verbatim into every concrete PyTorch NN.
-        """
         TorchNNBase.__init__(self,training_options)
         nn.Module.__init__(self)
 

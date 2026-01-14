@@ -14,10 +14,32 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+from torch.utils.data import DataLoader, Dataset
 
 from pathlib import Path
 import json
 
+class EEGDataset(Dataset):
+    def __init__(self, trials: list[EEGTrial]):
+        self.trials = trials
+
+    def __len__(self):
+        return len(self.trials)
+    
+    def __getitem__(self, index):
+        """
+        Returns a tuple.
+
+        The first element is numpy array of the datapoints captured for the single trial.
+        
+        The second element is the label associated with the first element's data.
+
+        The third element is the index associated with the data.
+        """
+        trial_data = torch.tensor(self.trials[index].data, dtype=torch.float32)
+        trial_label = torch.tensor(self.trials[index].enumerated_label, dtype=torch.long)
+        trial_index = self.trials[index].trial_index
+        return trial_data, trial_label, trial_index
 
 class TorchNNBase(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
@@ -132,6 +154,7 @@ class TorchNNBase(ModelInterface):
             -self.model != None
             -self.subject.folds != None
         """
+
         batch_size = self.training_options["batch_size"]
         learning_rate = self.training_options["learning_rate"]
         num_epochs = self.training_options["num_epochs"]
@@ -152,23 +175,20 @@ class TorchNNBase(ModelInterface):
             fold_time_keeper = TimeKeeper()
 
             self.build()
-            if self.model is not None:
-                self.model.to(self.device)
-            else:
-                raise RuntimeError(
-                    "Self.model is None. Set model before calling evaluate"
-                )
+            self.model = self.model.to(self.device)
 
-            train_dl, val_dl = prep.make_train_val_loaders(
-                folds=folds, fold_idx=i, batch_size=batch_size
-            )
-            test_dl = prep.make_test_loader(
-                folds=folds, fold_idx=i, batch_size=batch_size
+            train_loader, validate_loader, test_loader = self.create_loaders(
+                folds=self.subject.folds,
+                withheld_fold_index=i,
+                validate_ratio=0.0,
+                batch_size=batch_size
             )
 
             criterion = nn.CrossEntropyLoss()
             optimizer = optim.AdamW(
-                self.model.parameters(), lr=learning_rate, weight_decay=weight_decay
+                params=self.model.parameters(),
+                lr=learning_rate,
+                weight_decay=weight_decay
             )
 
             # Train with early stopping on val acc:
@@ -178,36 +198,40 @@ class TorchNNBase(ModelInterface):
             for ep in range(1, num_epochs + 1):
 
                 self.model.train()
+                for data_batch, labels_batch, indices_batch in train_loader:
 
-                running_loss = 0.0
-                n_train = 0
+                    data_batch = data_batch.to(self.device)
+                    labels_batch = labels_batch.to(self.device)
+                    indices_batch = indices_batch.to(self.device)
+                    
+                    # Zero-out the gradients to prevent accumulating them from previous iterations
+                    optimizer.zero_grad()
 
-                for (
-                    x_batch,
-                    y_batch,
-                ) in train_dl:
-                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
-                    optimizer.zero_grad(set_to_none=True)
-                    logits = self.model(x_batch)
-                    loss = criterion(logits, y_batch)
+                    # Forward pass through the model
+                    logits = self.model(data_batch)
+
+                    # Calculate the loss 
+                    loss = criterion(logits, labels_batch)
+
+                    # Compute gradients for every parameter
                     loss.backward()
+
+                    # Update each parameter
                     optimizer.step()
                     current_batch_size = y_batch.size(0)
                     running_loss += loss.item() * current_batch_size
                     n_train += current_batch_size
 
-                avg_train_loss = running_loss / max(n_train, 1)
-                self.model.eval()
-                v_correct = v_n = 0
-                with torch.no_grad():
-                    for x_batch, y_batch in val_dl:
-                        x_batch, y_batch = (
-                            x_batch.to(self.device),
-                            y_batch.to(self.device),
-                        )
-                        logits = self.model(x_batch)
-                        v_correct += (logits.argmax(1) == y_batch).sum().item()
-                        v_n += y_batch.numel()
+                    # Update the predictions 
+                    for k, trial_index in enumerate(indices_batch):
+                        prediction = logits[k].argmax().item()
+                        
+                        trial_count += 1
+                        
+                        if prediction == self.subject.trials[trial_index].enumerated_label:
+                            correct_count +=1 
+                
+                print(f"Accuracy on epoch {epoch + 1} on subject {self.subject.name}: {(100 * correct_count / trial_count):.4f}")
 
                 val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
 
@@ -237,31 +261,32 @@ class TorchNNBase(ModelInterface):
 
             # Test on held out fold:
             self.model.eval()
-            with torch.no_grad():
-                for x_batch, y_batch, idx in test_dl:
-                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
-                    logits = self.model(x_batch)
-                    probs = logits.softmax(dim=1)
-                    preds = logits.argmax(1)
+            with torch.no_grad(): # Turn off gradient-tracking
 
-                    total_correct += (preds == y_batch).sum().item()
-                    total_n += y_batch.numel()
+                test_trial_count = 0
+                test_correct_count = 0
 
-                    probs_np = probs.cpu().numpy()
-                    preds_np = preds.cpu().numpy()
-                    idx_np = idx.cpu().numpy()
+                for data_batch, labels_batch, indices_batch in test_loader:
+                    
+                    data_batch = data_batch.to(self.device)
+                    # labels_batch = labels_batch.to(self.device)
+                    # indices_batch = indices_batch.to(self.device)
+                    
+                    # Forward pass through the model
+                    logits = self.model(data_batch)
 
-                    for trial_idx, pred_label_0based, prob_vec in zip(
-                        idx_np, preds_np, probs_np
-                    ):
-                        # convert 0–3 → 1–4
-                        pred_label_1based = int(pred_label_0based) + 1
+                    # Update the predictions 
+                    for k, trial_index in enumerate(indices_batch):
+                        prediction = logits[k].argmax().item()
+                        self.subject.trials[trial_index].set_prediction(prediction)
 
-                        # optionally also make the distribution keys 1–4
-                        dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
+                        test_trial_count += 1
+                        
+                        if prediction == self.subject.trials[trial_index].enumerated_label:
+                            test_correct_count += 1
 
-                        self.subject.trials[trial_idx].set_prediction(int(pred_label_0based))
-                        self.subject.trials[trial_idx].prediction_distribution = dist
+                        self.subject.trials[trial_index].set_prediction(int(pred_label_0based))
+                        self.subject.trials[trial_index].prediction_distribution = dist
 
         return get_accuracy(self.subject, True)
 
@@ -269,8 +294,10 @@ class TorchNNBase(ModelInterface):
         """
         To be implemented later
         """
+        pass
 
     def infer(self, trials: list[EEGTrial]):
         """
         To be implemented later
         """
+        pass
