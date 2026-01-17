@@ -26,10 +26,10 @@ def plot_single_trial(trial: EEGTrial):
         pass
     return ax
 
-def plot_averaged_trials(subject: EEGSubject, key: Callable[[EEGTrial], Any]=lambda trial: trial.raw_label):
+def plot_averaged_trials(subject: EEGSubject):
     show_components = False
     # Group trials by key (label) and plot each label in its own subplot (2 x n grid)
-    grouped = subject.grouped_trials(key=key)
+    grouped = subject.grouped_trials()
 
     keys = list(grouped.keys())
     if not keys:
