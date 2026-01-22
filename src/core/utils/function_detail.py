@@ -13,7 +13,7 @@ class Selection:
 
     @property
     def options(self) -> list[str]:
-        return list(self.option_value_map().keys())
+        return list(self.option_value_map(self).keys())
 
     def value(self, selection: str):
         return self.option_value_map()[selection]
