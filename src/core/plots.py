@@ -26,10 +26,10 @@ def plot_single_trial(trial: EEGTrial):
         pass
     return ax
 
-def plot_averaged_trials(subject: EEGSubject):
+def plot_averaged_trials(subject: EEGSubject, key: Callable[[EEGTrial], Any]=lambda trial: trial.raw_label):
     show_components = False
     # Group trials by key (label) and plot each label in its own subplot (2 x n grid)
-    grouped = subject.grouped_trials()
+    grouped = subject.grouped_trials(key=key)
 
     keys = list(grouped.keys())
     if not keys:
@@ -101,7 +101,7 @@ def plot_averaged_trials(subject: EEGSubject):
         # Use precomputed averaged trial for this label
         averaged_trial = avg_trials.get(group_key)
         if averaged_trial is not None:
-            sns.lineplot(x=averaged_trial.timestamps, y=averaged_trial.data, ax=ax, color="#1f77b4", linewidth=1.5, label="avg")
+            sns.lineplot(x=averaged_trial.timestamps, y=averaged_trial.data, ax=ax, color="#1f77b4", linewidth=2.5, label="avg")
 
         ax.set_title(f"Label {group_key}")
         ax.set_xlabel("Time")
@@ -119,7 +119,7 @@ def plot_averaged_trials(subject: EEGSubject):
     try:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         fig.canvas.draw_idle()
-        plt.show(block=True)
+        plt.show(block=False)
     except Exception:
         pass
 
@@ -254,7 +254,7 @@ def plot_grand_average(subjects: list[EEGSubject], show_components: bool=True):
     try:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         fig.canvas.draw_idle()
-        plt.show(block=True)
+        plt.show(block=False)
     except Exception:
         pass
 
