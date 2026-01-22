@@ -101,7 +101,7 @@ def plot_averaged_trials(subject: EEGSubject):
         # Use precomputed averaged trial for this label
         averaged_trial = avg_trials.get(group_key)
         if averaged_trial is not None:
-            sns.lineplot(x=averaged_trial.timestamps, y=averaged_trial.data, ax=ax, color="#1f77b4", linewidth=2.5, label="avg")
+            sns.lineplot(x=averaged_trial.timestamps, y=averaged_trial.data, ax=ax, color="#1f77b4", linewidth=1.5, label="avg")
 
         ax.set_title(f"Label {group_key}")
         ax.set_xlabel("Time")
@@ -119,7 +119,7 @@ def plot_averaged_trials(subject: EEGSubject):
     try:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         fig.canvas.draw_idle()
-        plt.show(block=False)
+        plt.show(block=True)
     except Exception:
         pass
 
@@ -254,7 +254,7 @@ def plot_grand_average(subjects: list[EEGSubject], show_components: bool=True):
     try:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         fig.canvas.draw_idle()
-        plt.show(block=False)
+        plt.show(block=True)
     except Exception:
         pass
 
