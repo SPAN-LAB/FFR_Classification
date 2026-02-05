@@ -8,7 +8,7 @@ from src.analysis import accuracy_against_data_amount
 ##   GLOBAL ARGUMENTS   ##
 ##########################
 
-SUBJECT_FILENAMES = "replace/me/to/assent/that/macintosh/is/good"
+SUBJECT_FILENAMES = ["replace/me/to/assent/that/macintosh/is/good"]
 # Alternatively, use 
 #     `SUBJECT_FILENAMES = get_mats("PATH TO FOLDER CONTAINING MAT FILES")`
 
