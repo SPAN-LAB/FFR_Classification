@@ -1,4 +1,4 @@
-# FFR_Classification
+# FFR Classification
 
 ## Overview
 
@@ -9,6 +9,7 @@
 **Note: This toolbox uses Python 3.11.**
 
 [MacOS](#macos-and-linux)
+
 [Linux](#macos-and-linux)
 
 ### MacOS and Linux
