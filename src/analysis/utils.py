@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: utils.py
+Author(s): Kevin Chen
+Description: Utility functions used in the analysis code.
+"""
+
+
 import os
 
 from ..core import AnalysisPipeline, PipelineState

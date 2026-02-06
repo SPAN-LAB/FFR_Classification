@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: plots.py
+Author(s): Kevin Chen
+Description: Functions for creating various plots visualizing the contents of EEGSubject and 
+    EEGTrial instances.
+"""
+
+
 from typing import Any, Callable
 from abc import ABC, abstractmethod
 

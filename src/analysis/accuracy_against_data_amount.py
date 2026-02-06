@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: accuracy_against_data_amount.py
+Author(s): Kevin Chen
+Description: A function that evaluates a model's performance on various data amounts.
+    Data amount refers to the number of trials whose data is used for training.
+"""
+
+
 from pathlib import Path
 import pandas as pd
 from copy import deepcopy

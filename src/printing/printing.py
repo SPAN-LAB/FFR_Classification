@@ -1,3 +1,14 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: printing.py
+Author(s): Kevin Chen
+Description: Defines functions that make it to make "stationary" prints.
+    A stationary print is one where writing consecutively to the console overwrites its existing 
+    content instead of printing onto a new line. 
+"""
+
+
 from sys import stdout
 
 class StationaryPrinter:

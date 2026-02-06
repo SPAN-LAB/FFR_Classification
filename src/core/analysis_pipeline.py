@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: analysis_pipeline.py
+Author(s): Kevin Chen
+Description: Contains the definition of AnalysisPipeline, the primary way to use this library.
+"""
+
+
 from __future__ import annotations
 
 import os

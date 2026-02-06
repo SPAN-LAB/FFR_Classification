@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: time_keeper.py
+Author(s): Kevin Chen
+Description: A simple timer; useful for measuring how long some computation takes to complete. 
+    See example code below.
+"""
+
+
 import time
 
 class TimeKeeper:
@@ -22,4 +32,14 @@ class TimeKeeper:
     
     def peek_time(self) -> float:
         return self.end_time()
-        
+
+if __name__ == "__main__": 
+    
+    tk = TimeKeeper()
+    
+    for _ in range(1_000_000):
+        # ... some computation ...
+        print(f"Time since previous iteration: {tk.lap_time()} s")
+    
+    print(f"Total duration: {tk.end_time()}")
+    

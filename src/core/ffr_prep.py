@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: ffr_prep.py
+Author(s): TODO @Anu
+Description: TODO @Anu
+"""
+
+
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
 

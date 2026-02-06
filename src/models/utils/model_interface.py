@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: model_interface.py
+Author(s): Kevin Chen
+Description: An interface that all ML models must conform to for compatability with 
+    AnalysisPipeline.
+"""
+
+
 from abc import ABC, abstractmethod
 
 from ...core import EEGSubject

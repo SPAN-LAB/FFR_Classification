@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: ffr_proc.py
+Author(s): Kevin Chen
+Description: Extra utility functions for determining the accuracy of a model's predictions.
+"""
+
+
 from .eeg_subject import EEGSubject
 
 
