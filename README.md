@@ -101,4 +101,4 @@ my_pipeline = (
 Note two things:
 
 1. The instantiation of several variables using `<var> = BlankPipeline()`. `BlankPipeline` is simply an alias of `AnalysisPipeline`; it is used simply to clarify intentions better.
-2. The addition of the `save(to=<pipeline_name>` method which stores the state of the pipeline at various points.
+2. The addition of the `save(to=<pipeline_name>)` method which stores the state of the pipeline at various points.
