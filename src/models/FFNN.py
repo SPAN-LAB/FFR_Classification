@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: FFNN.py
+Author(s): Kevin Chen
+Description: A Forward-Feeding Neural Network
+"""
+
+
 from torch import nn
 from .utils import TorchNNBase
 

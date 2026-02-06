@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: accuracy_against_subaverage_size.py
+Author(s): Kevin Chen
+Description: A function that evaluates a model's performance on various subaverage sizes.
+"""
+
+
 from pathlib import Path
 import pandas as pd
 

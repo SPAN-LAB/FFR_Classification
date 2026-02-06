@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: analysis.py
+Author(s): Kevin Chen
+Description: A template for running analyses.
+"""
+
+
 from src.analysis.utils import get_mats
 from src.models.utils import find_models
 from src.analysis import accuracy_against_subaverage_size

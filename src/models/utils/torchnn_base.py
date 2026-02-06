@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: torchnn_base.py
+Author(s): TODO @Anu
+Description: TODO @Anu
+"""
+
+
 from abc import abstractmethod
 
 from ...printing import print, printl, unlock

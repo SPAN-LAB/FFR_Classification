@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: function_detail.py
+Author(s): Kevin Chen
+Description: The definition of FunctionDetail, the data type used to decorate functions to make them 
+    GUI-friendly and GUI-representable.
+"""
+
+
 from __future__ import annotations
 from enum import Enum, auto
 from typing import Callable

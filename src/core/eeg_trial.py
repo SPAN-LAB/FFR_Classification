@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: eeg_trial.py
+Author(s): Kevin Chen
+Description: The interface and implementation of the EEGTrial type.
+    EEGTrial represents a collection of the data associated with a single trial. 
+"""
+
 
 from numpy import typing as npt
 import numpy as np

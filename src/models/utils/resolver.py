@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: resolver.py
+Author(s): Kevin Chen
+Description: Finds ML models in the /src/models directory. To be discoverable, a model must 
+    inherit ModelInterface.
+"""
+
+
 import importlib
 import inspect
 import pkgutil

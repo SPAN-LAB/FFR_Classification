@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: details.py
+Author(s): Kevin Chen
+Description: Decorators for the methods of AnalysisPipeline that provide additional information 
+    on a function for a GUI to represent it accurately. 
+"""
+
+
 from .function_detail import FunctionDetail as FD
 from .function_detail import ArgumentDetail as AD
 from .function_detail import FunctionKind

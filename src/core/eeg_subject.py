@@ -1,3 +1,13 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: eeg_subject.py
+Author(s): Kevin Chen
+Description: The interface and implementation of the EEGSubject type.
+    EEGSubject primarily represents a collection of all the trial data recorded for some individual.
+"""
+
+
 from __future__ import annotations
 from typing import Any, Self, Callable
 

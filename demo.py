@@ -1,3 +1,12 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: demo.py
+Author(s): Kevin Chen
+Description: Example code for using the AnalysisPipeline APIs.
+"""
+
+
 from src.core import AnalysisPipeline, PipelineState
 from src.core import EEGSubject
 
@@ -19,8 +28,8 @@ p = (
     .save(to=loading_result)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .save(to=trimming_result)
-    .subaverage(20)
-    .fold()
+    .subaverage(5)
+    .fold(5)
     .save(to=subaverage_and_fold_result)
     .evaluate_model(
         model_name="FFNN",
