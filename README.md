@@ -2,7 +2,7 @@
 
 ## Overview
 
-`FFR_Classification` is a toolbox for analyzing, visualizing, and training machine learning models on frequency-following response (FFR) EEG data using just a few lines in Python.
+FFR Classification is a toolbox for analyzing, visualizing, and training machine learning models on frequency-following response (FFR) EEG data using just a few lines in Python.
 
 ## Installation
 
