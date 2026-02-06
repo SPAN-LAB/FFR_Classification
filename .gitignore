@@ -7,7 +7,6 @@
 *.py
 !demo.py
 !analysis.py
-!run_gui.py
 
 *.png
 *.jpg
