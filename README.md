@@ -81,11 +81,11 @@ after_transforms = BlankPipeline()
 my_pipeline = (
   AnalysisPipeline()
   .load_subjects("data")
-  .save(to=only_subjects)
+  .save(to=only_subjects) # Saves the state of AnalysisPipeline up until the line above
   .trim_by_timestamp(start_time=50, end_time=250)
   .subaverage(5)
   .fold(5)
-  .save(to=after_transforms)
+  .save(to=after_transforms) # Saves another snapshot
   .evaluate(
     model_name="FFNN",
     training_options={
