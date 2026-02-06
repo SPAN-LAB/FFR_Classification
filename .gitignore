@@ -4,12 +4,14 @@
 *.txt
 !requirements.txt
 
+*.py
+!demo.py
+!analysis.py
+!run_gui.py
+
 *.png
 *.jpg
 *.jpeg
 *.svg
 *.csv
 *.mat
-
-pdemo.py
-panalysis.py
