@@ -50,7 +50,7 @@ my_pipeline = my_pipeline.load_subjects("data/S01.mat")
 my_pipeline = my_pipeline.load_subjects("data")
 ```
 
-With our data now loaded, we can perform transformations to it: 
+With our data now loaded, we can perform transformations on it: 
 
 ```python
 my_pipeline = my_pipeline.trim_by_timestamp(start_time=50, end_time=250)
@@ -58,7 +58,7 @@ my_pipeline = my_pipeline.subaverage(5)
 my_pipeline = my_pipeline.fold(5)
 ```
 
-You can evaluate the accuracy of an ML model on the loaded data like so: 
+You can evaluate the accuracy of an ML model trained on the loaded data like so: 
 
 ```python 
 my_pipeline = my_pipeline.evaluate(
@@ -72,17 +72,20 @@ my_pipeline = my_pipeline.evaluate(
 )
 ```
 
-Notice that the example code above uses `my_pipeline` many times. We can accomplish the same task much more succinctly using the following syntax: 
+Notice that the example code above uses `my_pipeline` many times. We can accomplish that task much more succinctly using the following syntax: 
 
 ```python
 only_subjects = BlankPipeline()
+after_transforms = BlankPipeline()
 
 my_pipeline = (
   AnalysisPipeline()
   .load_subjects("data")
+  .save(to=only_subjects)
   .trim_by_timestamp(start_time=50, end_time=250)
   .subaverage(5)
   .fold(5)
+  .save(to=after_transforms)
   .evaluate(
     model_name="FFNN",
     training_options={
