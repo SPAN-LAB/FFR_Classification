@@ -281,3 +281,4 @@ class AnalysisPipeline:
 # When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
+BlankPipeline = AnalysisPipeline

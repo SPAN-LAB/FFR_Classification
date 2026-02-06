@@ -7,8 +7,7 @@ Description: Example code for using the AnalysisPipeline APIs.
 """
 
 
-from src.core import AnalysisPipeline, PipelineState
-from src.core import EEGSubject
+from src.core import AnalysisPipeline, BlankPipeline
 
 # Replace this with a string variable representing the path to the directory containing the data. 
 # Example:
@@ -18,9 +17,9 @@ from src.core import EEGSubject
 # Swap this variable into the ``load_subjects`` method on line 18 below.
 from local.constants import *
 
-loading_result = PipelineState()
-trimming_result = PipelineState()
-subaverage_and_fold_result = PipelineState()
+loading_result = BlankPipeline()
+trimming_result = BlankPipeline()
+subaverage_and_fold_result = BlankPipeline()
 
 p = (
     AnalysisPipeline()
