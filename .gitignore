@@ -4,7 +4,7 @@
 *.txt
 !requirements.txt
 
-*.py
+/*.py
 !demo.py
 !analysis.py
 
