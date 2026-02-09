@@ -8,14 +8,11 @@ Description: A function that evaluates a model's performance on various subavera
 
 
 from pathlib import Path
-import pandas as pd
+import json
 
-from .utils import get_subject_loaded_pipelines, save_times
-from ..time import TimeKeeper
+from .utils import get_subject_loaded_pipelines
 
 from ..core import AnalysisPipeline
-from ..core import get_accuracy, get_per_label_accuracy
-from ..core.plots import plot_confusion_matrix, plot_roc_curve
 
 def accuracy_against_subaverage_size(
     subaverage_sizes: list[int],
@@ -26,6 +23,42 @@ def accuracy_against_subaverage_size(
     include_null_case: bool = True,
     defer_subject_loading: bool = True
 ):
+    """
+    This method iterates through models corresponding to the model names provided. For each model, 
+    the analysis is done on each subject; for each subject, we iterate through each subaverage size
+    provided. For each subaverage size, we create a JSON file containing information on the 
+    predictions made for all the trials of the subject. 
+    
+        {
+            "trials": [
+                {
+                    "label": "1",
+                    "prediction_distribution": {
+                        "1": 0.25,
+                        "2": 0.3,
+                        "3": 0.25,
+                        "4": 0.2
+                    }
+                },
+                {
+                    "label": "2",
+                    "prediction_distribution": {
+                        "1": 0.05,
+                        "2": 0.3,
+                        "3": 0.3,
+                        "4": 0.35
+                    }
+                },
+                ...
+            ]
+        }
+    
+    This method creates a folder in the output folder path for each of the models names. 
+    Then for each model, a subfolder exists for each subject it is trained on. Each subject 
+    subfolder contains JSON files with the name "subaverage-<size>.json" (subaverage-1.json for 
+    example). 
+    """
+    
     NUM_FOLDS = 5
     TRIM_START_TIME = 50
     TRIM_END_TIME = 250
@@ -40,12 +73,6 @@ def accuracy_against_subaverage_size(
 
     for model_name in model_names:
         for subject_filepath in subject_filepaths:
-            
-            headers = ["Subaverage Size", "Accuracy"]
-            accuracies = []
-            labels = None
-            time_keeper = TimeKeeper()
-            durations = []
             
             # The base subject pipeline state used for this subject; do not modify, only deeply copy
             if not defer_subject_loading: 
@@ -66,48 +93,18 @@ def accuracy_against_subaverage_size(
                 )
                 subject = p.subjects[0]
                 
-                # Ensure that labels and headers are arranged consistently for all subaverage sizes
-                # This is run only once
-                if labels is None:
-                    labels = subject.labels_map.keys()
-                    for label in labels:
-                        headers.append(f"Accuracy (label={label})")
+                # Create the dictionary
+                predictions = {"trials": []}
+                for trial in subject.trials:
+                    predictions["trials"].append({
+                        "label": trial.label,
+                        "prediction_distribution": trial.prediction_distribution
+                    })
                 
-                # Format the data for this iteration
-                row_data = [subaverage_size, get_accuracy(subject)]
-                per_label_accuracies = get_per_label_accuracy(subject)
-                for label in labels:
-                    row_data.append(per_label_accuracies[label])
-                    
-                accuracies.append(row_data)
-                t = time_keeper.lap_time()
-                durations.append(t)
-                print(f"{(t):.4f}s elapsed for size = {subaverage_size}")
-                    
-                plot_confusion_matrix(
-                    subject=subject, 
-                    filepath=f"{output_folder_path}/{model_name}/{subject.name}/confusion/{subaverage_size}.svg"
-                )
-                plot_roc_curve(
-                    subject=subject, 
-                    filepath=f"{output_folder_path}/{model_name}/{subject.name}/roc/{subaverage_size}.svg"
-                )
-            
-            # Save the results
-            output_filepath = Path(output_folder_path) / model_name
-            output_filepath.mkdir(parents=True, exist_ok=True)
-            end = time_keeper.end_time()
-            _subaverage_sizes = ["Subaverage Size"] + subaverage_sizes + ["Total"]
-            _times = ["Time"] + durations + [end]
-            
-            save_times(
-                _subaverage_sizes, 
-                _times, 
-                output_filepath / f"{Path(subject_filepath).stem}.txt"
-            )
-            output_filepath = output_filepath / f"{Path(subject_filepath).stem}.csv"
-    
-            df = pd.DataFrame(accuracies, columns=headers)
-            df.to_csv(output_filepath, index=False)
-            print(f"{(end):.4f}s elapsed in total; results saved to: {output_filepath}")
+                # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
+                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/subaverage-{subaverage_size}.json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                
+                with path.open("w", encoding="utf-8") as file:
+                    json.dump(predictions, file, indent=4)
 
