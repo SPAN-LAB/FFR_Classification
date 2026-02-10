@@ -1,6 +1,6 @@
 # Some instructions
 
-To analyze the effect of subaverage size, data amount, etc. on accuarcy, simply create a `.py` file in this directory, copy the contents of `example.py` into it, and **execute the code from the root directory**. 
+To analyze the effect of subaverage size, data amount, etc. on accuracy, simply create a `.py` file in this directory, copy the contents of `example.py` into it, and **execute the code from the root directory**. 
 
 ## Detailed walkthrough
 
