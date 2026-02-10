@@ -10,7 +10,7 @@ Step 1: Configure `SUBJECT_FILEPATHS`, found in `/src/analysis/config.py`, with 
 SUBJECT_FILEPATHS = ["Martian001.mat", "Martian051.mat"]
 ```
 
-Step 2: Create your file in `src/server_analysis` and import the function(s). I'll call it `subaverage_ffnn.py`.
+Step 2: Create your file in `src/server_analysis` and import the module(s). I'll call it `subaverage_ffnn.py`.
 
 ```python
 from src.analysis import subaverage_size
