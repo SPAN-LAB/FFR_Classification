@@ -12,7 +12,7 @@ def analyze(model_name: str):
     
     # -------------------------------------------------------------------------
     
-    MIN_TRIALS = 3000
+    MIN_TRIALS = 100
     STRIDE = 100 # Trial number is incremented by this amount
     MODEL_NAMES = [model_name]
     DEFER_SUBJECT_LOADING = True

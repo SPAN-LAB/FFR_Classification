@@ -8,7 +8,7 @@ Description: A function that evaluates a model's performance on various subavera
 
 
 from pathlib import Path
-import json
+import pickle 
 
 from .utils import get_subject_loaded_pipelines
 
@@ -93,18 +93,16 @@ def accuracy_against_subaverage_size(
                 )
                 subject = p.subjects[0]
                 
-                # Create the dictionary
-                predictions = {"trials": []}
-                for trial in subject.trials:
-                    predictions["trials"].append({
-                        "label": trial.label,
-                        "prediction_distribution": trial.prediction_distribution
-                    })
-                
                 # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
-                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/subaverage-{subaverage_size}.json")
+                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/subaverage-{subaverage_size}.pkl")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 
-                with path.open("w", encoding="utf-8") as file:
-                    json.dump(predictions, file, indent=4)
+                # Remove training data from subject for smaller file size
+                for trial in subject.trials:
+                    trial.data = []
+                    trial.timestamps = []
+                subject.folds = []
+                
+                with path.open("wb") as file:
+                    pickle.dump(subject, file)
 
