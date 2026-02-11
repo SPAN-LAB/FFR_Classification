@@ -27,7 +27,7 @@ def accuracy_against_data_amount(
     output_folder_path: str,
     defer_subject_loading: bool = True
 ):
-    SUBAVERAGE_SIZE = 1
+    SUBAVERAGE_SIZE = 5
     NUM_FOLDS = 5
     TRIM_START_TIME = 50
     TRIM_END_TIME = 250
