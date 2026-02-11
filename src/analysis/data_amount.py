@@ -18,7 +18,7 @@ def analyze(model_name: str):
     DEFER_SUBJECT_LOADING = True
     TRAINING_OPTIONS = {
         "num_epochs": 20,
-        "batch_size": 10000,
+        "batch_size": 32,
         "learning_rate": 0.001,
         "weight_decay": 0.1
     }
