@@ -9,7 +9,7 @@ Description: A function that evaluates a model's performance on various data amo
 
 
 from pathlib import Path
-import json
+import pickle
 from copy import deepcopy
 from random import sample
 
@@ -84,8 +84,14 @@ def accuracy_against_data_amount(
                 path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.json")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 
-                with path.open("w", encoding="utf-8") as file:
-                    json.dump(predictions, file, indent=4)
+                # Remove training data from subject for smaller file size
+                for trial in subject.trials:
+                    trial.data = []
+                    trial.timestamps = []
+                subject.folds = []
+                
+                with path.open("wb") as file:
+                    pickle.dump(subject, file)
                     
                 data_amount += stride
 
