@@ -1,71 +1,54 @@
-
-import torch
-import torch.nn as nn
-import numpy as np
+from .utils import ModelInterface
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+import numpy as np
 
-class Model(nn.Module):
-    def __init__(self, input_size, n_classes=4):
-        super().__init__()
-        self.input_size = input_size
-        self.n_classes = n_classes
-        self.lda = LinearDiscriminantAnalysis()
-        self.is_accumulating = True
-        self.data_buffer = []
-        self.labels_buffer = []
-        self.is_fitted = False
-        self._dummy = nn.Parameter(torch.zeros(1), requires_grad=True)
+class LDA(ModelInterface):
+    def __init__(self, training_options: dict[str, any]):
+        super().__init__(training_options)
+        self.model = LinearDiscriminantAnalysis()
 
-    def forward(self, x):
-        device = x.device
-        batch_size = x.shape[0]
-        x_np = x.detach().cpu().numpy()
-        if x_np.ndim > 2:
-            x_np = x_np.reshape(batch_size, -1)
+    def train(self):
+        #Get all trials for this subject
+        X_train = np.array([t.data for t in self.subject.trials])
+        y_train = np.array([t.raw_label for t in self.subject.trials])
+        self.model.fit(X_train, y_train)
 
-        if self.training and self.is_accumulating:
-            self.data_buffer.append(x_np)
-            dummy_logits = torch.zeros(batch_size, self.n_classes, device=device, requires_grad=True)
-            dummy_logits = dummy_logits + self._dummy.to(device) * 0.0
-            return dummy_logits
+    def infer(self, trials):
+        #Predict probabilities for given trials
+        X = np.array([t.data for t in trials])
+        probas = self.model.predict_proba(X)
 
-        if self.is_fitted:
-            try:
-                proba = self.lda.predict_proba(x_np)
-                proba = np.clip(proba, 1e-10, 1.0)
-                logits = np.log(proba)
-                result = torch.from_numpy(logits).float().to(device)
-                result = result + self._dummy.to(device) * 0.0
-                return result
-            except Exception:
-                zeros = torch.zeros(batch_size, self.n_classes, device=device, requires_grad=True)
-                zeros = zeros + self._dummy.to(device) * 0.0
-                return zeros
+        for trial, prob in zip(trials, probas):
+            #Set prediction distribution per trial
+            trial.prediction = {
+                str(label): float(p)
+                for label, p in zip(self.model.classes_, prob)
+            }
+            #Derive predicted label
+            trial.predicted_label = self.model.classes_[np.argmax(prob)]
 
-        zeros = torch.zeros(batch_size, self.n_classes, device=device, requires_grad=True)
-        zeros = zeros + self._dummy.to(device) * 0.0
-        return zeros
+    def evaluate(self) -> float:
+        all_preds = []
+        all_labels = []
 
-    def train(self, mode=True):
-        was_training = self.training
-        result = super().train(mode)
-        if was_training and not mode and self.is_accumulating:
-            self._fit_lda()
-        return result
+        folds = self.subject.folds
 
-    def _fit_lda(self):
-        if len(self.data_buffer) == 0 or len(self.labels_buffer) == 0:
-            return
-        try:
-            X = np.concatenate(self.data_buffer, axis=0)
-            y = np.concatenate(self.labels_buffer, axis=0)
-            self.lda.fit(X, y)
-            self.is_fitted = True
-            self.is_accumulating = False
-            self.data_buffer = []
-            self.labels_buffer = []
-        except Exception:
-            pass
+        for fold in folds:
+            test_trials = fold
+            train_trials = [t for t in self.subject.trials if t not in test_trials]
 
-    def parameters(self, recurse=True):
-        return iter([self._dummy])
+            #Train model on training trials
+            X_train = np.array([t.data for t in train_trials])
+            y_train = np.array([t.raw_label for t in train_trials])
+            self.model.fit(X_train, y_train)
+
+            #Infer on test trials
+            self.infer(test_trials)
+
+            #Collect predictions
+            for trial in test_trials:
+                all_preds.append(trial.predicted_label)
+                all_labels.append(trial.raw_label)
+
+        acc = np.mean(np.array(all_preds) == np.array(all_labels))
+        return acc
