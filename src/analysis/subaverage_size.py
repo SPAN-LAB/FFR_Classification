@@ -12,7 +12,7 @@ def analyze(model_name: str):
     
     # -------------------------------------------------------------------------
     
-    SUBAVERAGE_SIZES = [i for i in range(1, 125 + 1, 5)]
+    SUBAVERAGE_SIZES = [i for i in range(5, 125 + 1, 5)]
     MODEL_NAMES = [model_name]
     INCLUDE_NULL_CASE = True
     DEFER_SUBJECT_LOADING = True
