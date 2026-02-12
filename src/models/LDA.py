@@ -20,12 +20,12 @@ class LDA(ModelInterface):
 
         for trial, prob in zip(trials, probas):
             #Set prediction distribution per trial
-            trial.prediction = {
+            trial.prediction_distribution = {
                 str(label): float(p)
                 for label, p in zip(self.model.classes_, prob)
             }
             #Derive predicted label
-            trial.predicted_label = self.model.classes_[np.argmax(prob)]
+            trial.prediction = self.model.classes_[np.argmax(prob)]
 
     def evaluate(self) -> float:
         all_preds = []
@@ -47,7 +47,7 @@ class LDA(ModelInterface):
 
             #Collect predictions
             for trial in test_trials:
-                all_preds.append(trial.predicted_label)
+                all_preds.append(trial.prediction)
                 all_labels.append(trial.raw_label)
 
         acc = np.mean(np.array(all_preds) == np.array(all_labels))
