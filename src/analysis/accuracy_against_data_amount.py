@@ -27,7 +27,7 @@ def accuracy_against_data_amount(
     output_folder_path: str,
     defer_subject_loading: bool = True
 ):
-    SUBAVERAGE_SIZE = 1
+    SUBAVERAGE_SIZE = 5
     NUM_FOLDS = 5
     TRIM_START_TIME = 50
     TRIM_END_TIME = 250
@@ -81,7 +81,7 @@ def accuracy_against_data_amount(
                     })
                 
                 # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
-                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.json")
+                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.pkl")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 
                 # Remove training data from subject for smaller file size
