@@ -1,27 +1,47 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: FFNN.py
+Author(s): Kevin Chen
+Description: A Forward-Feeding Neural Network
+"""
+
+
 from torch import nn
+from .utils import TorchNNBase
+
 from math import floor
 
-class Model(nn.Module):
-    def __init__(self, input_size, num_classes = 4, dropout_p=0.5):
-        super().__init__()
-        hidden1 = floor(input_size / 2)  # ~400
-        hidden2 = floor(hidden1 / 2)      # ~80
-        hidden3 = floor(hidden2 / 2)      # ~40
+class FFNN(TorchNNBase, nn.Module):
+    def __init__(self, training_options: dict[str, any]):
+        """
+        NOTE: This method MUST be copied verbatim into every concrete PyTorch NN.
+        """
+        TorchNNBase.__init__(self,training_options)
+        nn.Module.__init__(self)
 
+    def build(self):
+        input_size = self.subject.trial_size
+        output_size = self.subject.num_categories
+
+        # dropout_probability = 0.0
+
+        h1 = floor(input_size / 2)
+        h2 = floor(h1 / 2)
+        h3 = floor(h2 / 2)
+
+        # Model architecture
         self.model = nn.Sequential(
-            nn.Linear(input_size, hidden1),
+            nn.Linear(input_size, h1),
             nn.ReLU(),
-            # nn.Dropout(dropout_p),
-
-            nn.Linear(hidden1, hidden2),
+            # nn.Dropout(dropout_probability),
+            nn.Linear(h1, h2),
             nn.ReLU(),
-            # nn.Dropout(dropout_p),
-
-            nn.Linear(hidden2, hidden3),
+            # nn.Dropout(dropout_probability),
+            nn.Linear(h2, h3),
             nn.ReLU(),
-            # nn.Dropout(dropout_p),
-
-            nn.Linear(hidden3, num_classes),
+            # nn.Dropout(dropout_probability),
+            nn.Linear(h3, output_size),
         )
 
     def forward(self, x):

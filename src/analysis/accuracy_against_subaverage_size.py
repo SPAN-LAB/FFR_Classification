@@ -1,0 +1,113 @@
+"""
+SPAN Lab - FFR Classification
+
+Filename: accuracy_against_subaverage_size.py
+Author(s): Kevin Chen
+Description: A function that evaluates a model's performance on various subaverage sizes.
+"""
+
+
+from pathlib import Path
+import pandas as pd
+
+from .utils import get_subject_loaded_pipelines, save_times
+from ..time import TimeKeeper
+
+from ..core import AnalysisPipeline
+from ..core import get_accuracy, get_per_label_accuracy
+from ..core.plots import plot_confusion_matrix, plot_roc_curve
+
+def accuracy_against_subaverage_size(
+    subaverage_sizes: list[int],
+    subject_filepaths: list[str],
+    model_names: list[str],
+    training_options: dict[str, any],
+    output_folder_path: str,
+    include_null_case: bool = True,
+    defer_subject_loading: bool = True
+):
+    NUM_FOLDS = 5
+    TRIM_START_TIME = 50
+    TRIM_END_TIME = 250
+    
+    # Include a case where no subaveraging is done (subaverage size = 1)
+    if include_null_case and subaverage_sizes[0] != 1:
+        subaverage_sizes.insert(0, 1)
+
+    subject_loaded_pipelines = None
+    if not defer_subject_loading:
+        subject_loaded_pipelines = get_subject_loaded_pipelines(subject_filepaths)
+
+    for model_name in model_names:
+        for subject_filepath in subject_filepaths:
+            
+            headers = ["Subaverage Size", "Accuracy"]
+            accuracies = []
+            labels = None
+            time_keeper = TimeKeeper()
+            durations = []
+            
+            # The base subject pipeline state used for this subject; do not modify, only deeply copy
+            if not defer_subject_loading: 
+                subject_pipeline = subject_loaded_pipelines[subject_filepath]
+            else:
+                subject_pipeline = AnalysisPipeline().load_subjects(subject_filepath)
+            
+            for subaverage_size in subaverage_sizes: 
+                p = (
+                    subject_pipeline.deepcopy()
+                    .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
+                    .subaverage(size=subaverage_size)
+                    .fold(num_folds=NUM_FOLDS)
+                    .evaluate_model(
+                        model_name=model_name,
+                        training_options=training_options
+                    )
+                )
+                subject = p.subjects[0]
+                
+                # Ensure that labels and headers are arranged consistently for all subaverage sizes
+                # This is run only once
+                if labels is None:
+                    labels = subject.labels_map.keys()
+                    for label in labels:
+                        headers.append(f"Accuracy (label={label})")
+                
+                # Format the data for this iteration
+                row_data = [subaverage_size, get_accuracy(subject)]
+                per_label_accuracies = get_per_label_accuracy(subject)
+                for label in labels:
+                    row_data.append(per_label_accuracies[label])
+                    
+                accuracies.append(row_data)
+                t = time_keeper.lap_time()
+                durations.append(t)
+                print(f"{(t):.4f}s elapsed for size = {subaverage_size}")
+                    
+                plot_confusion_matrix(
+                    subject=subject, 
+                    filepath=f"{output_folder_path}/{model_name}/{subject.name}/confusion/{subaverage_size}.svg"
+                )
+                plot_roc_curve(
+                    subject=subject, 
+                    filepath=f"{output_folder_path}/{model_name}/{subject.name}/roc/{subaverage_size}.svg"
+                )
+            
+            # Save the results
+            output_filepath = Path(output_folder_path) / model_name
+            output_filepath.mkdir(parents=True, exist_ok=True)
+            end = time_keeper.end_time()
+            _subaverage_sizes = ["Subaverage Size"] + subaverage_sizes + ["Total"]
+            _times = ["Time"] + durations + [end]
+            
+            save_times(
+                _subaverage_sizes, 
+                _times, 
+                output_filepath / f"{Path(subject_filepath).stem}.txt"
+            )
+            output_filepath = output_filepath / f"{Path(subject_filepath).stem}.csv"
+    
+            df = pd.DataFrame(accuracies, columns=headers)
+            df.to_csv(output_filepath, index=False)
+            print(f"{(end):.4f}s elapsed in total; results saved to: {output_filepath}")
+
