@@ -17,11 +17,11 @@ from src.analysis import accuracy_against_data_amount
 ##   GLOBAL ARGUMENTS   ##
 ##########################
 
-SUBJECT_FILENAMES = ["replace/me/to/assent/that/macintosh/is/good"]
+# SUBJECT_FILENAMES = [""replace/me/to/assent/that/macintosh/is/good""]
 # Alternatively, use 
-#     `SUBJECT_FILENAMES = get_mats("PATH TO FOLDER CONTAINING MAT FILES")`
+SUBJECT_FILENAMES = get_mats("Z:\\projects\\trial_classification\\4tone_cell")
 
-MODEL_NAMES = ["FFNN"]
+MODEL_NAMES = ["LDA"]
 # Alternatively, automatically detect models with
 #     `MODEL_NAMES = find_models()
 
