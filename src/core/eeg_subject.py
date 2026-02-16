@@ -152,7 +152,7 @@ class EEGSubject(EEGSubjectInterface):
         subaveraged_trials = []
 
         for _, trial_group in grouped_trials.items():
-            shuffle(trial_group)
+            # shuffle(trial_group)
             n = len(trial_group)
 
             for i in range(0, n, size):
@@ -183,7 +183,7 @@ class EEGSubject(EEGSubjectInterface):
         grouped_trials = self.grouped_trials()
 
         for _, trial_group in grouped_trials.items():
-            shuffle(trial_group)
+            # shuffle(trial_group)
             for i, trial in enumerate(trial_group):
                 folds[i % num_folds].append(trial)
         self.folds = folds
