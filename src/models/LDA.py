@@ -2,6 +2,7 @@ from .utils import ModelInterface
 
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import numpy as np
+from ..core.ffr_proc import get_accuracy
 
 
 class LDA(ModelInterface): 
@@ -31,11 +32,14 @@ class LDA(ModelInterface):
             model.fit(X_train, y_train)
 
             preds = model.predict(X_test)
+            
+            for i, test_trial in enumerate(test_trials):
+                test_trial.prediction = preds[i]
 
             all_preds.extend(preds)
             all_labels.extend(y_test)
 
-        acc = np.mean(np.array(all_preds) == np.array(all_labels))
+        acc = get_accuracy(self.subject)
         return acc
 
     def train(self):
