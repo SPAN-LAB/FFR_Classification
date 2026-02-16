@@ -1,7 +1,7 @@
 from .utils import ModelInterface
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import numpy as np
-
+from src.core.ffr_proc import get_accuracy
 class LDA(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
         super().__init__(training_options)
@@ -28,16 +28,14 @@ class LDA(ModelInterface):
             trial.prediction = self.model.classes_[np.argmax(prob)]
 
     def evaluate(self) -> float:
-        all_preds = []
-        all_labels = []
-
         folds = self.subject.folds
+        all_trials = []
 
         for fold in folds:
             test_trials = fold
             train_trials = [t for t in self.subject.trials if t not in test_trials]
 
-            #Train model on training trials
+            # Train
             X_train = np.array([t.data for t in train_trials])
             y_train = np.array([t.raw_label for t in train_trials])
             self.model.fit(X_train, y_train)
@@ -45,10 +43,7 @@ class LDA(ModelInterface):
             #Infer on test trials
             self.infer(test_trials)
 
-            #Collect predictions
-            for trial in test_trials:
-                all_preds.append(trial.prediction)
-                all_labels.append(trial.raw_label)
+            all_trials.extend(test_trials)
 
-        acc = np.mean(np.array(all_preds) == np.array(all_labels))
-        return acc
+        #Automatically compute accuracy using helper
+        return get_accuracy(self.subject)
