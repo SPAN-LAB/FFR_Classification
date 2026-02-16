@@ -48,10 +48,17 @@ def accuracy_against_data_amount(
             data_amount = min_trials
             while data_amount <= len(subject_pipeline.subjects[0].trials):
                 # Keep only `data_amount` number of trials
-                reduced_trials = sample(
-                    deepcopy(subject_pipeline.deepcopy().subjects[0].trials), 
-                    data_amount
-                )
+
+                # With randomization / random sampling 
+
+                # reduced_trials = sample(
+                #     deepcopy(subject_pipeline.deepcopy().subjects[0].trials), 
+                #     data_amount
+                # )
+                
+                # No randomization
+                
+                reduced_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials[0:data_amount])
                 
                 # Index them properly
                 for i, trial in enumerate(reduced_trials):
