@@ -81,7 +81,7 @@ def accuracy_against_data_amount(
                     })
                 
                 # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
-                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.json")
+                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.pkl")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 
                 # Remove training data from subject for smaller file size
