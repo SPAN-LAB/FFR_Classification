@@ -10,6 +10,7 @@ Description: Functions for creating various plots visualizing the contents of EE
 
 from typing import Any, Callable
 from abc import ABC, abstractmethod
+from enum import Enum
 
 from .eeg_trial import EEGTrial
 from .eeg_subject import EEGSubject
@@ -19,6 +20,7 @@ import numpy as np
 import pandas as pd
 from math import ceil
 from pathlib import Path
+from ..analysis.utils import get_results
 
 def plot_single_trial(trial: EEGTrial):
     # Create a simple line plot of timestamps (x) vs data (y)
@@ -562,4 +564,174 @@ def plot_csv_data(
     if show_popup:
         plt.show()
     
+    plt.close()
+
+class AggregationMethod(Enum):
+    ERROR_BARS = 1
+    SHOW_ALL = 2
+
+def plot_result(data_dir_path: str):
+    ...
+
+def plot_results(
+    parent_data_dir: str,
+    title: str = "",
+    xlabel: str = "x",
+    ylabel: str = "y",
+    aggregation_method: AggregationMethod = AggregationMethod.SHOW_ALL,
+    output_dir: str | None = None,
+    show_popup: bool = True
+):
+    parent_path = Path(parent_data_dir)
+    if not parent_path.exists() or not parent_path.is_dir():
+        print(f"Error: {parent_data_dir} is not a valid directory.")
+        return
+
+    # Get the names of folders in parent_data_dir
+    folder_paths = [f for f in parent_path.iterdir() if f.is_dir()]
+    folder_paths.sort(key=lambda p: p.name)
+    
+    # Get the results from each folder 
+    all_data = []
+    
+    for folder_path in folder_paths:
+        run_name = folder_path.name
+        try:
+            # The output of get_results is a list of tuples. 
+            # Each tuple is (number, number) in (x, y) coordinate space
+            res = get_results(str(folder_path))
+            if not res:
+                continue
+            for x, y in res:
+                all_data.append({"x": x, "y": y, "run": run_name})
+        except Exception as e:
+            print(f"Error processing {run_name}: {e}")
+            continue
+
+    if not all_data:
+        print("No data found to plot.")
+        return
+        
+    df = pd.DataFrame(all_data)
+    
+    # Set up plot
+    plt.figure(figsize=(12, 8))
+    
+    if aggregation_method == AggregationMethod.SHOW_ALL: 
+        # Plot individual runs
+        sns.lineplot(
+            data=df, x="x", y="y", hue="run", 
+            palette="husl", alpha=0.5, linewidth=1.5,
+            legend="full"
+        )
+        
+        # Plot the averaged line in thicker black
+        sns.lineplot(
+            data=df, x="x", y="y", 
+            color="black", linewidth=3.5, label="Average",
+            errorbar=None
+        )
+        
+    elif aggregation_method == AggregationMethod.ERROR_BARS:
+        # Aggregate by x: mean and std of y (explicit names avoid column count mismatch)
+        agg = df.groupby("x")["y"].agg([("y_mean", "mean"), ("y_std", "std")]).reset_index()
+        agg["y_std"] = agg["y_std"].fillna(0)
+        # Single trendline with I-shaped error bars (caps at top and bottom)
+        plt.errorbar(
+            agg["x"], agg["y_mean"], yerr=agg["y_std"],
+            capsize=5, capthick=2,
+            fmt="o-", color="#1f77b4", linewidth=2.5, markersize=6
+        )
+    
+    # Customize plot
+    plt.ylim(0, 1.0)
+    plt.title(title if title else parent_path.name, fontsize=16)
+    plt.xlabel(xlabel, fontsize=14)
+    plt.ylabel(ylabel, fontsize=14)
+    plt.grid(True, alpha=0.3)
+    
+    if aggregation_method == AggregationMethod.SHOW_ALL:
+        # Move legend outside if needed
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    
+    plt.tight_layout()
+    
+    if output_dir:
+        out_path = Path(output_dir)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(out_path, dpi=300)
+        print(f"Plot saved to {out_path}")
+
+    if show_popup:
+        plt.show()
+    plt.close()
+    
+    
+def plot_model_comparison(
+    models_parent_dir: str,
+    title: str = "",
+    xlabel: str = "x",
+    ylabel: str = "y",
+    output_dir: str | None = None,
+    show_popup: bool = True
+):
+    """
+    Plot one averaged trend line per model on the same graph.
+    Expects: models_parent_dir / model_name / run_folder (with .pkl or .json) for each model.
+    """
+    parent_path = Path(models_parent_dir)
+    if not parent_path.exists() or not parent_path.is_dir():
+        print(f"Error: {models_parent_dir} is not a valid directory.")
+        return
+
+    # Subdirs of models_parent_dir are model names
+    model_paths = [f for f in parent_path.iterdir() if f.is_dir()]
+    model_paths.sort(key=lambda p: p.name)
+
+    all_data = []
+    for model_path in model_paths:
+        model_name = model_path.name
+        # Subdirs of model_path are "runs"; each run folder contains .pkl/.json
+        run_paths = [f for f in model_path.iterdir() if f.is_dir()]
+        run_paths.sort(key=lambda p: p.name)
+        for run_path in run_paths:
+            try:
+                res = get_results(str(run_path))
+                if not res:
+                    continue
+                for x, y in res:
+                    all_data.append({"x": x, "y": y, "model": model_name})
+            except Exception as e:
+                print(f"Error processing {model_name}/{run_path.name}: {e}")
+                continue
+
+    if not all_data:
+        print("No data found to plot.")
+        return
+
+    df = pd.DataFrame(all_data)
+
+    plt.figure(figsize=(12, 8))
+    sns.lineplot(
+        data=df, x="x", y="y", hue="model",
+        palette="husl", linewidth=2.5, marker="o", markersize=6,
+        errorbar=None  # one mean line per model, no error band
+    )
+
+    plt.ylim(0, 1.0)
+    plt.title(title if title else "Model comparison", fontsize=16)
+    plt.xlabel(xlabel, fontsize=14)
+    plt.ylabel(ylabel, fontsize=14)
+    plt.grid(True, alpha=0.3)
+    plt.legend(title="Model", loc="best", fontsize=10)
+    plt.tight_layout()
+
+    if output_dir:
+        out_path = Path(output_dir)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(out_path, dpi=300)
+        print(f"Plot saved to {out_path}")
+
+    if show_popup:
+        plt.show()
     plt.close()

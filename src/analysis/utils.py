@@ -8,8 +8,12 @@ Description: Utility functions used in the analysis code.
 
 
 import os
+from pathlib import Path
+import pickle
 
-from ..core import AnalysisPipeline, PipelineState
+from ..core import AnalysisPipeline, PipelineState, EEGSubject
+from ..core.ffr_proc import get_accuracy
+
 
 def get_mats(folder_path: str) -> list[str]:
     """
@@ -54,3 +58,59 @@ def save_times(indices, times, filepath):
     with open(filepath, "w", encoding="utf-8") as f:
         for x, y in zip(indices, times):
             f.write(f"{x},{y}\n")
+
+def get_trailing_number(s: str) -> int | None:
+    # Remove extension
+    stem = Path(s).stem
+
+    digits = []
+    
+    # Traverse from right to left
+    for ch in reversed(stem):
+        if ch.isdigit():
+            digits.append(ch)
+        else:
+            break
+
+    if not digits:
+        return None
+
+    # digits were collected in reverse order
+    return int("".join(reversed(digits)))
+
+def get_results(dir_path: str) -> list[tuple[int, float]]:
+
+    # For each pkl file in `dir_path`
+    # 
+    # - Determine the subaverage size and accuracy
+    # - Place these results into the axes list
+    # 
+    # axes is a list of tuples (int, float) in the form 
+    # (subaverage size, accuracy)
+    
+    # Get the names of all `.pkl` files in the provided directory
+    dir = Path(dir_path)
+    pkl_filenames = []
+    for content in dir.glob("*.pkl"):
+        if content.is_file():
+            pkl_filenames.append(str(content))
+    for content in dir.glob("*.json"):
+        if content.is_file():
+            pkl_filenames.append(str(content))
+    print(f"Detected {len(pkl_filenames)} files.")
+
+    # Determine the subaverage size and accuracy for each file
+    axes = []
+    # i = 0
+    pkl_filenames.sort()
+    for filename in pkl_filenames:
+        with open(filename, "rb") as file:
+            
+            subject: EEGSubject = pickle.load(file)
+
+            subaverage_size = get_trailing_number(filename)
+            accuracy = get_accuracy(subject)
+            
+            axes.append((subaverage_size, accuracy))
+
+    return axes
