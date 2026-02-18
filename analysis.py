@@ -17,11 +17,11 @@ from src.analysis import accuracy_against_data_amount
 ##   GLOBAL ARGUMENTS   ##
 ##########################
 
-SUBJECT_FILENAMES = ['Z:/projects/trial_classification/4tone_cell/4T1002.mat'] 
+SUBJECT_FILENAMES = ['Placeholder for subject filepaths'] # Add filepaths to .mat files for each subject here
 # Alternatively, use 
-# SUBJECT_FILENAMES = get_mats("Z:\\projects\\trial_classification\\4tone_cell\\4T1002.mat")
+# SUBJECT_FILENAMES = get_mats("\\path\\to\\data\\directory")
 
-MODEL_NAMES = ["LDA"] # Add more model names as needed, must correspond to classes in src/models
+MODEL_NAMES = ["SVM"] # Add more model names as needed, must correspond to classes in src/models
 # Alternatively, automatically detect models with
 #     `MODEL_NAMES = find_models()
 
