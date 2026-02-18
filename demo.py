@@ -22,7 +22,7 @@ loading_result = BlankPipeline()
 trimming_result = BlankPipeline()
 subaverage_and_fold_result = BlankPipeline()
 
-ALL_PATH = ["/Volumes/gurindapalli/projects/trial_classification/4tone_cell/4T1008.mat"]
+ALL_PATH = ["/Volumes/gurindapalli/projects/trial_classification/4tone_cell/4T1005.mat"]
 
 p = (
     AnalysisPipeline()
@@ -30,7 +30,7 @@ p = (
     .save(to=loading_result)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .save(to=trimming_result)
-    .subaverage(5)
+    .subaverage(30)
     .fold(5)
     .save(to=subaverage_and_fold_result)
     .evaluate_model(

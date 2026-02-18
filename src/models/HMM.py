@@ -1,378 +1,408 @@
-"""
-Hidden Markov Model classifier for FFR sequence classification.
+"""Discrete left-to-right HMM classifier with scalar vector quantization.
 
-Design notes:
-- One GaussianHMM per class, scored by log-likelihood (classic generative setup).
-- Supports first and second temporal derivatives (delta / delta-delta).
-- Adds practical robustness for small biomedical datasets:
-  restarts, optional BIC/AIC state selection, class-prior scoring, and
-  optional hybrid template term.
+This module implements:
+1) 1D vector quantization (k-means/LBG-style),
+2) constrained discrete HMMs with Viterbi re-estimation,
+3) a parallel multi-class wrapper (one HMM per class).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-
-import math
-import os
-import pickle
+from typing import List
 
 import numpy as np
-try:
-    from hmmlearn.hmm import GaussianHMM
-    _HMM_IMPORT_ERROR = None
-except ImportError as e:
-    GaussianHMM = Any  # type: ignore[assignment]
-    _HMM_IMPORT_ERROR = e
-
-from .utils import ModelInterface
-from ..core.ffr_proc import get_accuracy
 
 
-@dataclass
-class _Scaler:
-    mean: np.ndarray
-    std: np.ndarray
+def _as_1d_float_array(x: np.ndarray) -> np.ndarray:
+    arr = np.asarray(x, dtype=float).reshape(-1)
+    if arr.size == 0:
+        raise ValueError("Input array must be non-empty.")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("Input contains non-finite values.")
+    return arr
 
-    def transform(self, x: np.ndarray) -> np.ndarray:
-        return (x - self.mean) / self.std
+
+def _as_1d_int_array(x: np.ndarray) -> np.ndarray:
+    arr = np.asarray(x).reshape(-1)
+    if arr.size == 0:
+        raise ValueError("Sequence must be non-empty.")
+    if not np.issubdtype(arr.dtype, np.integer):
+        raise ValueError("Sequence must contain integer symbols.")
+    return arr.astype(int, copy=False)
 
 
-class HMM(ModelInterface):
-    def __init__(self, training_options: dict[str, Any]):
-        super().__init__(training_options or {})
-        if _HMM_IMPORT_ERROR is not None:
-            raise ImportError(
-                "hmmlearn is required for HMM model. Install with: pip install hmmlearn"
-            ) from _HMM_IMPORT_ERROR
+def _logsumexp(a: np.ndarray, axis: int | None = None) -> np.ndarray:
+    a = np.asarray(a, dtype=float)
+    a_max = np.max(a, axis=axis, keepdims=True)
+    a_max_safe = np.where(np.isfinite(a_max), a_max, 0.0)
+    out = a_max_safe + np.log(np.sum(np.exp(a - a_max_safe), axis=axis, keepdims=True))
+    out = np.where(np.isfinite(a_max), out, -np.inf)
+    if axis is not None:
+        out = np.squeeze(out, axis=axis)
+    return out
 
-        opts = self.training_options
-        self.n_states = int(opts.get("n_states", 6))
-        self.n_iter = int(opts.get("n_iter", 250))
-        self.tol = float(opts.get("tol", 1e-3))
-        self.covariance_type = str(opts.get("covariance_type", "diag"))
-        self.min_covar = float(opts.get("min_covar", 1e-3))
-        self.random_state = int(opts.get("random_state", 42))
 
-        self.signal_attr = str(opts.get("signal_attr", "data"))
-        self.label_attr = str(opts.get("label_attr", "label"))
-        self.feature_mode = str(opts.get("feature_mode", "raw_delta_delta2"))
-        self.normalize_features = bool(opts.get("normalize_features", True))
-        self.per_sequence_zscore = bool(opts.get("per_sequence_zscore", True))
-        self.temporal_downsample = max(1, int(opts.get("temporal_downsample", 1)))
-        self.max_sequence_length = int(opts.get("max_sequence_length", 0))
+class VectorQuantizer:
+    """1D vector quantizer for scalar sequences."""
 
-        self.n_restarts = max(1, int(opts.get("n_restarts", 6)))
-        self.max_fit_calls_per_class = max(1, int(opts.get("max_fit_calls_per_class", 12)))
-        self.use_class_priors = bool(opts.get("use_class_priors", True))
-        self.score_normalization = str(opts.get("score_normalization", "length"))
+    def __init__(self) -> None:
+        self._centroids: np.ndarray | None = None
 
-        self.auto_state_cap_by_samples = bool(opts.get("auto_state_cap_by_samples", True))
-        self.min_sequences_per_state = max(1, int(opts.get("min_sequences_per_state", 3)))
-        self.state_selection_criterion = str(opts.get("state_selection_criterion", "none")).lower()
-        self.state_candidates = opts.get("state_candidates", None)
+    @property
+    def centroids(self) -> np.ndarray:
+        if self._centroids is None:
+            raise ValueError("VectorQuantizer is not fitted.")
+        return self._centroids.copy()
 
-        self.hybrid_centroid_weight = float(opts.get("hybrid_centroid_weight", 0.0))
-        self.default_eval_folds = int(opts.get("default_eval_folds", 5))
-        self.verbose = bool(opts.get("verbose", False))
+    def fit(
+        self,
+        x: np.ndarray,
+        k: int,
+        max_iter: int = 100,
+        tol: float = 1e-4,
+        seed: int = 0,
+    ) -> "VectorQuantizer":
+        if k <= 0:
+            raise ValueError("k must be > 0.")
+        if max_iter <= 0:
+            raise ValueError("max_iter must be > 0.")
+        if tol < 0:
+            raise ValueError("tol must be >= 0.")
 
-        self._class_models: dict[Any, GaussianHMM] = {}
-        self._class_priors_log: dict[Any, float] = {}
-        self._class_centroids: dict[Any, np.ndarray] = {}
-        self._scaler: _Scaler | None = None
+        x1 = _as_1d_float_array(x)
+        rng = np.random.default_rng(seed)
 
-    def _log(self, msg: str):
-        if self.verbose:
-            print(f"[HMM] {msg}")
+        replace = x1.size < k
+        init_idx = rng.choice(x1.size, size=k, replace=replace)
+        centroids = x1[init_idx].astype(float, copy=True)
 
-    def _trial_signal(self, trial) -> np.ndarray:
-        x = getattr(trial, self.signal_attr, None)
-        if x is None:
-            raise AttributeError(f"Trial missing signal attr '{self.signal_attr}'.")
-        x = np.asarray(x, dtype=np.float64).reshape(-1)
-        if x.size < 3:
-            raise ValueError("Sequence too short for HMM feature extraction.")
-        return x
+        for _ in range(max_iter):
+            dists = np.abs(x1[:, None] - centroids[None, :])
+            labels = np.argmin(dists, axis=1)
 
-    def _trial_label(self, trial):
-        if self.label_attr == "label":
-            return trial.label
-        y = getattr(trial, self.label_attr, None)
-        if y is None:
-            raise AttributeError(f"Trial missing label attr '{self.label_attr}'.")
-        return y
+            new_centroids = centroids.copy()
+            for j in range(k):
+                members = x1[labels == j]
+                if members.size == 0:
+                    new_centroids[j] = x1[rng.integers(0, x1.size)]
+                else:
+                    new_centroids[j] = np.mean(members)
 
-    def _build_features(self, sig: np.ndarray) -> np.ndarray:
-        if self.temporal_downsample > 1:
-            sig = sig[:: self.temporal_downsample]
-        if self.max_sequence_length > 0 and sig.shape[0] > self.max_sequence_length:
-            stride = int(math.ceil(sig.shape[0] / self.max_sequence_length))
-            sig = sig[::stride]
+            shift = np.max(np.abs(new_centroids - centroids))
+            centroids = new_centroids
+            if shift <= tol:
+                break
 
-        raw = sig.reshape(-1, 1)
-        if self.per_sequence_zscore:
-            m = raw.mean(axis=0, keepdims=True)
-            s = raw.std(axis=0, keepdims=True)
-            raw = (raw - m) / np.maximum(s, 1e-8)
+        self._centroids = centroids
+        return self
 
-        if self.feature_mode == "raw":
-            feat = raw
-        elif self.feature_mode == "raw_delta":
-            d1 = np.gradient(raw[:, 0]).reshape(-1, 1)
-            feat = np.concatenate([raw, d1], axis=1)
-        elif self.feature_mode == "raw_delta_delta2":
-            d1 = np.gradient(raw[:, 0]).reshape(-1, 1)
-            d2 = np.gradient(d1[:, 0]).reshape(-1, 1)
-            feat = np.concatenate([raw, d1, d2], axis=1)
-        else:
-            raise ValueError(
-                "Unsupported feature_mode. Use one of: "
-                "'raw', 'raw_delta', 'raw_delta_delta2'."
-            )
-        return feat.astype(np.float64, copy=False)
+    def encode(self, x: np.ndarray) -> np.ndarray:
+        if self._centroids is None:
+            raise ValueError("VectorQuantizer is not fitted.")
+        x1 = _as_1d_float_array(x)
+        dists = np.abs(x1[:, None] - self._centroids[None, :])
+        return np.argmin(dists, axis=1).astype(int, copy=False)
 
-    def _fit_scaler(self, seqs: list[np.ndarray]) -> _Scaler:
-        x = np.concatenate(seqs, axis=0)
-        mean = x.mean(axis=0, keepdims=True)
-        std = x.std(axis=0, keepdims=True)
-        std = np.maximum(std, 1e-8)
-        return _Scaler(mean=mean, std=std)
 
-    @staticmethod
-    def _num_hmm_params(n_states: int, n_features: int, covariance_type: str) -> int:
-        trans = n_states * (n_states - 1)
-        start = n_states - 1
-        means = n_states * n_features
+class DiscreteHMM:
+    """Discrete HMM with constrained transition topology and hard-EM training."""
 
-        if covariance_type == "diag":
-            covars = n_states * n_features
-        elif covariance_type == "spherical":
-            covars = n_states
-        elif covariance_type == "full":
-            covars = n_states * (n_features * (n_features + 1) // 2)
-        elif covariance_type == "tied":
-            covars = n_features * (n_features + 1) // 2
-        else:
-            raise ValueError(f"Unsupported covariance_type: {covariance_type}")
+    def __init__(
+        self,
+        n_states: int,
+        n_symbols: int,
+        topology: str = "bakis3",
+        smoothing: float = 1e-2,
+        seed: int = 0,
+    ) -> None:
+        if n_states <= 0 or n_symbols <= 0:
+            raise ValueError("n_states and n_symbols must be > 0.")
+        if smoothing < 0:
+            raise ValueError("smoothing must be >= 0.")
+        if topology != "bakis3":
+            raise ValueError("Only topology='bakis3' is supported.")
+        if n_states != 3:
+            raise ValueError("topology='bakis3' requires n_states=3.")
 
-        return trans + start + means + covars
+        self.n_states = n_states
+        self.n_symbols = n_symbols
+        self.topology = topology
+        self.smoothing = smoothing
+        self.seed = seed
+        self._rng = np.random.default_rng(seed)
 
-    def _candidate_states(self, n_sequences: int) -> list[int]:
-        base = max(2, self.n_states)
-        if isinstance(self.state_candidates, (list, tuple)) and len(self.state_candidates) > 0:
-            candidates = sorted({max(2, int(s)) for s in self.state_candidates})
-        elif self.state_selection_criterion in {"bic", "aic"}:
-            candidates = [max(2, base - 2), max(2, base - 1), base, base + 1, base + 2]
-            candidates = sorted(set(candidates))
-        else:
-            candidates = [base]
+        self._allowed = self._build_transition_mask()
+        self.pi = np.zeros(self.n_states, dtype=float)
+        self.pi[0] = 1.0
 
-        if self.auto_state_cap_by_samples:
-            cap = max(2, n_sequences // self.min_sequences_per_state)
-            candidates = [s for s in candidates if s <= cap]
-            if not candidates:
-                candidates = [max(2, min(base, cap))]
-        return candidates
+        self.A = self._init_transition_matrix()
+        self.B = self._init_emission_matrix()
 
-    def _fit_one_class(self, class_seqs: list[np.ndarray], class_label: Any) -> GaussianHMM:
-        n_sequences = len(class_seqs)
-        if n_sequences < 2:
-            raise ValueError(f"Class {class_label} has too few sequences ({n_sequences}).")
-
-        states_candidates = self._candidate_states(n_sequences)
-        x_cat = np.concatenate(class_seqs, axis=0)
-        lengths = [len(s) for s in class_seqs]
-        n_obs = x_cat.shape[0]
-        n_feat = x_cat.shape[1]
-
-        best_model: GaussianHMM | None = None
-        best_objective = -np.inf
-        n_candidates = len(states_candidates)
-        budget = min(self.max_fit_calls_per_class, self.n_restarts * n_candidates)
-        calls_per_candidate = max(1, budget // n_candidates)
-
-        self._log(
-            f"class={class_label} n_seq={n_sequences} n_obs={n_obs} "
-            f"candidates={states_candidates} fit_budget={budget}"
+    def _build_transition_mask(self) -> np.ndarray:
+        return np.array(
+            [
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=float,
         )
 
-        for n_components in states_candidates:
-            local_best_model: GaussianHMM | None = None
-            local_best_ll = -np.inf
+    def _normalize_rows(self, mat: np.ndarray) -> np.ndarray:
+        row_sums = np.sum(mat, axis=1, keepdims=True)
+        if np.any(row_sums <= 0):
+            raise ValueError("Cannot normalize matrix with non-positive row sum.")
+        return mat / row_sums
 
-            for restart in range(calls_per_candidate):
-                seed = self.random_state + 1009 * restart + 7919 * n_components
-                model = GaussianHMM(
-                    n_components=n_components,
-                    covariance_type=self.covariance_type,
-                    n_iter=self.n_iter,
-                    tol=self.tol,
-                    min_covar=self.min_covar,
-                    random_state=seed,
-                    verbose=False,
-                    implementation="scaling",
-                )
-                try:
-                    model.fit(x_cat, lengths)
-                    ll = float(model.score(x_cat, lengths))
-                    if np.isfinite(ll) and ll > local_best_ll:
-                        local_best_ll = ll
-                        local_best_model = model
-                except Exception:
-                    continue
-            self._log(
-                f"class={class_label} states={n_components} best_ll={local_best_ll:.3f}"
+    def _init_transition_matrix(self) -> np.ndarray:
+        A = np.zeros((self.n_states, self.n_states), dtype=float)
+        for i in range(self.n_states):
+            allowed = np.where(self._allowed[i] > 0)[0]
+            draw = self._rng.random(allowed.size) + self.smoothing
+            draw /= np.sum(draw)
+            A[i, allowed] = draw
+        return A
+
+    def _init_emission_matrix(self) -> np.ndarray:
+        B = self._rng.random((self.n_states, self.n_symbols)) + self.smoothing
+        return self._normalize_rows(B)
+
+    def _check_symbol_sequence(self, seq: np.ndarray) -> np.ndarray:
+        s = _as_1d_int_array(seq)
+        if np.any((s < 0) | (s >= self.n_symbols)):
+            raise ValueError(
+                f"Symbol values must be in [0, {self.n_symbols - 1}], got out-of-range values."
             )
+        return s
 
-            if local_best_model is None:
-                continue
+    def _log_A(self) -> np.ndarray:
+        logA = np.full_like(self.A, -np.inf, dtype=float)
+        nz = self.A > 0
+        logA[nz] = np.log(self.A[nz])
+        return logA
 
-            if self.state_selection_criterion == "bic":
-                p = self._num_hmm_params(n_components, n_feat, self.covariance_type)
-                objective = -(-2.0 * local_best_ll + p * math.log(max(n_obs, 2)))
-            elif self.state_selection_criterion == "aic":
-                p = self._num_hmm_params(n_components, n_feat, self.covariance_type)
-                objective = -(-2.0 * local_best_ll + 2.0 * p)
-            else:
-                objective = local_best_ll
+    def _log_B(self) -> np.ndarray:
+        logB = np.full_like(self.B, -np.inf, dtype=float)
+        nz = self.B > 0
+        logB[nz] = np.log(self.B[nz])
+        return logB
 
-            if objective > best_objective:
-                best_objective = objective
-                best_model = local_best_model
+    def fit(self, sequences: List[np.ndarray], n_iter: int = 20) -> "DiscreteHMM":
+        if n_iter <= 0:
+            raise ValueError("n_iter must be > 0.")
+        if not sequences:
+            raise ValueError("sequences must be non-empty.")
 
-        if best_model is None:
-            raise RuntimeError(f"Failed to fit class HMM for label {class_label}.")
+        checked = [self._check_symbol_sequence(seq) for seq in sequences]
 
-        self._log(f"class={class_label} states={best_model.n_components} objective={best_objective:.3f}")
-        return best_model
+        for _ in range(n_iter):
+            A_counts = np.zeros_like(self.A)
+            B_counts = np.zeros_like(self.B)
 
-    def _fit(self, train_trials: list[Any]):
-        labels = [self._trial_label(t) for t in train_trials]
-        classes = sorted(set(labels), key=lambda x: str(x))
-        if len(classes) < 2:
-            raise ValueError("Need at least two classes to train HMM classifier.")
+            for seq in checked:
+                path = self.viterbi_path(seq)
+                for t, sym in enumerate(seq):
+                    B_counts[path[t], sym] += 1.0
+                if len(seq) > 1:
+                    for t in range(len(seq) - 1):
+                        A_counts[path[t], path[t + 1]] += 1.0
 
-        feats = [self._build_features(self._trial_signal(t)) for t in train_trials]
-        if self.normalize_features:
-            self._scaler = self._fit_scaler(feats)
-            feats = [self._scaler.transform(f) for f in feats]
-        else:
-            self._scaler = None
+            A_new = np.zeros_like(self.A)
+            for i in range(self.n_states):
+                allowed = self._allowed[i] > 0
+                A_new[i, allowed] = A_counts[i, allowed] + self.smoothing
+            self.A = self._normalize_rows(A_new)
 
-        by_class: dict[Any, list[np.ndarray]] = {c: [] for c in classes}
-        by_class_waveforms: dict[Any, list[np.ndarray]] = {c: [] for c in classes}
-        for trial, feat in zip(train_trials, feats):
-            c = self._trial_label(trial)
-            by_class[c].append(feat)
-            by_class_waveforms[c].append(self._trial_signal(trial))
+            B_new = B_counts + self.smoothing
+            self.B = self._normalize_rows(B_new)
 
-        self._class_models = {}
-        for c in classes:
-            self._log(f"Training class model for label={c} with {len(by_class[c])} sequences")
-            self._class_models[c] = self._fit_one_class(by_class[c], c)
+        return self
 
-        if self.use_class_priors:
-            counts = {c: len(by_class[c]) for c in classes}
-            total = float(sum(counts.values()))
-            k = len(classes)
-            self._class_priors_log = {
-                c: math.log((counts[c] + 1.0) / (total + k)) for c in classes
-            }
-        else:
-            self._class_priors_log = {c: 0.0 for c in classes}
+    def viterbi_path(self, seq: np.ndarray) -> np.ndarray:
+        s = self._check_symbol_sequence(seq)
+        T = s.size
+        S = self.n_states
 
-        if self.hybrid_centroid_weight > 0.0:
-            self._class_centroids = {
-                c: np.mean(np.stack(by_class_waveforms[c], axis=0), axis=0) for c in classes
-            }
-        else:
-            self._class_centroids = {}
+        logA = self._log_A()
+        logB = self._log_B()
+        logpi = np.full(S, -np.inf, dtype=float)
+        logpi[self.pi > 0] = np.log(self.pi[self.pi > 0])
 
-    def _score_trial(self, trial) -> dict[Any, float]:
-        x = self._build_features(self._trial_signal(trial))
-        if self._scaler is not None:
-            x = self._scaler.transform(x)
-        L = max(1, len(x))
+        delta = np.full((T, S), -np.inf, dtype=float)
+        psi = np.zeros((T, S), dtype=int)
 
-        scores: dict[Any, float] = {}
-        for c, model in self._class_models.items():
-            try:
-                s = float(model.score(x))
-            except Exception:
-                s = -np.inf
+        delta[0] = logpi + logB[:, s[0]]
+        psi[0] = 0
 
-            if self.score_normalization == "length":
-                s = s / L
-            elif self.score_normalization == "none":
-                pass
-            else:
-                raise ValueError("score_normalization must be 'none' or 'length'.")
+        for t in range(1, T):
+            for j in range(S):
+                scores = delta[t - 1] + logA[:, j]
+                psi[t, j] = int(np.argmax(scores))
+                delta[t, j] = scores[psi[t, j]] + logB[j, s[t]]
 
-            s += self._class_priors_log.get(c, 0.0)
+        path = np.zeros(T, dtype=int)
+        path[-1] = int(np.argmax(delta[-1]))
+        for t in range(T - 2, -1, -1):
+            path[t] = psi[t + 1, path[t + 1]]
+        return path
 
-            if self.hybrid_centroid_weight > 0.0 and c in self._class_centroids:
-                centroid = self._class_centroids[c]
-                sig = self._trial_signal(trial)
-                mse = float(np.mean((sig - centroid) ** 2))
-                template_sim = -mse
-                w = min(max(self.hybrid_centroid_weight, 0.0), 1.0)
-                s = (1.0 - w) * s + w * template_sim
+    def log_likelihood(self, seq: np.ndarray) -> float:
+        s = self._check_symbol_sequence(seq)
+        T = s.size
+        S = self.n_states
 
-            scores[c] = s
-        return scores
+        logA = self._log_A()
+        logB = self._log_B()
+        logpi = np.full(S, -np.inf, dtype=float)
+        logpi[self.pi > 0] = np.log(self.pi[self.pi > 0])
 
-    def infer(self, trials: list[Any]):
-        if not self._class_models:
-            raise RuntimeError("Model is not trained. Call evaluate() or train() first.")
+        alpha = np.full((T, S), -np.inf, dtype=float)
+        alpha[0] = logpi + logB[:, s[0]]
 
-        for trial in trials:
-            scores = self._score_trial(trial)
-            pred = max(scores, key=scores.get)
-            trial.prediction = pred
+        for t in range(1, T):
+            for j in range(S):
+                alpha[t, j] = logB[j, s[t]] + _logsumexp(alpha[t - 1] + logA[:, j], axis=0)
 
-            vals = np.array(list(scores.values()), dtype=np.float64)
-            vals = vals - np.max(vals)
-            probs = np.exp(vals)
-            probs = probs / np.sum(probs)
-            trial.prediction_distribution = {
-                c: float(p) for c, p in zip(scores.keys(), probs.tolist())
-            }
+        return float(_logsumexp(alpha[-1], axis=0))
 
-        return [t.prediction for t in trials]
 
-    def evaluate(self) -> float:
-        if self.subject is None:
-            raise RuntimeError("No subject set. Call set_subject() first.")
+class ParallelHMMClassifier:
+    """Multi-class classifier using one discrete HMM per class."""
 
-        if not self.subject.folds:
-            self.subject.fold(self.default_eval_folds)
+    def __init__(
+        self,
+        n_classes: int,
+        n_states: int = 3,
+        n_symbols: int = 50,
+        smoothing: float = 1e-2,
+        seed: int = 0,
+    ) -> None:
+        if n_classes <= 1:
+            raise ValueError("n_classes must be > 1.")
+        if n_symbols <= 1:
+            raise ValueError("n_symbols must be > 1.")
+        self.n_classes = n_classes
+        self.n_states = n_states
+        self.n_symbols = n_symbols
+        self.smoothing = smoothing
+        self.seed = seed
 
-        folds = self.subject.folds
-        for i, test_trials in enumerate(folds):
-            train_trials = [t for j, fold in enumerate(folds) if j != i for t in fold]
-            self._log(f"Fold {i + 1}/{len(folds)}: train={len(train_trials)} test={len(test_trials)}")
-            self._fit(train_trials)
-            self.infer(test_trials)
+        self.vq = VectorQuantizer()
+        self.hmms: List[DiscreteHMM] = []
+        self._fitted = False
 
-        return float(get_accuracy(self.subject))
+    def _check_raw_sequence(self, seq: np.ndarray) -> np.ndarray:
+        return _as_1d_float_array(seq)
 
-    def train(self, output_path: str | None = None):
-        if self.subject is None:
-            raise RuntimeError("No subject set. Call set_subject() first.")
+    def fit(
+        self,
+        X: List[np.ndarray],
+        y: List[int],
+        n_iter: int = 20,
+    ) -> "ParallelHMMClassifier":
+        if n_iter <= 0:
+            raise ValueError("n_iter must be > 0.")
+        if len(X) == 0:
+            raise ValueError("X must be non-empty.")
+        if len(X) != len(y):
+            raise ValueError("X and y must have the same length.")
 
-        self._fit(self.subject.trials)
+        y_arr = np.asarray(y, dtype=int)
+        if np.any((y_arr < 0) | (y_arr >= self.n_classes)):
+            raise ValueError(f"y must contain class labels in [0, {self.n_classes - 1}].")
 
-        if output_path is not None:
-            out_dir = os.path.dirname(output_path)
-            if out_dir:
-                os.makedirs(out_dir, exist_ok=True)
-            payload = {
-                "models": self._class_models,
-                "priors": self._class_priors_log,
-                "centroids": self._class_centroids,
-                "scaler": self._scaler,
-                "opts": self.training_options,
-            }
-            with open(output_path, "wb") as f:
-                pickle.dump(payload, f)
+        X_checked = [self._check_raw_sequence(seq) for seq in X]
+        pooled = np.concatenate(X_checked, axis=0)
+        self.vq.fit(pooled, k=self.n_symbols, seed=self.seed)
+        encoded = [self.vq.encode(seq) for seq in X_checked]
+
+        self.hmms = []
+        for c in range(self.n_classes):
+            idx = np.where(y_arr == c)[0]
+            if idx.size == 0:
+                raise ValueError(f"No training sequences found for class {c}.")
+            seqs_c = [encoded[i] for i in idx]
+            hmm = DiscreteHMM(
+                n_states=self.n_states,
+                n_symbols=self.n_symbols,
+                topology="bakis3",
+                smoothing=self.smoothing,
+                seed=self.seed + c,
+            )
+            hmm.fit(seqs_c, n_iter=n_iter)
+            self.hmms.append(hmm)
+
+        self._fitted = True
+        return self
+
+    def predict_logproba(self, X: List[np.ndarray]) -> np.ndarray:
+        if not self._fitted:
+            raise ValueError("Classifier is not fitted.")
+        if len(X) == 0:
+            raise ValueError("X must be non-empty.")
+
+        X_checked = [self._check_raw_sequence(seq) for seq in X]
+        encoded = [self.vq.encode(seq) for seq in X_checked]
+
+        out = np.zeros((len(encoded), self.n_classes), dtype=float)
+        for i, seq in enumerate(encoded):
+            for c in range(self.n_classes):
+                out[i, c] = self.hmms[c].log_likelihood(seq)
+        return out
+
+    def predict(self, X: List[np.ndarray]) -> List[int]:
+        scores = self.predict_logproba(X)
+        return np.argmax(scores, axis=1).astype(int).tolist()
+
+
+def _sample_left_to_right_states(T: int, rng: np.random.Generator) -> np.ndarray:
+    if T <= 0:
+        raise ValueError("T must be > 0.")
+    A = np.array(
+        [
+            [0.75, 0.20, 0.05],
+            [0.00, 0.85, 0.15],
+            [0.00, 0.00, 1.00],
+        ]
+    )
+    states = np.zeros(T, dtype=int)
+    for t in range(1, T):
+        states[t] = rng.choice(3, p=A[states[t - 1]])
+    return states
+
+
+def _generate_synthetic_class(
+    n_seq: int,
+    T: int,
+    means: np.ndarray,
+    noise_std: float,
+    rng: np.random.Generator,
+) -> List[np.ndarray]:
+    out: List[np.ndarray] = []
+    for _ in range(n_seq):
+        z = _sample_left_to_right_states(T, rng)
+        x = means[z] + rng.normal(0.0, noise_std, size=T)
+        out.append(x.astype(float))
+    return out
+
+
+if __name__ == "__main__":
+    rng = np.random.default_rng(123)
+    T = 22
+
+    X0_train = _generate_synthetic_class(30, T, means=np.array([-1.0, -0.3, 0.2]), noise_std=0.10, rng=rng)
+    X1_train = _generate_synthetic_class(30, T, means=np.array([0.6, 1.1, 1.6]), noise_std=0.10, rng=rng)
+    X_train = X0_train + X1_train
+    y_train = [0] * len(X0_train) + [1] * len(X1_train)
+
+    X0_test = _generate_synthetic_class(20, T, means=np.array([-1.0, -0.3, 0.2]), noise_std=0.10, rng=rng)
+    X1_test = _generate_synthetic_class(20, T, means=np.array([0.6, 1.1, 1.6]), noise_std=0.10, rng=rng)
+    X_test = X0_test + X1_test
+    y_test = np.array([0] * len(X0_test) + [1] * len(X1_test))
+
+    clf = ParallelHMMClassifier(n_classes=2, n_states=3, n_symbols=50, smoothing=1e-2, seed=7)
+    clf.fit(X_train, y_train, n_iter=15)
+    pred = np.array(clf.predict(X_test))
+    acc = float(np.mean(pred == y_test))
+    print(f"Synthetic self-test accuracy: {acc:.3f}")
