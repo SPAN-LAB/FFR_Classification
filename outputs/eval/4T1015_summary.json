@@ -1,0 +1,7 @@
+{
+  "subject": "4T1015",
+  "folds": 5,
+  "mean_best_val_acc": 0.943089430894309,
+  "overall_acc": 0.9451697127937336,
+  "device": "cpu"
+}
