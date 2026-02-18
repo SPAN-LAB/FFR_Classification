@@ -8,5 +8,6 @@
 - LSTM
 - GRU
 - SVC
+- HMM
 
 `Transformer.py` doesn't work yet.
