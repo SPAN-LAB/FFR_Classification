@@ -1,71 +1,106 @@
-import torch
-import torch.nn as nn
+from .utils import ModelInterface
+from src.core.ffr_proc import get_accuracy
 import numpy as np
 from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
 
-class Model(nn.Module):
-	def __init__(self, input_size, n_classes=4, kernel='rbf', C=1.0, gamma='scale'):
-		super().__init__()
-		self.input_size = input_size
-		self.n_classes = n_classes
-		self.svm = SVC(probability=True, kernel=kernel, C=C, gamma=gamma)
-		self.is_accumulating = True
-		self.data_buffer = []
-		self.labels_buffer = []
-		self.is_fitted = False
-		self._dummy = nn.Parameter(torch.zeros(1), requires_grad=True)
+class SVM(ModelInterface):
+    """
+    Support Vector Machine model implementing ModelInterface.
+    Includes automatic hyperparameter search for C, gamma, and kernel.
+    """
 
-	def forward(self, x):
-		device = x.device
-		batch_size = x.shape[0]
-		x_np = x.detach().cpu().numpy()
-		if x_np.ndim > 2:
-			x_np = x_np.reshape(batch_size, -1)
+    # Default hyperparameter grid
+    PARAM_GRID = {
+        'C': [0.1, 1, 10],
+        'gamma': ['scale', 0.01, 0.1],
+        'kernel': ['rbf', 'linear']  # add 'poly' if you want to test polynomial kernel
+    }
 
-		if self.training and self.is_accumulating:
-			self.data_buffer.append(x_np)
-			dummy_logits = torch.zeros(batch_size, self.n_classes, device=device, requires_grad=True)
-			dummy_logits = dummy_logits + self._dummy.to(device) * 0.0
-			return dummy_logits
+    def __init__(self, training_options: dict[str, any] = None):
+        super().__init__(training_options or {})
+        # Grid search options can be overridden
+        self.param_grid = training_options.get('param_grid', self.PARAM_GRID) if training_options else self.PARAM_GRID
+        self.model: SVC | None = None
+        self.scaler: StandardScaler | None = None
+        self.best_params: dict | None = None
 
-		if self.is_fitted:
-			try:
-				proba = self.svm.predict_proba(x_np)
-				proba = np.clip(proba, 1e-10, 1.0)
-				logits = np.log(proba)
-				result = torch.from_numpy(logits).float().to(device)
-				result = result + self._dummy.to(device) * 0.0
-				return result
-			except Exception:
-				zeros = torch.zeros(batch_size, self.n_classes, device=device, requires_grad=True)
-				zeros = zeros + self._dummy.to(device) * 0.0
-				return zeros
+    def train(self):
+        """
+        Train the SVM on all trials for this subject using GridSearchCV.
+        """
+        # Get training data from all trials
+        X_train = np.array([t.data for t in self.subject.trials])
+        y_train = np.array([t.raw_label for t in self.subject.trials])
 
-		zeros = torch.zeros(batch_size, self.n_classes, device=device, requires_grad=True)
-		zeros = zeros + self._dummy.to(device) * 0.0
-		return zeros
+        # Scale data
+        self.scaler = StandardScaler()
+        X_train_scaled = self.scaler.fit_transform(X_train)
 
-	def train(self, mode=True):
-		was_training = self.training
-		result = super().train(mode)
-		if was_training and not mode and self.is_accumulating:
-			self._fit_svm()
-		return result
+        # Grid search with 3-fold CV
+        base_svc = SVC(probability=True, random_state=42)
+        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
-	def _fit_svm(self):
-		if len(self.data_buffer) == 0 or len(self.labels_buffer) == 0:
-			return
-		try:
-			X = np.concatenate(self.data_buffer, axis=0)
-			y = np.concatenate(self.labels_buffer, axis=0)
-			self.svm.fit(X, y)
-			self.is_fitted = True
-			self.is_accumulating = False
-			self.data_buffer = []
-			self.labels_buffer = []
-		except Exception:
-			pass
+        grid = GridSearchCV(base_svc, self.param_grid, cv=cv, scoring='accuracy', n_jobs=-1)
+        grid.fit(X_train_scaled, y_train)
 
-	def accumulate_labels(self, y):
-		y_np = y.detach().cpu().numpy()
-		self.labels_buffer.append(y_np)
+        self.model = grid.best_estimator_
+        self.best_params = grid.best_params_
+        print(f"[SVM] Best hyperparameters: {self.best_params}")
+
+    def infer(self, trials):
+        """
+        Predict labels for the given trials.
+        Stores both prediction and probability distribution.
+        """
+        if self.model is None or self.scaler is None:
+            raise RuntimeError("Model not trained yet. Call train() first.")
+
+        X = np.array([t.data for t in trials])
+        X_scaled = self.scaler.transform(X)
+
+        probas = self.model.predict_proba(X_scaled)
+        for trial, prob in zip(trials, probas):
+            trial.prediction_distribution = {
+                str(label): float(p) for label, p in zip(self.model.classes_, prob)
+            }
+            trial.prediction = self.model.classes_[np.argmax(prob)]
+
+    def evaluate(self) -> float:
+        """
+        Fold-based evaluation using the subject's folds.
+        Returns accuracy using get_accuracy().
+        """
+        folds = self.subject.folds
+        all_trials = []
+
+        for fold in folds:
+            test_trials = fold
+            # All trials not in the current fold are used for training
+            train_trials = [t for t in self.subject.trials if t not in test_trials]
+
+            # Prepare training data
+            X_train = np.array([t.data for t in train_trials])
+            y_train = np.array([t.raw_label for t in train_trials])
+
+            # Scale data
+            self.scaler = StandardScaler()
+            X_train_scaled = self.scaler.fit_transform(X_train)
+
+            # Grid search for this fold
+            base_svc = SVC(probability=True, random_state=42)
+            cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+            grid = GridSearchCV(base_svc, self.param_grid, cv=cv, scoring='accuracy', n_jobs=-1)
+            grid.fit(X_train_scaled, y_train)
+
+            self.model = grid.best_estimator_
+            self.best_params = grid.best_params_
+            print(f"[Fold Eval] Best params: {self.best_params}")
+
+            # Predict on test fold
+            self.infer(test_trials)
+            all_trials.extend(test_trials)
+
+        # Return overall accuracy
+        return get_accuracy(self.subject)
