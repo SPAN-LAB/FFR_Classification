@@ -1,6 +1,6 @@
 from .utils import ModelInterface
 from src.core.ffr_proc import get_accuracy
-import numpy as np
+import numpy as np 
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
