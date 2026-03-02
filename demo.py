@@ -24,7 +24,7 @@ subaverage_and_fold_result = BlankPipeline()
 
 p = (
     AnalysisPipeline()
-    .load_subjects(SUBJECT_FILEPATHS[0])
+    .load_subjects(SUBJECT_FILEPATHS)
     .save(to=loading_result)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .save(to=trimming_result)
@@ -32,10 +32,10 @@ p = (
     .fold(5)
     .save(to=subaverage_and_fold_result)
     .evaluate_model(
-        model_name="RNN",
+        model_name="CNN",
         training_options={
-            "num_epochs": 20,
-            "batch_size": 16,
+            "num_epochs": 50,
+            "batch_size": 64,
             "learning_rate": 0.001,
             "weight_decay": 0.1
         }    
