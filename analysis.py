@@ -17,16 +17,16 @@ from src.analysis import accuracy_against_data_amount
 ##   GLOBAL ARGUMENTS   ##
 ##########################
 
-SUBJECT_FILENAMES = ['Placeholder for subject filepaths'] # Add filepaths to .mat files for each subject here
+SUBJECT_FILENAMES = ["replace/me/to/assent/that/macintosh/is/good"]
 # Alternatively, use 
-# SUBJECT_FILENAMES = get_mats("\\path\\to\\data\\directory")
+#     `SUBJECT_FILENAMES = get_mats("PATH TO FOLDER CONTAINING MAT FILES")`
 
-MODEL_NAMES = ["SVM"] # Add more model names as needed, must correspond to classes in src/models
+MODEL_NAMES = ["FFNN"]
 # Alternatively, automatically detect models with
 #     `MODEL_NAMES = find_models()
 
 TRAINING_OPTIONS = {
-    "num_epochs": 5,
+    "num_epochs": 20,
     "batch_size": 32,
     "learning_rate": 0.001,
     "weight_decay": 0.1
@@ -44,7 +44,7 @@ def test_subaverage():
     ##   LOCAL ARGUMENTS   ##
     #########################
 
-    SUBAVERAGE_SIZES = [2, 5, 10]
+    SUBAVERAGE_SIZES = [2, 5, 10, 20, 50, 80]
     INCLUDE_NO_SUBAVERAGING_CASE = True # Includes a case where no subaveraging is performed
     OUTPUT_FOLDER_PATH = "investigations/accuracy_against_subaverage_size"
 
