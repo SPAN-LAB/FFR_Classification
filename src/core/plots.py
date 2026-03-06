@@ -621,14 +621,15 @@ def plot_results(
         # Plot individual runs
         sns.lineplot(
             data=df, x="x", y="y", hue="run", 
-            palette="husl", alpha=0.5, linewidth=1.5,
-            legend="full"
+            palette="tab20", linewidth=1.5,
+            legend="full",
+            errorbar=None
         )
         
         # Plot the averaged line in thicker black
         sns.lineplot(
             data=df, x="x", y="y", 
-            color="black", linewidth=3.5, label="Average",
+            color="black", linewidth=3, label="Average",
             errorbar=None
         )
         
@@ -644,7 +645,7 @@ def plot_results(
         )
     
     # Customize plot
-    plt.ylim(0, 1.0)
+    plt.ylim(-0.05, 1.05)
     plt.title(title if title else parent_path.name, fontsize=16)
     plt.xlabel(xlabel, fontsize=14)
     plt.ylabel(ylabel, fontsize=14)
@@ -714,11 +715,11 @@ def plot_model_comparison(
     plt.figure(figsize=(12, 8))
     sns.lineplot(
         data=df, x="x", y="y", hue="model",
-        palette="husl", linewidth=2.5, marker="o", markersize=6,
+        palette="Paired", linewidth=2, marker="o", markersize=4,
         errorbar=None  # one mean line per model, no error band
     )
 
-    plt.ylim(0, 1.0)
+    plt.ylim(-0.05, 1.05)
     plt.title(title if title else "Model comparison", fontsize=16)
     plt.xlabel(xlabel, fontsize=14)
     plt.ylabel(ylabel, fontsize=14)
