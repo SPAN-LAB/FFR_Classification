@@ -112,5 +112,6 @@ def get_results(dir_path: str) -> list[tuple[int, float]]:
             accuracy = get_accuracy(subject)
             
             axes.append((subaverage_size, accuracy))
-
+    
+    axes.sort(key=lambda x: x[0])
     return axes
