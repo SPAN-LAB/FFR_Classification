@@ -12,11 +12,18 @@ class SVM(ModelInterface):
     # -------------------------------
     # Grid Search Parameters (default)
     # -------------------------------
-    # Note: This is based on the implementation by Jivesh
+    # Note: This is based on the implementation by Jivesh, and this test with more combinations as example.
+    '''PARAM_GRID = {
+        'C': [0.01, 0.1, 1, 10, 100, 1000],
+        'gamma': ['scale', 'auto'],
+        'kernel': ['rbf', 'linear', 'poly', 'sigmoid']
+    }'''
+    # This combination is the one to speed up testing,(the best fit one for now), but feel free to use above combinations for a more thorough grid search.
+    
     PARAM_GRID = {
-        'C': [0.1, 1, 10],
-        'gamma': ['scale', 0.01, 0.1],
-        'kernel': ['rbf', 'linear']
+        'C': [1,10],               
+        'gamma': ['scale'],     
+        'kernel': ['rbf']       
     }
 
     # -------------------------------
@@ -126,11 +133,13 @@ class SVM(ModelInterface):
             cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
             search = self._build_search(base_svc, cv)
+            print(f"[SVM] Parameter grid/distribution for this fold: {search.param_grid if hasattr(search, 'param_grid') else search.param_distributions}")
             search.fit(X_train_scaled, y_train)
 
             self.model = search.best_estimator_
             self.best_params = search.best_params_
 
+            print(f"[SVM] Best choice for this fold: {self.best_params}")
             self.infer(test_trials)
 
         return get_accuracy(self.subject)
