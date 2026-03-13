@@ -11,12 +11,13 @@ Description: A function that evaluates a model's performance on various data amo
 from pathlib import Path
 import pickle
 from copy import deepcopy
-from random import sample
+from math import floor
+
+from src.core.ffr_proc import get_accuracy
 
 from ..core import AnalysisPipeline
 
 from .utils import get_subject_loaded_pipelines
-
 
 def accuracy_against_data_amount(
     min_trials: int, 
@@ -58,7 +59,36 @@ def accuracy_against_data_amount(
                 
                 # No randomization
                 
-                reduced_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials[0:data_amount])
+                # print(f"Using {data_amount = }")
+                
+                num_trials = len(subject_pipeline.subjects[0].trials)
+                grouped_trials = subject_pipeline.deepcopy().subjects[0].grouped_trials()
+                num_trials_per_label = {}
+                for label, trials in grouped_trials.items():
+                    num_trials_per_label[label] = len(trials) / num_trials * data_amount
+                num_trials_per_label_floored = {}
+                distances = []
+                for label, num in num_trials_per_label.items():
+                    num_trials_per_label_floored[label] = floor(num)
+                    distances.append(
+                        (label, num_trials_per_label[label] - num_trials_per_label_floored[label])
+                    )
+                distances.sort(key=lambda x: x[1], reverse=True) # Sort from greatest to smallest distance
+                trials_used = 0
+                for _, num in num_trials_per_label_floored.items():
+                    trials_used += num
+                for distance in distances:
+                    if trials_used >= data_amount:
+                        break
+                    num_trials_per_label_floored[distance[0]] += 1
+                    trials_used += 1
+                
+                # copied_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials)/
+                reduced_trials = []
+                for key, val in num_trials_per_label_floored.items():
+                    reduced_trials += deepcopy(grouped_trials[key][0:val])
+                
+                # reduced_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials[0:data_amount])
                 
                 # Index them properly
                 for i, trial in enumerate(reduced_trials):
@@ -66,6 +96,10 @@ def accuracy_against_data_amount(
                 
                 reduced_starting_pipeline = subject_pipeline.deepcopy()
                 reduced_starting_pipeline.subjects[0].trials = reduced_trials
+                
+                # groups = reduced_starting_pipeline.subjects[0].grouped_trials()
+                # for label, trials in groups.items():
+                #     print(f"{label = }, {len(trials) = }")
                 
                 p = (
                     reduced_starting_pipeline
@@ -78,6 +112,12 @@ def accuracy_against_data_amount(
                     )
                 )
                 subject = p.subjects[0]
+                
+                # groups = subject.grouped_trials()
+                # for label, trials in groups.items():
+                #     print(f"{label = }, {len(trials) = }")
+                
+                # print(f"With {data_amount = }, the accuracy was {(100 * get_accuracy(subject)):.1f}%")
                 
                 # Create the dictionary
                 predictions = {"trials": []}
@@ -101,4 +141,5 @@ def accuracy_against_data_amount(
                     pickle.dump(subject, file)
                     
                 data_amount += stride
+
 
