@@ -13,25 +13,34 @@ class _CNN1D(nn.Module):
     def __init__(self, n_classes: int = 4, p_drop: float = 0.1):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv1d(1, 128, kernel_size=9, padding=4, bias=False),
+
+            nn.Conv1d(1, 64, kernel_size=251, padding=125, bias=False),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.AvgPool1d(2),
+
+
+            nn.Conv1d(64, 128, kernel_size=15, padding=7, bias=False),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.MaxPool1d(2),
-            nn.Conv1d(128, 256, kernel_size=7, padding=3, bias=False),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.MaxPool1d(2),
-            nn.Conv1d(256, 128, kernel_size=5, padding=2, bias=False),
+            nn.AvgPool1d(2),
+
+
+            nn.Conv1d(128, 128, kernel_size=7, padding=3, bias=False),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.MaxPool1d(2),
+            nn.AvgPool1d(2),
+
+
             nn.Conv1d(128, 64, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm1d(64),
             nn.ReLU(),
+            
             nn.AdaptiveAvgPool1d(1),
             nn.Flatten(),
             nn.Dropout(p_drop),
             nn.Linear(64, n_classes),
+
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

@@ -259,3 +259,4 @@ class EEGSubject(EEGSubjectInterface):
     @property
     def num_categories(self) -> int:
         return len(self.grouped_trials().keys())
+
