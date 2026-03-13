@@ -1,8 +1,10 @@
 from .utils import ModelInterface
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import numpy as np
-from src.core.ffr_proc import get_accuracy
-class LDA(ModelInterface):
+from ..core.ffr_proc import get_accuracy
+
+
+class LDA(ModelInterface): 
     def __init__(self, training_options: dict[str, any]):
         super().__init__(training_options)
         self.model = LinearDiscriminantAnalysis()

@@ -197,7 +197,11 @@ class AnalysisPipeline:
         """
         for subject in self.subjects:
             subject.subaverage(size)
-        print(f"subaverage ({size}) : done")
+        
+        if len(self.subjects) == 1:
+            print(f"subaverage ({len(self.subjects[0].trials)} trials used) ({size}) : done")
+        else:
+            print(f"subaverage ({size}) : done")
         return self
 
     @detail(details.fold_detail)
@@ -282,3 +286,4 @@ class AnalysisPipeline:
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
 BlankPipeline = AnalysisPipeline
+

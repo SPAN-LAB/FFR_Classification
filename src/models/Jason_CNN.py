@@ -1,43 +1,37 @@
 from __future__ import annotations
 
+from ..core.ffr_proc import get_accuracy
 from typing import Any, Sequence
 import os
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
-from sklearn.model_selection import StratifiedShuffleSplit
+# from sklearn.model_selection import StratifiedShuffleSplit
 
-from ..core.eeg_subject import EEGSubject
 from ..core.eeg_trial import EEGTrial
-from ..core.ffr_prep import FFRPrep
 from .utils.model_interface import ModelInterface
-from typing import Any
 
 
 class Jason_CNN(ModelInterface):
     """
     TensorFlow CNN implementation that plugs into ModelInterface.
 
-    Key assumptions (see bottom of file for more detail):
-      - Each EEGTrial has a 1D array attribute with the FFR trace (default: 'ffr_dss').
+    Key assumptions:
+      - Each EEGTrial has a 1D array attribute with the signal (default: 'data').
       - Each EEGTrial has an integer class index attribute (default: 'mapped_label',
         expected to be in [0, n_classes-1]).
-      - Each EEGTrial has `trial.prediction.prediction` as a writable field for
-        storing predicted labels (your existing code seems to use this).
+      - Each EEGTrial has `trial.prediction` as a writable field for storing
+        predicted labels.
     """
 
     def __init__(
         self,
         training_options: dict[str, Any] | None = None,
         n_classes: int = 4,
-        ds_factor: int = 8,
         epochs: int = 15,
         batch_size: int = 32,
         val_split: float = 0.10,
-        group_size: int = 5,
-        repeats: int = 0,
-        bootstrap: bool = True,
         l2: float = 1e-5,
         sdrop: float = 0.10,
         head_drop: float = 0.30,
@@ -51,13 +45,9 @@ class Jason_CNN(ModelInterface):
         batch_size = opts.get("batch_size", batch_size)
         lr = opts.get("learning_rate", lr)
         self.n_classes = n_classes
-        self.ds_factor = ds_factor
         self.epochs = epochs
         self.batch_size = batch_size
         self.val_split = val_split
-        self.group_size = group_size
-        self.repeats = repeats
-        self.bootstrap = bootstrap
         self.l2 = l2
         self.sdrop = sdrop
         self.head_drop = head_drop
@@ -97,33 +87,6 @@ class Jason_CNN(ModelInterface):
             metrics=["accuracy"],
         )
         return model
-
-    def _subaverage(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-    ) -> tuple[np.ndarray | None, np.ndarray | None]:
-        """
-        Your subaverage() copied into a method, using class hyperparams.
-        X: (N, T, 1), y: (N,)
-        """
-        rng = np.random.default_rng()
-        X_new, y_new = [], []
-
-        for c in range(self.n_classes):
-            idx = np.where(y == c)[0]
-            if len(idx) < self.group_size:
-                continue
-            n_groups = max(1, (len(idx) // self.group_size) * self.repeats)
-            for _ in range(n_groups):
-                take = rng.choice(idx, size=self.group_size, replace=self.bootstrap)
-                x_avg = X[take].mean(axis=0)
-                X_new.append(x_avg)
-                y_new.append(c)
-
-        if not X_new:
-            return None, None
-        return np.stack(X_new, axis=0), np.array(y_new, dtype=np.int32)
 
     def _trials_to_xy(
         self,
@@ -173,14 +136,8 @@ class Jason_CNN(ModelInterface):
         X = np.stack(X_list, axis=0)  # (N, T_raw)
         y = np.array(y_list, dtype=np.int32) if require_labels else None
 
-        # Optional downsample (same as load_4tone_safe)
-        if self.ds_factor and self.ds_factor > 1:
-            X = X[:, :: self.ds_factor]
-
-        # Per-trial z-score normalization + channel dimension
-        m = X.mean(axis=1, keepdims=True)
-        s = X.std(axis=1, keepdims=True) + 1e-7
-        X = ((X - m) / s)[..., np.newaxis]  # (N, T, 1)
+        # Add channel dimension expected by Conv1D: (N, T) -> (N, T, 1)
+        X = X[..., np.newaxis]
 
         return X, y
 
@@ -215,36 +172,26 @@ class Jason_CNN(ModelInterface):
         # Map raw labels to 0..n_classes-1
         y = np.array([self._label_to_idx[int(l)] for l in y_raw], dtype=np.int32)
 
-        # --- rest of your original code, but now using y instead of y_raw ---
-
-        # Train/val split
-        sss = StratifiedShuffleSplit(
-            n_splits=1,
-            test_size=self.val_split,
-            random_state=42,
-        )
-        tr_idx, val_idx = next(sss.split(X, y))
-        Xtr, ytr = X[tr_idx], y[tr_idx]
-        Xval, yval = X[val_idx], y[val_idx]
-
-        # Subaverage augmentation
-        #Xtr_sa, ytr_sa = self._subaverage(Xtr, ytr)
-
-        Xtr_parts = [Xtr]
-        ytr_parts = [ytr]
-        if Xtr is not None:
-            Xtr_parts.append(Xtr)
-            ytr_parts.append(ytr)
-
-        Xtr_aug = np.concatenate(Xtr_parts, axis=0)
-        ytr_aug = np.concatenate(ytr_parts, axis=0)
+        # Randomized split disabled per request.
+        # sss = StratifiedShuffleSplit(
+        #     n_splits=1,
+        #     test_size=self.val_split,
+        #     random_state=42,
+        # )
+        # tr_idx, val_idx = next(sss.split(X, y))
+        # Xtr, ytr = X[tr_idx], y[tr_idx]
+        # Xval, yval = X[val_idx], y[val_idx]
+        n_val = max(1, int(len(X) * self.val_split))
+        n_val = min(n_val, len(X) - 1)
+        Xtr, ytr = X[:-n_val], y[:-n_val]
+        Xval, yval = X[-n_val:], y[-n_val:]
 
         # Build model
         input_len = X.shape[1]
         self.model = self._build_model(input_len, self.n_classes)
 
         # Bias init with log-priors
-        class_counts = np.bincount(ytr_aug, minlength=self.n_classes)
+        class_counts = np.bincount(ytr, minlength=self.n_classes)
         priors = class_counts.astype(np.float32)
         priors /= max(priors.sum(), 1.0)
 
@@ -256,7 +203,7 @@ class Jason_CNN(ModelInterface):
 
         # Class weights
         class_weight = {
-            i: float(len(ytr_aug) / (self.n_classes * max(class_counts[i], 1)))
+            i: float(len(ytr) / (self.n_classes * max(class_counts[i], 1)))
             for i in range(self.n_classes)
         }
 
@@ -273,8 +220,8 @@ class Jason_CNN(ModelInterface):
         )
 
         self.model.fit(
-            Xtr_aug,
-            ytr_aug,
+            Xtr,
+            ytr,
             validation_data=(Xval, yval),
             epochs=self.epochs,
             batch_size=self.batch_size,
@@ -284,10 +231,7 @@ class Jason_CNN(ModelInterface):
         )
 
     def infer(self, trials: list[EEGTrial]):
-        """
-        Predict labels for a list of EEGTrial objects using the trained model.
-        Also writes predictions into trial.prediction.prediction.
-        """
+        """Predict labels for a list of EEGTrial objects and set trial.prediction."""
         if not trials:
             return []
 
@@ -334,12 +278,11 @@ class Jason_CNN(ModelInterface):
         """
         Cross-validated evaluation following ModelInterface docstring:
 
-          1. Ensure folds exist on subject (via FFRPrep.make_folds).
+          1. Ensure folds exist on subject.
           2. For each fold:
              - Train on trials not in the fold (using _train_on_trials).
              - Infer on the fold's trials.
-             - Write predictions back into `trial.prediction.prediction`.
-          3. Call `get_accuracy(subject)` (your existing function) and return it.
+             - Infer writes predictions into `trial.prediction`.
         """
         if self.subject is None:
             raise RuntimeError(
@@ -347,20 +290,14 @@ class Jason_CNN(ModelInterface):
             )
 
         folds = self.subject.folds
+        if not folds:
+            self.subject.fold(num_folds=5)
+            folds = self.subject.folds
 
         for i, fold in enumerate(folds):
             print("doing a fold")
-            # Support both:
-            # - fold being an object with .trials
-            # - fold being just a list[EEGTrial]
-
-            test_trials = fold # The trials for testing 
-
-
-            # For all the folds 
-            # If it is the withheld fold, don't add it to the train trials 
-            # Otherwise, add all of the trials in the fold to the train trials 
-            train_trials = [] 
+            test_trials = fold
+            train_trials = []
             for j in range(len(folds)):
                 if j == i:
                     continue
@@ -368,12 +305,8 @@ class Jason_CNN(ModelInterface):
                     train_trials.append(trial)
 
             # Train on trials
-            self._train_on_trials(train_trials) 
-
-            predicted_labels = self.infer(test_trials)
-
-            for trial, label in zip(test_trials, predicted_labels):
-                trial.prediction = int(label) # 1 to 4
+            self._train_on_trials(train_trials)
+            self.infer(test_trials)
 
             tf.keras.backend.clear_session()
             self.model = None
@@ -386,5 +319,6 @@ class Jason_CNN(ModelInterface):
             if int(trial.raw_label) == trial.prediction:
                 s += 1
         
-        # accuracy = get_accuracy(subject)
-        return s / t * 100
+        accuracy = get_accuracy(self.subject)
+        return accuracy
+        # return s / t * 100

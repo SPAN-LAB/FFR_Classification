@@ -9,19 +9,15 @@ Description: A function that evaluates a model's performance on various data amo
 
 
 from pathlib import Path
-import pandas as pd
+import pickle
 from copy import deepcopy
-from random import sample
+from math import floor
+
+from src.core.ffr_proc import get_accuracy
 
 from ..core import AnalysisPipeline
-from ..core import get_accuracy, get_per_label_accuracy
 
 from .utils import get_subject_loaded_pipelines
-from .utils import save_times
-from ..time import TimeKeeper
-
-from ..core.plots import plot_confusion_matrix, plot_roc_curve
-
 
 def accuracy_against_data_amount(
     min_trials: int, 
@@ -32,7 +28,7 @@ def accuracy_against_data_amount(
     output_folder_path: str,
     defer_subject_loading: bool = True
 ):
-    SUBAVERAGE_SIZE = 1
+    SUBAVERAGE_SIZE = 5
     NUM_FOLDS = 5
     TRIM_START_TIME = 50
     TRIM_END_TIME = 250
@@ -44,13 +40,6 @@ def accuracy_against_data_amount(
     for model_name in model_names:
         for subject_filepath in subject_filepaths:
             
-            data_amounts = []
-            headers = ["Data Amount", "Accuracy"]
-            accuracies = []
-            labels = None
-            time_keeper = TimeKeeper()
-            durations = []
-            
             # The base subject pipeline state used for this subject; do not modify, only deeply copy
             if not defer_subject_loading: 
                 subject_pipeline = subject_loaded_pipelines[subject_filepath]
@@ -60,10 +49,46 @@ def accuracy_against_data_amount(
             data_amount = min_trials
             while data_amount <= len(subject_pipeline.subjects[0].trials):
                 # Keep only `data_amount` number of trials
-                reduced_trials = sample(
-                    deepcopy(subject_pipeline.deepcopy().subjects[0].trials), 
-                    data_amount
-                )
+
+                # With randomization / random sampling 
+
+                # reduced_trials = sample(
+                #     deepcopy(subject_pipeline.deepcopy().subjects[0].trials), 
+                #     data_amount
+                # )
+                
+                # No randomization
+                
+                # print(f"Using {data_amount = }")
+                
+                num_trials = len(subject_pipeline.subjects[0].trials)
+                grouped_trials = subject_pipeline.deepcopy().subjects[0].grouped_trials()
+                num_trials_per_label = {}
+                for label, trials in grouped_trials.items():
+                    num_trials_per_label[label] = len(trials) / num_trials * data_amount
+                num_trials_per_label_floored = {}
+                distances = []
+                for label, num in num_trials_per_label.items():
+                    num_trials_per_label_floored[label] = floor(num)
+                    distances.append(
+                        (label, num_trials_per_label[label] - num_trials_per_label_floored[label])
+                    )
+                distances.sort(key=lambda x: x[1], reverse=True) # Sort from greatest to smallest distance
+                trials_used = 0
+                for _, num in num_trials_per_label_floored.items():
+                    trials_used += num
+                for distance in distances:
+                    if trials_used >= data_amount:
+                        break
+                    num_trials_per_label_floored[distance[0]] += 1
+                    trials_used += 1
+                
+                # copied_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials)/
+                reduced_trials = []
+                for key, val in num_trials_per_label_floored.items():
+                    reduced_trials += deepcopy(grouped_trials[key][0:val])
+                
+                # reduced_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials[0:data_amount])
                 
                 # Index them properly
                 for i, trial in enumerate(reduced_trials):
@@ -71,6 +96,10 @@ def accuracy_against_data_amount(
                 
                 reduced_starting_pipeline = subject_pipeline.deepcopy()
                 reduced_starting_pipeline.subjects[0].trials = reduced_trials
+                
+                # groups = reduced_starting_pipeline.subjects[0].grouped_trials()
+                # for label, trials in groups.items():
+                #     print(f"{label = }, {len(trials) = }")
                 
                 p = (
                     reduced_starting_pipeline
@@ -84,51 +113,33 @@ def accuracy_against_data_amount(
                 )
                 subject = p.subjects[0]
                 
-                # Ensure that labels and headers are arranged consistently for all subaverage sizes
-                # This is run only once
-                if labels is None:
-                    labels = subject.labels_map.keys()
-                    for label in labels:
-                        headers.append(f"Accuracy (label={label})")
+                # groups = subject.grouped_trials()
+                # for label, trials in groups.items():
+                #     print(f"{label = }, {len(trials) = }")
                 
-                # Format the data for this iteration
-                row_data = [data_amount, get_accuracy(subject)]
-                per_label_accuracies = get_per_label_accuracy(subject)
-                for label in labels:
-                    row_data.append(per_label_accuracies[label])
-                    
-                accuracies.append(row_data)
-                t = time_keeper.lap_time()
-                durations.append(t)
-                print(f"{(t):.4f}s elapsed for {data_amount = }")
-                    
-                plot_confusion_matrix(
-                    subject=subject, 
-                    filepath=f"{output_folder_path}/{model_name}/{subject.name}/confusion/{data_amount}.svg"
-                )
-                plot_roc_curve(
-                    subject=subject, 
-                    filepath=f"{output_folder_path}/{model_name}/{subject.name}/roc/{data_amount}.svg"
-                )
+                # print(f"With {data_amount = }, the accuracy was {(100 * get_accuracy(subject)):.1f}%")
                 
-                data_amounts.append(data_amount)
+                # Create the dictionary
+                predictions = {"trials": []}
+                for trial in subject.trials:
+                    predictions["trials"].append({
+                        "label": trial.label,
+                        "prediction_distribution": trial.prediction_distribution
+                    })
+                
+                # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
+                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.pkl")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Remove training data from subject for smaller file size
+                for trial in subject.trials:
+                    trial.data = []
+                    trial.timestamps = []
+                subject.folds = []
+                
+                with path.open("wb") as file:
+                    pickle.dump(subject, file)
+                    
                 data_amount += stride
-            
-            # Save the results
-            output_filepath = Path(output_folder_path) / model_name
-            output_filepath.mkdir(parents=True, exist_ok=True)
-            end = time_keeper.end_time()
-            _data_amounts = ["Data Amount"] + data_amounts + ["Total"]
-            _times = ["Time"] + durations + [end]
-            
-            save_times(
-                _data_amounts, 
-                _times, 
-                output_filepath / f"{Path(subject_filepath).stem}.txt"
-            )
-            output_filepath = output_filepath / f"{Path(subject_filepath).stem}.csv"
-    
-            df = pd.DataFrame(accuracies, columns=headers)
-            df.to_csv(output_filepath, index=False)
-            print(f"{(end):.4f}s elapsed in total; results saved to: {output_filepath}")
+
 
