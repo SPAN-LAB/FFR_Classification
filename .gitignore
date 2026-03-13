@@ -16,3 +16,4 @@
 *.mat
 .env/
 outputs/
+*.pkl
