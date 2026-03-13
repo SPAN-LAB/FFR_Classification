@@ -10,9 +10,9 @@ Description: A function that evaluates a model's performance on various subavera
 from pathlib import Path
 import pickle 
 
-from .utils import get_subject_loaded_pipelines
-
+from .utils import get_subject_loaded_pipelines, strip_data_away
 from ..core import AnalysisPipeline
+from ..configurations import NUM_FOLDS, TRIM_START_TIME, TRIM_END_TIME
 
 def accuracy_against_subaverage_size(
     subaverage_sizes: list[int],
@@ -59,9 +59,7 @@ def accuracy_against_subaverage_size(
     example). 
     """
     
-    NUM_FOLDS = 5
-    TRIM_START_TIME = 50
-    TRIM_END_TIME = 250
+    pkl_filename_prefix = "subaverage-size-"
     
     # Include a case where no subaveraging is done (subaverage size = 1)
     if include_null_case and subaverage_sizes[0] != 1:
@@ -70,39 +68,40 @@ def accuracy_against_subaverage_size(
     subject_loaded_pipelines = None
     if not defer_subject_loading:
         subject_loaded_pipelines = get_subject_loaded_pipelines(subject_filepaths)
+        
+    def iteration(model_name, subject_filepath, write_directory):
+        
+        # The base subject pipeline state used for this subject. 
+        # Do not modify, only deeply copy.
+        if not defer_subject_loading: 
+            subject_pipeline = subject_loaded_pipelines[subject_filepath]
+        else:
+            subject_pipeline = AnalysisPipeline().load_subjects(subject_filepath)
+        
+        for subaverage_size in subaverage_sizes: 
+            p = (
+                subject_pipeline.deepcopy()
+                .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
+                .subaverage(size=subaverage_size)
+                .fold(num_folds=NUM_FOLDS)
+                .evaluate_model(
+                    model_name=model_name,
+                    training_options=training_options
+                )
+            )
+            
+            subject = p.subjects[0]
+            # So that storage size is smaller, since we only need predictions
+            strip_data_away(subject)
+            
+            # Create needed folders and save
+            full = write_directory / f"{pkl_filename_prefix}{subaverage_size}.pkl"
+            full.parent.mkdir(parents=True, exist_ok=True)
+            with full.open("wb") as file:
+                pickle.dump(subject, file)
 
     for model_name in model_names:
         for subject_filepath in subject_filepaths:
-            
-            # The base subject pipeline state used for this subject; do not modify, only deeply copy
-            if not defer_subject_loading: 
-                subject_pipeline = subject_loaded_pipelines[subject_filepath]
-            else:
-                subject_pipeline = AnalysisPipeline().load_subjects(subject_filepath)
-            
-            for subaverage_size in subaverage_sizes: 
-                p = (
-                    subject_pipeline.deepcopy()
-                    .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
-                    .subaverage(size=subaverage_size)
-                    .fold(num_folds=NUM_FOLDS)
-                    .evaluate_model(
-                        model_name=model_name,
-                        training_options=training_options
-                    )
-                )
-                subject = p.subjects[0]
-                
-                # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
-                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/subaverage-{subaverage_size}.pkl")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Remove training data from subject for smaller file size
-                for trial in subject.trials:
-                    trial.data = []
-                    trial.timestamps = []
-                subject.folds = []
-                
-                with path.open("wb") as file:
-                    pickle.dump(subject, file)
-
+            subject_filename = Path(subject_filepath).stem
+            write_directory = Path(output_folder_path) / model_name / subject_filename
+            iteration(model_name, subject_filepath, write_directory)
