@@ -11,13 +11,10 @@ Description: A function that evaluates a model's performance on various data amo
 from pathlib import Path
 import pickle
 from copy import deepcopy
-from math import floor
 
-from src.core.ffr_proc import get_accuracy
-
+from .utils import get_subject_loaded_pipelines, stratified_deterministic_sample, strip_data_away
 from ..core import AnalysisPipeline
-
-from .utils import get_subject_loaded_pipelines
+from ..configurations import SUBAVERAGE_SIZE, NUM_FOLDS, TRIM_START_TIME, TRIM_END_TIME
 
 def accuracy_against_data_amount(
     min_trials: int, 
@@ -28,118 +25,61 @@ def accuracy_against_data_amount(
     output_folder_path: str,
     defer_subject_loading: bool = True
 ):
-    SUBAVERAGE_SIZE = 5
-    NUM_FOLDS = 5
-    TRIM_START_TIME = 50
-    TRIM_END_TIME = 250
+    
+    pkl_filename_prefix = "data-amount-"
 
+    # If don't defer subject loading, load all the subjects now
     subject_loaded_pipelines = None
     if not defer_subject_loading:
         subject_loaded_pipelines = get_subject_loaded_pipelines(subject_filepaths)
+    
+    def iteration(model_name, subject_filepath, write_directory):
+        
+        # The base subject pipeline state used for this subject. 
+        # Do not modify, only deeply copy.
+        if not defer_subject_loading: 
+            subject_pipeline = subject_loaded_pipelines[subject_filepath]
+        else:
+            subject_pipeline = AnalysisPipeline() \
+                .load_subjects(subject_filepath)
+        
+        # Determine the maximum data_amount value
+        max_data_amount = len(subject_pipeline.subjects[0].trials)
+        r = (max_data_amount - min_trials) % stride
+        if r != 0:
+            max_data_amount -= r
+            
+        for data_amount in range(min_trials, max_data_amount, stride):
+            
+            # Create the reduced pipeline
+            reduced_pipeline = deepcopy(subject_pipeline)
+            trials = stratified_deterministic_sample(
+                reduced_pipeline.subjects[0], data_amount)
+            reduced_pipeline.subjects[0].trials = trials
+            
+            p = (
+                reduced_pipeline
+                .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
+                .subaverage(size=SUBAVERAGE_SIZE)
+                .fold(num_folds=NUM_FOLDS)
+                .evaluate_model(
+                    model_name=model_name,
+                    training_options=training_options
+                )
+            )
+            
+            subject = p.subjects[0]
+            # So that storage size is smaller, since we only need predictions
+            strip_data_away(subject)
+            
+            # Create needed folders and save
+            full = write_directory / f"{pkl_filename_prefix}{data_amount}.pkl"
+            full.parent.mkdir(parents=True, exist_ok=True)
+            with full.open("wb") as file:
+                pickle.dump(subject, file)
 
     for model_name in model_names:
         for subject_filepath in subject_filepaths:
-            
-            # The base subject pipeline state used for this subject; do not modify, only deeply copy
-            if not defer_subject_loading: 
-                subject_pipeline = subject_loaded_pipelines[subject_filepath]
-            else:
-                subject_pipeline = AnalysisPipeline().load_subjects(subject_filepath)
-            
-            data_amount = min_trials
-            while data_amount <= len(subject_pipeline.subjects[0].trials):
-                # Keep only `data_amount` number of trials
-
-                # With randomization / random sampling 
-
-                # reduced_trials = sample(
-                #     deepcopy(subject_pipeline.deepcopy().subjects[0].trials), 
-                #     data_amount
-                # )
-                
-                # No randomization
-                
-                # print(f"Using {data_amount = }")
-                
-                num_trials = len(subject_pipeline.subjects[0].trials)
-                grouped_trials = subject_pipeline.deepcopy().subjects[0].grouped_trials()
-                num_trials_per_label = {}
-                for label, trials in grouped_trials.items():
-                    num_trials_per_label[label] = len(trials) / num_trials * data_amount
-                num_trials_per_label_floored = {}
-                distances = []
-                for label, num in num_trials_per_label.items():
-                    num_trials_per_label_floored[label] = floor(num)
-                    distances.append(
-                        (label, num_trials_per_label[label] - num_trials_per_label_floored[label])
-                    )
-                distances.sort(key=lambda x: x[1], reverse=True) # Sort from greatest to smallest distance
-                trials_used = 0
-                for _, num in num_trials_per_label_floored.items():
-                    trials_used += num
-                for distance in distances:
-                    if trials_used >= data_amount:
-                        break
-                    num_trials_per_label_floored[distance[0]] += 1
-                    trials_used += 1
-                
-                # copied_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials)/
-                reduced_trials = []
-                for key, val in num_trials_per_label_floored.items():
-                    reduced_trials += deepcopy(grouped_trials[key][0:val])
-                
-                # reduced_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials[0:data_amount])
-                
-                # Index them properly
-                for i, trial in enumerate(reduced_trials):
-                    trial.trial_index = i
-                
-                reduced_starting_pipeline = subject_pipeline.deepcopy()
-                reduced_starting_pipeline.subjects[0].trials = reduced_trials
-                
-                # groups = reduced_starting_pipeline.subjects[0].grouped_trials()
-                # for label, trials in groups.items():
-                #     print(f"{label = }, {len(trials) = }")
-                
-                p = (
-                    reduced_starting_pipeline
-                    .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
-                    .subaverage(size=SUBAVERAGE_SIZE)
-                    .fold(num_folds=NUM_FOLDS)
-                    .evaluate_model(
-                        model_name=model_name,
-                        training_options=training_options
-                    )
-                )
-                subject = p.subjects[0]
-                
-                # groups = subject.grouped_trials()
-                # for label, trials in groups.items():
-                #     print(f"{label = }, {len(trials) = }")
-                
-                # print(f"With {data_amount = }, the accuracy was {(100 * get_accuracy(subject)):.1f}%")
-                
-                # Create the dictionary
-                predictions = {"trials": []}
-                for trial in subject.trials:
-                    predictions["trials"].append({
-                        "label": trial.label,
-                        "prediction_distribution": trial.prediction_distribution
-                    })
-                
-                # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
-                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.pkl")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Remove training data from subject for smaller file size
-                for trial in subject.trials:
-                    trial.data = []
-                    trial.timestamps = []
-                subject.folds = []
-                
-                with path.open("wb") as file:
-                    pickle.dump(subject, file)
-                    
-                data_amount += stride
-
-
+            subject_filename = Path(subject_filepath).stem
+            write_directory = Path(output_folder_path) / model_name / subject_filename
+            iteration(model_name, subject_filepath, write_directory)
