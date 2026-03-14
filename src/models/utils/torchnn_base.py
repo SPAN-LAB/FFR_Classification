@@ -222,7 +222,7 @@ class TorchNNBase(ModelInterface):
 
                 if verbose:
                     printl(
-                        f"Fold [{i + 1}/{len(folds)}] ({fold_time_keeper.peek_time():.1f}s total), Epoch [{ep}/{num_epochs}] ({fold_time_keeper.lap_time():.3f}s / epoch), train loss={avg_train_loss:.3f}, val acc={val_acc:.3f}"
+                        f"Fold [{i + 1}/{len(folds)}] ({fold_time_keeper.accumulated_duration:.1f}s total), Epoch [{ep}/{num_epochs}] ({fold_time_keeper.lap_time():.3f}s / epoch), train loss={avg_train_loss:.3f}, val acc={val_acc:.3f}"
                     )
 
                 if val_acc > best_val_acc + min_impr:
