@@ -118,15 +118,16 @@ def get_results(dir_path: str) -> list[tuple[int, float]]:
     axes.sort(key=lambda x: x[0])
     return axes
 
-def stratified_deterministic_sample(subject: EEGSubject, num_trials: int) -> [EEGTrial]:
+def stratified_deterministic_sample(subject: EEGSubject, num_trials: int) -> list[EEGTrial]:
     """
     Performs a stratified sample on the trials of the EEGSubject deterministically. 
     In other words, identical inputs to this function will provide identical outputs, and there 
     is no randomization involved. 
     """
     
+    subject = deepcopy(subject)
     total_num_trials = len(subject.trials)
-    grouped_trials = deepcopy(subject).grouped_trials()
+    grouped_trials = subject.grouped_trials()
     
     # Determine the number of trials each class needs 
     
@@ -137,13 +138,13 @@ def stratified_deterministic_sample(subject: EEGSubject, num_trials: int) -> [EE
     num_trials_per_label = {}
     for label, trials in grouped_trials.items():
         n = len(trials) / total_num_trials * num_trials
-        num_trials_per_label[label] = (n, floor(n))
+        num_trials_per_label[label] = [n, floor(n)]
         
     # Determine the distance between the unfloored and floored values
     num_trials_allocated = 0
     distances = []
     for label, num_trials_tuple in num_trials_per_label.items():
-        distances.append((label, num_trials_tuple[0] - num_trials_tuple[1]))
+        distances.append([label, num_trials_tuple[0] - num_trials_tuple[1]])
         num_trials_allocated += num_trials_tuple[1]
     distances.sort(key=lambda x: x[1], reverse=True)
     
@@ -164,16 +165,16 @@ def stratified_deterministic_sample(subject: EEGSubject, num_trials: int) -> [EE
     # Now, the second element in the tuples (values) of num_trials_per_label 
     # corresponds to the number of trials we're going to use for that class
     
-    trials = []
+    sampled_trials = []
     for label, trials in grouped_trials.items():
         num_trials_to_take = num_trials_per_label[label][1]
-        trials += grouped_trials[:num_trials_to_take]
+        sampled_trials += grouped_trials[label][:num_trials_to_take]
     
     # Reassign indices to the trials 
-    for i, trial in enumerate(trials):
+    for i, trial in enumerate(sampled_trials):
         trial.trial_index = i
     
-    return trials
+    return sampled_trials
 
 def strip_data_away(subject: EEGSubject):
     for trial in subject.trials:
