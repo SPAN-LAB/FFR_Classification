@@ -247,48 +247,15 @@ class AnalysisPipeline:
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
 
-            # Evaluate it
+            # # Evaluate it
             # try:
             #     accuracy = model.evaluate()
             #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             #     self.models.append(model)
             # except Exception as e:
-                # print(f"Error evaluating {subject.name}: {e}")
+            #     print(f"Error evaluating {subject.name}: {e}")
         
         return self
-    
-    # def evaluate_generic_model(
-    #     self, 
-    #     model_name: str, 
-    #     training_options: dict[str, any]
-    # ) -> AnalysisPipeline:
-        
-    #     # Create the pseudo subject representing all subject data
-    #     pseudo_grand_subject = deepcopy(self.subjects[0])
-    #     for i, subject in enumerate(self.subjects):
-    #         subject = deepcopy(subject)
-    #         if i == 0: 
-    #             continue
-    #         pseudo_grand_subject.trials += subject.trials
-    #     pseudo_grand_subject.reindex_trials()
-        
-    #     print(f"Pseudo grand subject trial count: {len(pseudo_grand_subject.trials)}")
-        
-    #     concrete_model = find_model(model_name)
-    #     model = concrete_model(training_options)
-    #     model.set_subject(pseudo_grand_subject)
-
-    #     # Evaluate it
-    #     try:
-    #         accuracy = model.evaluate()
-    #         print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-    #         self.models = []
-    #         for i in range(len(self.subjects)):
-    #             self.models.append(model)
-    #     except Exception as e:
-    #         print(f"Error evaluating {subject.name}: {e}")
-        
-    #     return self
 
     @detail(details.train_model_detail)
     def train_model(

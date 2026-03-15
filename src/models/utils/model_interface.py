@@ -8,8 +8,6 @@ Description: An interface that all ML models must conform to for compatability w
 """
 
 
-from abc import ABC, abstractmethod
-
 from copy import deepcopy
 from pathlib import Path
 import pickle
@@ -18,19 +16,21 @@ from ...core import EEGSubject
 from ...core import EEGTrial
 from ...time import TimeKeeper
 
+from ...printing import print, printl, unlock
+
 from ...configurations import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY
 
 
-class ModelInterface(ABC):
+class ModelInterface:
     """
     Abstract class representing any model used for FFR classification.
     """
-
-    subject: EEGSubject
     
     def __init__(self, training_options: dict[str, any]):
         self.subject = None
         self.training_options = training_options
+    
+    # MARK: Setters
     
     def set_subject(self, subject: EEGSubject):
         self.subject = subject
@@ -38,6 +38,33 @@ class ModelInterface(ABC):
     def set_training_options(self, training_options: dict[str, any]):
         self.training_options = training_options
 
+    # MARK: Training parameter getters
+
+    def get_num_epochs(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return NUM_EPOCHS
+        return self.training_options.get("num_epochs", NUM_EPOCHS)
+
+    def get_batch_size(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return BATCH_SIZE
+        return self.training_options.get("batch_size", BATCH_SIZE)
+    
+    def get_learning_rate(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return LEARNING_RATE
+        return self.training_options.get("learning_rate", LEARNING_RATE)
+    
+    def get_weight_decay(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return WEIGHT_DECAY
+        return self.training_options.get("weight_decay", WEIGHT_DECAY)
+        
+    # MARK: Printing
+    
+    def update_printed_training_status(self, content):
+        printl(content)
+    
     # MARK: Core functions
     
     def _core_infer(self, *,
@@ -55,6 +82,25 @@ class ModelInterface(ABC):
     ):
         raise NotImplementedError("This method need to be implemented.")
 
+    # MARK: Orchestration functions
+    
+    def infer(self, *, trials: list[EEGTrial]) -> float:
+        
+        if len(trials) == 0:
+            trials = self.subject.trials
+
+        prediction_distributions = self._core_infer(
+            trials=trials, 
+            batch_size=self.get_batch_size()
+        )
+        
+        for i, trial in enumerate(trials):
+            trial.set_prediction_distribution(
+                enumerated_prediction_distribution=prediction_distributions[i]
+            )
+        
+        return EEGTrial.get_accuracy(trials)
+    
     def train(self, *, 
         trials: list[EEGTrial] = [], 
         pickle_to: str | Path | None = None,
@@ -73,10 +119,15 @@ class ModelInterface(ABC):
         if len(trials) == 0:
             trials = self.subject.trials
         
-        model = self._core_train(trials=trials)
-        
-        # Save to this instance
-        self.model = model
+        # Training
+        self._core_train(
+            trials=trials,
+            num_epochs=self.get_num_epochs(),
+            batch_size=self.get_batch_size(),
+            learning_rate=self.get_learning_rate(),
+            weight_decay=self.get_weight_decay()
+        )
+        unlock()
         
         # Save to disk if path is specified
         if pickle_to is not None:
@@ -87,24 +138,6 @@ class ModelInterface(ABC):
                 pickle.dump(self, file)
             
             print(f"Model written to {pickle_to.absolute()}")
-    
-    def infer(self, *, trials: list[EEGTrial]) -> float:
-        
-        if len(trials) == 0:
-            trials = self.subject.trials
-        
-        batch_size = self.training_options.get("batch_size", BATCH_SIZE)
-        prediction_distributions = self._core_infer(
-            trials=trials, 
-            batch_size=batch_size
-        )
-        
-        for i, trial in enumerate(trials):
-            trial.set_prediction_distribution(
-                enumerated_prediction_distribution=prediction_distributions[i]
-            )
-        
-        return EEGTrial.get_accuracy(trials)
     
     def _cross_validate(self, *,
         folded_trials: list[list[EEGTrial]],
@@ -139,6 +172,7 @@ class ModelInterface(ABC):
                 learning_rate=learning_rate,
                 weight_decay=weight_decay
             )
+            unlock()
             
             prediction_distributions = self._core_infer(
                 trials=test_trials,
@@ -157,22 +191,16 @@ class ModelInterface(ABC):
     ) -> float:
         
         if len(folded_trials) == 0:
-            if self.subject == None:
+            if self.subject is None:
                 raise ValueError("No folds were provided; self.subject is None")
             folded_trials = self.subject.folds
         
-        # Set up 
-        num_epochs = self.training_options.get("num_epochs", NUM_EPOCHS)
-        batch_size = self.training_options.get("batch_size", BATCH_SIZE)
-        learning_rate = self.training_options.get("learning_rate", LEARNING_RATE)
-        weight_decay = self.training_options.get("weight_decay", WEIGHT_DECAY)
-        
         folded_prediction_distributions = self._cross_validate(
             folded_trials=folded_trials,
-            num_epochs=num_epochs,
-            batch_size=batch_size,
-            learning_rate=learning_rate,
-            weight_decay=weight_decay
+            num_epochs=self.get_num_epochs(),
+            batch_size=self.get_batch_size(),
+            learning_rate=self.get_learning_rate(),
+            weight_decay=self.get_weight_decay()
         )
         
         for i in range(len(folded_trials)):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ..core.ffr_proc import get_accuracy
 from typing import Any, Sequence
 import os
 
@@ -11,6 +10,8 @@ from tensorflow.keras import layers, models
 
 from ..core.eeg_trial import EEGTrial
 from .utils.model_interface import ModelInterface
+
+get_accuracy = EEGTrial.get_accuracy
 
 
 class Jason_CNN(ModelInterface):
@@ -319,6 +320,6 @@ class Jason_CNN(ModelInterface):
             if int(trial.raw_label) == trial.prediction:
                 s += 1
         
-        accuracy = get_accuracy(self.subject)
+        accuracy = get_accuracy(self.subject.trials)
         return accuracy
         # return s / t * 100

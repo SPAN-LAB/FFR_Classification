@@ -1,11 +1,12 @@
 from .utils import ModelInterface
-from src.core.ffr_proc import get_accuracy
 import numpy as np
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import loguniform
 
+from ..core import EEGTrial
+get_accuracy = EEGTrial.get_accuracy
 
 class SVM(ModelInterface):
 
@@ -133,4 +134,4 @@ class SVM(ModelInterface):
 
             self.infer(test_trials)
 
-        return get_accuracy(self.subject)
+        return get_accuracy(self.subject.trials)

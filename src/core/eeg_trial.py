@@ -121,6 +121,8 @@ class EEGTrial:
     def __len__(self):
         return len(self.timestamps)
     
+    # MARK: Obtaining accuracies
+    
     @staticmethod
     def get_accuracy(trials: list[EEGTrial] | list[list[EEGTrial]]) -> float:
         
@@ -146,3 +148,42 @@ class EEGTrial:
                         num_correct += 1
 
         return num_correct / total
+    
+    @staticmethod
+    def get_per_label_accuracy(trials: list[EEGTrial] | list[list[EEGTrial]]) -> dict[any, float]:
+        
+        if len(trials) == 0:
+            print("Warning: No trials supplied.")
+            return 0
+        
+        num_correct_dict = 0
+        total_dict = 0
+        
+        # list[EEGTrial]
+        if isinstance(trials[0], EEGTrial):
+            total = len(trials)
+            for trial in trials:
+                
+                new_total = total_dict.get(trial.label, 0) + 1
+                total_dict[trial.label] = new_total
+                
+                if trial.prediction == trial.label:
+                    new_correct = num_correct_dict.get(trial.label, 0) + 1
+                    num_correct_dict[trial.label] = new_correct
+        # list[list[EEGTrial]]
+        else:
+            for trial_list in trials:
+                for trial in trial_list:
+                    
+                    new_total = total_dict.get(trial.label, 0) + 1
+                    total_dict[trial.label] = new_total
+                    
+                    if trial.prediction == trial.label:
+                        new_correct = num_correct_dict.get(trial.label, 0) + 1
+                        num_correct_dict[trial.label] = new_correct
+
+        accuracies = {}
+        for key in num_correct_dict.keys():
+            accuracies[key] = num_correct_dict[key] / total_dict[key]
+
+        return accuracies
