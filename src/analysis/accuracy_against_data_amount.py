@@ -9,15 +9,14 @@ Description: A function that evaluates a model's performance on various data amo
 
 
 from pathlib import Path
-import pickle
-from copy import deepcopy
-from math import floor
 
-from src.core.ffr_proc import get_accuracy
-
+from .utils import get_subject_loaded_pipelines, stratified_deterministic_sample
 from ..core import AnalysisPipeline
-
-from .utils import get_subject_loaded_pipelines
+from ..constants.defaults import SUBAVERAGE_SIZE
+from .iteration import iteration
+from ..time import TimeKeeper
+from datetime import datetime, timezone
+from ..printing.logging import log, is_empty
 
 def accuracy_against_data_amount(
     min_trials: int, 
@@ -28,118 +27,125 @@ def accuracy_against_data_amount(
     output_folder_path: str,
     defer_subject_loading: bool = True
 ):
-    SUBAVERAGE_SIZE = 5
-    NUM_FOLDS = 5
-    TRIM_START_TIME = 50
-    TRIM_END_TIME = 250
+    
+    # MARK: Setting up variables
+    
+    # Name used for this investigation's independent variable
+    independent_var_name = "data-amount"
+    
+    # The prefix in the filename of each subject that is saved as a pickle file
+    pkl_filename_prefix = f"{independent_var_name}-"
+    
+    # Stands for "per-subject time log filename"; 
+    # The filename for the file to which the time spent evaluating a model 
+    # trained on EACH subject is logged.
+    pst_log_filename = "times-log.csv"
+    
+    # Stands for "per-iteation time log filename"
+    pit_log_filename = "times-log.csv"
+    
+    # Stands for "per-model time log filename"
+    pmt_log_filename = "times-log.csv"
+    
+    pstl_description_filename = "times-log-note.txt"
 
+    # If don't defer subject loading, load all the subjects now
     subject_loaded_pipelines = None
     if not defer_subject_loading:
         subject_loaded_pipelines = get_subject_loaded_pipelines(subject_filepaths)
-
+    
+    per_model_tk = TimeKeeper()
+    per_subject_tk = TimeKeeper()
+    per_iteration_tk = TimeKeeper()
+    per_model_tk.reset()
+    per_subject_tk.reset()
+    per_iteration_tk.reset()
+    
+    # Header for the per-model times CSV
+    pmt_log_directory = Path(output_folder_path)
+    pmt_log_filepath = pmt_log_directory / pmt_log_filename
+    if not pmt_log_filepath.exists() or is_empty(pmt_log_filepath):
+        log("model-name,duration(seconds),subjects,completion-time(utc)", pmt_log_filepath)
+    
     for model_name in model_names:
+        
+        # Header for the CSV
+        pst_log_directory = Path(output_folder_path) / model_name
+        pst_log_filepath = pst_log_directory / pst_log_filename
+        if not pst_log_filepath.exists() or is_empty(pst_log_filepath):
+            log("subject-identifier,duration(seconds),completion-time(utc)", pst_log_filepath)
+        
+        # Create a guide to the time log
+        pstl_description_filepath = pst_log_directory / pstl_description_filename
+        if not pstl_description_filepath.exists() or is_empty(pstl_description_filepath):
+            pstl_description = (
+                "Each value in the \"duration\" column in times-log.csv "
+                "indicates the total time elapsed during the "
+                "evaluation of the model on each subject."
+            )
+            log(pstl_description, pstl_description_filepath)
+        
+        per_model_tk.reset()
+        per_model_tk.start()
+        
         for subject_filepath in subject_filepaths:
             
-            # The base subject pipeline state used for this subject; do not modify, only deeply copy
+            # The base subject pipeline state used for this subject. 
+            # Do not modify, only deeply copy.
             if not defer_subject_loading: 
-                subject_pipeline = subject_loaded_pipelines[subject_filepath]
+                pipeline = subject_loaded_pipelines[subject_filepath]
             else:
-                subject_pipeline = AnalysisPipeline().load_subjects(subject_filepath)
+                pipeline = AnalysisPipeline().load_subjects(subject_filepath)
             
-            data_amount = min_trials
-            while data_amount <= len(subject_pipeline.subjects[0].trials):
-                # Keep only `data_amount` number of trials
-
-                # With randomization / random sampling 
-
-                # reduced_trials = sample(
-                #     deepcopy(subject_pipeline.deepcopy().subjects[0].trials), 
-                #     data_amount
-                # )
-                
-                # No randomization
-                
-                # print(f"Using {data_amount = }")
-                
-                num_trials = len(subject_pipeline.subjects[0].trials)
-                grouped_trials = subject_pipeline.deepcopy().subjects[0].grouped_trials()
-                num_trials_per_label = {}
-                for label, trials in grouped_trials.items():
-                    num_trials_per_label[label] = len(trials) / num_trials * data_amount
-                num_trials_per_label_floored = {}
-                distances = []
-                for label, num in num_trials_per_label.items():
-                    num_trials_per_label_floored[label] = floor(num)
-                    distances.append(
-                        (label, num_trials_per_label[label] - num_trials_per_label_floored[label])
-                    )
-                distances.sort(key=lambda x: x[1], reverse=True) # Sort from greatest to smallest distance
-                trials_used = 0
-                for _, num in num_trials_per_label_floored.items():
-                    trials_used += num
-                for distance in distances:
-                    if trials_used >= data_amount:
-                        break
-                    num_trials_per_label_floored[distance[0]] += 1
-                    trials_used += 1
-                
-                # copied_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials)/
-                reduced_trials = []
-                for key, val in num_trials_per_label_floored.items():
-                    reduced_trials += deepcopy(grouped_trials[key][0:val])
-                
-                # reduced_trials = deepcopy(subject_pipeline.deepcopy().subjects[0].trials[0:data_amount])
-                
-                # Index them properly
-                for i, trial in enumerate(reduced_trials):
-                    trial.trial_index = i
-                
-                reduced_starting_pipeline = subject_pipeline.deepcopy()
-                reduced_starting_pipeline.subjects[0].trials = reduced_trials
-                
-                # groups = reduced_starting_pipeline.subjects[0].grouped_trials()
-                # for label, trials in groups.items():
-                #     print(f"{label = }, {len(trials) = }")
-                
-                p = (
-                    reduced_starting_pipeline
-                    .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
-                    .subaverage(size=SUBAVERAGE_SIZE)
-                    .fold(num_folds=NUM_FOLDS)
-                    .evaluate_model(
-                        model_name=model_name,
-                        training_options=training_options
-                    )
+            subject_filename = Path(subject_filepath).stem
+            write_directory = Path(output_folder_path) / model_name / subject_filename
+            
+            per_subject_tk.start()
+            
+            max_data_amount = len(pipeline.subjects[0].trials)
+            for data_amount in range(min_trials, max_data_amount + 1, stride):
+                reduced_trials = stratified_deterministic_sample(
+                    pipeline.subjects[0],
+                    data_amount
                 )
-                subject = p.subjects[0]
+                reduced_pipeline = pipeline.deepcopy()
+                reduced_pipeline.subjects[0].trials = reduced_trials
                 
-                # groups = subject.grouped_trials()
-                # for label, trials in groups.items():
-                #     print(f"{label = }, {len(trials) = }")
-                
-                # print(f"With {data_amount = }, the accuracy was {(100 * get_accuracy(subject)):.1f}%")
-                
-                # Create the dictionary
-                predictions = {"trials": []}
-                for trial in subject.trials:
-                    predictions["trials"].append({
-                        "label": trial.label,
-                        "prediction_distribution": trial.prediction_distribution
-                    })
-                
-                # Save predictions to <output_dir_path>/<model-name>/<subject-name>/subaverage-<size>.json
-                path = Path(f"./{output_folder_path}/{model_name}/{Path(subject_filepath).stem}/data-amount-{data_amount}.pkl")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Remove training data from subject for smaller file size
-                for trial in subject.trials:
-                    trial.data = []
-                    trial.timestamps = []
-                subject.folds = []
-                
-                with path.open("wb") as file:
-                    pickle.dump(subject, file)
-                    
-                data_amount += stride
-
-
+                iteration(
+                    model_name,
+                    training_options,
+                    SUBAVERAGE_SIZE,
+                    reduced_pipeline,
+                    write_directory,
+                    pkl_filename_prefix,
+                    data_amount,
+                    independent_var_name,
+                    per_iteration_tk,
+                    pit_log_filename
+                )
+            
+            per_subject_tk.stop()
+            log(
+                (
+                    f"{subject_filename}"
+                    + f",{per_subject_tk.accumulated_duration}"
+                    + f",{datetime.now(timezone.utc).isoformat()}"
+                ),
+                pst_log_filepath
+            )
+        
+        per_model_tk.stop()
+        
+        subject_identifiers = [
+            Path(subject_filepath).stem 
+            for subject_filepath in subject_filepaths
+        ]
+        log(
+            (
+                f"{model_name}"
+                + f",{per_model_tk.accumulated_duration}"
+                + "," + "|".join(subject_identifiers)
+                + f",{datetime.now(timezone.utc).isoformat()}"
+            ),
+            pmt_log_filepath
+        )

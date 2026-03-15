@@ -1,7 +1,8 @@
 from .utils import ModelInterface
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import numpy as np
-from ..core.ffr_proc import get_accuracy
+from ..core import EEGTrial
+get_accuracy = EEGTrial.get_accuracy
 
 
 class LDA(ModelInterface): 
@@ -48,4 +49,4 @@ class LDA(ModelInterface):
             all_trials.extend(test_trials)
 
         #Automatically compute accuracy using helper
-        return get_accuracy(self.subject)
+        return get_accuracy(self.subject.trials)
