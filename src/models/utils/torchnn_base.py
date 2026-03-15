@@ -9,11 +9,12 @@ Description: TODO @Anu
 
 from abc import abstractmethod
 
+from torch.utils.data.dataloader import DataLoader
+
 from ...printing import print, printl, unlock
 from ...time import TimeKeeper
 
-from src.core import ffr_proc
-from ...core import FFRPrep
+from ...core.ffr_prep import IndexTrackedDataset
 from ...core.ffr_proc import get_accuracy
 from ...core import EEGSubject
 from ...core import EEGTrial  # This isn't being used now but will be when ``infer`` is implemented
@@ -26,12 +27,18 @@ import numpy as np
 
 from pathlib import Path
 import json
+from copy import deepcopy
+
+import pickle
+from ...configurations import BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, WEIGHT_DECAY
 
 
 class TorchNNBase(ModelInterface):
     def __init__(self, training_options: dict[str, any]):
         # Initialize ``self.training_options``
         super().__init__(training_options)
+
+        torch.manual_seed(0)
 
         self.model: nn.Module | None = None
         self.device = None
@@ -60,226 +67,219 @@ class TorchNNBase(ModelInterface):
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
 
-    def debug_RNN(self, n_trials: int = 16, num_epochs: int = 200):
-        """
-        Debug helper: try to overfit a tiny subset of the data.
-
-        Trains the current model on at most `n_trials` samples from the first
-        train fold. If the model / pipeline are correct, the accuracy on this
-        tiny set should approach 1.0.
-        """
-        if self.subject is None:
-            raise RuntimeError("Subject must be set before calling debug_RNN().")
-
-        # Build a fresh model
-        self.build()
-        if self.model is None:
-            raise RuntimeError("self.model is None after build() in debug_RNN().")
-        self.model.to(self.device)
-
-        prep = FFRPrep()
-        folds = self.subject.folds
-
-        # Just use fold 0's training loader
-        train_dl, _ = prep.make_train_val_loaders(
-            folds=folds,
-            fold_idx=0,
-            batch_size=self.training_options["batch_size"],
-        )
-
-        try:
-            x_batch, y_batch = next(iter(train_dl))
-        except StopIteration:
-            raise RuntimeError("Training DataLoader is empty in debug_RNN().")
-
-        # Take only a small subset
-        x_batch = x_batch[:n_trials]
-        y_batch = y_batch[:n_trials]
-
-        x_batch = x_batch.to(self.device)
-        y_batch = y_batch.to(self.device)
-
-        print("[debug_RNN] x_batch shape:", x_batch.shape)
-        print("[debug_RNN] y_batch shape:", y_batch.shape, y_batch.dtype)
-        print("[debug_RNN] y_batch:", y_batch.tolist())
-        print(
-            "[debug_RNN] x_batch mean/std:", x_batch.mean().item(), x_batch.std().item()
-        )
-
-        criterion = nn.CrossEntropyLoss()
-        lr = self.training_options["learning_rate"]
-        weight_decay = self.training_options.get("weight_decay", 0.0)
-        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
-
-        for ep in range(1, num_epochs + 1):
-            self.model.train()
-            optimizer.zero_grad(set_to_none=True)
-
-            logits = self.model(x_batch)
-            loss = criterion(logits, y_batch)
-            loss.backward()
-            optimizer.step()
-
-            with torch.no_grad():
-                preds = logits.argmax(dim=1)
-                acc = (preds == y_batch).float().mean().item()
-
-            print(f"[debug_RNN] epoch {ep:03d}: loss={loss.item():.4f}, acc={acc:.4f}")
-
-            # If we can perfectly fit this tiny subset, pipeline is probably OK
-            if acc == 1.0:
-                break
-        return acc
-
-    def evaluate(self, verbose: bool = True) -> float:
-        """
-        Uses K-fold CV to train and test on EEGSubject data
-        and returns overall accuracy as a float
-
-        Preconditions:
-            -self.subject != None
-            -self.model != None
-            -self.subject.folds != None
-        """
-        batch_size = self.training_options["batch_size"]
-        learning_rate = self.training_options["learning_rate"]
-        num_epochs = self.training_options["num_epochs"]
-        weight_decay = self.training_options["weight_decay"]
-
-
-        weight_decay = self.training_options.get("weight_decay", 0.1)
-        early_stopping = self.training_options.get("early_stopping", False)
-        min_impr = self.training_options.get("min_impr", 1e-3)
-
-        prep = FFRPrep()
-
-        folds = self.subject.folds
-        total_correct = 0
-        total_n = 0
+    def _core_infer(self, *, 
+        trials: list[EEGTrial],
+        batch_size: int = BATCH_SIZE
+    ) -> list[dict[int, float]]:
         
-        for i, fold in enumerate(folds):
-            fold_time_keeper = TimeKeeper()
+        dataloader = DataLoader(
+            IndexTrackedDataset(trials=trials),
+            batch_size=batch_size,
+            shuffle=False
+        )
+        
+        prediction_distributions = [None] * len(trials)
+        
+        self.model.eval()
+        with torch.no_grad():
+            for batch in dataloader:
+                
+                inputs = batch["x"].to(self.device)
+                indices = batch["index"]
+                logits = self.model(inputs)
+                probabilities = torch.softmax(logits, dim=1).cpu().numpy()
 
-            self.build()
-            if self.model is not None:
-                self.model.to(self.device)
-            else:
-                raise RuntimeError(
-                    "Self.model is None. Set model before calling evaluate"
-                )
+                for i, probability_row in enumerate(probabilities):
+                    
+                    index = indices[i].item()
 
-            train_dl, val_dl = prep.make_train_val_loaders(
-                folds=folds, fold_idx=i, batch_size=batch_size
-            )
-            test_dl = prep.make_test_loader(
-                folds=folds, fold_idx=i, batch_size=batch_size
-            )
-
-            criterion = nn.CrossEntropyLoss()
-            optimizer = optim.AdamW(
-                self.model.parameters(), lr=learning_rate, weight_decay=weight_decay
-            )
-
-            # Train with early stopping on val acc:
-            best_val_acc = -1.0
-            best_state = None
-            no_improve = 0
-            for ep in range(1, num_epochs + 1):
-
-                self.model.train()
-
-                running_loss = 0.0
-                n_train = 0
-
-                for (
-                    x_batch,
-                    y_batch,
-                ) in train_dl:
-                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
-                    optimizer.zero_grad(set_to_none=True)
-                    logits = self.model(x_batch)
-                    loss = criterion(logits, y_batch)
-                    loss.backward()
-                    optimizer.step()
-                    current_batch_size = y_batch.size(0)
-                    running_loss += loss.item() * current_batch_size
-                    n_train += current_batch_size
-
-                avg_train_loss = running_loss / max(n_train, 1)
-                self.model.eval()
-                v_correct = v_n = 0
-                with torch.no_grad():
-                    for x_batch, y_batch in val_dl:
-                        x_batch, y_batch = (
-                            x_batch.to(self.device),
-                            y_batch.to(self.device),
-                        )
-                        logits = self.model(x_batch)
-                        v_correct += (logits.argmax(1) == y_batch).sum().item()
-                        v_n += y_batch.numel()
-
-                val_acc = (v_correct / max(v_n, 1)) if v_n else 0.0
-
-                if verbose:
-                    printl(
-                        f"Fold [{i + 1}/{len(folds)}] ({fold_time_keeper.accumulated_duration:.1f}s total), Epoch [{ep}/{num_epochs}] ({fold_time_keeper.lap_time():.3f}s / epoch), train loss={avg_train_loss:.3f}, val acc={val_acc:.3f}"
-                    )
-
-                if val_acc > best_val_acc + min_impr:
-                    best_val_acc = val_acc
-                    no_improve = 0
-                    best_state = {
-                        k: v.detach().cpu() for k, v in self.model.state_dict().items()
+                    prediction_distribution = {
+                        enumerated_label: float(p) 
+                        for enumerated_label, p in enumerate(probability_row)
                     }
-                elif early_stopping:
-                    no_improve += 1
-                    if no_improve >= 5:  # NOTE: using 5 in place of patience
-                        if verbose:
-                            print(f"Early stopping at epoch {ep}")
-                        break
+                    
+                    prediction_distributions[index] = prediction_distribution
+        
+        return prediction_distributions
+    
+    def _core_train(self, *, 
+        trials: list[EEGTrial], 
+        num_epochs: int = NUM_EPOCHS,
+        batch_size: int = BATCH_SIZE,
+        learning_rate: float = LEARNING_RATE,
+        weight_decay: float = WEIGHT_DECAY
+    ) -> nn.Module:
+        
+        # Set up 
+        
+        self.build()
+        self.model.to(self.device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.AdamW(
+            self.model.parameters(), 
+            lr=learning_rate, 
+            weight_decay=weight_decay
+        )
+        
+        train_loader = DataLoader(
+            IndexTrackedDataset(trials=trials),
+            batch_size=batch_size,
+            shuffle=False
+        )
+        
+        epoch_tk = TimeKeeper()
+        epoch_tk.reset()
+        epoch_tk.start()
+        
+        self.model.train()
+        for epoch_i in range(num_epochs):
+            
+            for batch in train_loader:
+                
+                inputs = batch["x"].to(self.device)
+                labels = batch["y"].to(self.device)
 
-            unlock()
+                optimizer.zero_grad(set_to_none=True)
+                logits = self.model(inputs)
+                loss = criterion(logits, labels)
+                loss.backward()
+                optimizer.step()
+            
+            epoch_tk.lap()
+            print_content = (
+                f"Epoch [ {epoch_i + 1}/{num_epochs} ]"
+                f" | Fold time: [ {epoch_tk.accumulated_duration:.3f}s ]"
+                f" | [ {epoch_tk.last_lap_duration:.3f}s / epoch ]"
+            )
+            printl(print_content)
+        
+        unlock()
+        
+        return self.model
+        
+    # def _core_cross_validate(self, *, 
+    #     folded_trials: list[list[EEGTrial]],
+    #     num_epochs: int = NUM_EPOCHS,
+    #     batch_size: int = BATCH_SIZE,
+    #     learning_rate: float = LEARNING_RATE,
+    #     weight_decay: float = WEIGHT_DECAY
+    # ) -> list[list[dict[int, float]]]:
+        
+    #     num_folds = len(folded_trials)
+    #     folded_trial_prediction_distributions = [[] for _ in range(num_folds)]
+        
+    #     per_fold_tk = TimeKeeper()
+    #     per_fold_tk.reset()
+    #     per_fold_tk.start()
 
-            if best_state is not None:
-                self.model.load_state_dict(best_state, strict=True)
-                self.model.to(self.device)
+    #     for fold_i in range(num_folds):
+            
+    #         # Create the train and test lists
+    #         train_trials = []
+    #         test_trials = []
+    #         for withheld_i, trial_list in enumerate(folded_trials):
+    #             if withheld_i == fold_i:
+    #                 test_trials += trial_list
+    #             else:
+    #                 train_trials += trial_list
+            
+    #         self._core_train(
+    #             trials=train_trials,
+    #             num_epochs=num_epochs,
+    #             batch_size=batch_size,
+    #             learning_rate=learning_rate,
+    #             weight_decay=weight_decay
+    #         )
+            
+    #         prediction_distributions = self._core_infer(
+    #             trials=test_trials,
+    #             batch_size=batch_size
+    #         )
+            
+    #         folded_trial_prediction_distributions[fold_i] += prediction_distributions
+        
+    #     per_fold_tk.stop()
+    #     print(f"All folds took {per_fold_tk.accumulated_duration} seconds.")
+            
+    #     return folded_trial_prediction_distributions
 
-            # Test on held out fold:
-            self.model.eval()
-            with torch.no_grad():
-                for x_batch, y_batch, idx in test_dl:
-                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
-                    logits = self.model(x_batch)
-                    probs = logits.softmax(dim=1)
-                    preds = logits.argmax(1)
+    # def evaluate(self, *, folded_trials: list[list[EEGTrial]] = []) -> float:
+        
+    #     if len(folded_trials) == 0:
+    #         if self.subject == None:
+    #             raise ValueError("No folds were provided; self.subject is None")
+    #         folded_trials = self.subject.folds
+        
+    #     # Set up 
+    #     num_epochs = self.training_options.get("num_epochs", NUM_EPOCHS)
+    #     batch_size = self.training_options.get("batch_size", BATCH_SIZE)
+    #     learning_rate = self.training_options.get("learning_rate", LEARNING_RATE)
+    #     weight_decay = self.training_options.get("weight_decay", WEIGHT_DECAY)
+        
+    #     folded_prediction_distributions = self._core_cross_validate(
+    #         folded_trials=folded_trials,
+    #         num_epochs=num_epochs,
+    #         batch_size=batch_size,
+    #         learning_rate=learning_rate,
+    #         weight_decay=weight_decay
+    #     )
+        
+    #     for i in range(len(folded_trials)):
+    #         for j in range(len(folded_trials[i])):
+    #             folded_trials[i][j].set_prediction_distribution(
+    #                 enumerated_prediction_distribution=folded_prediction_distributions[i][j]
+    #             )
+        
+    #     return EEGTrial.get_accuracy(trials=folded_trials)
 
-                    total_correct += (preds == y_batch).sum().item()
-                    total_n += y_batch.numel()
-
-                    probs_np = probs.cpu().numpy()
-                    preds_np = preds.cpu().numpy()
-                    idx_np = idx.cpu().numpy()
-
-                    for trial_idx, pred_label_0based, prob_vec in zip(
-                        idx_np, preds_np, probs_np
-                    ):
-                        # convert 0–3 → 1–4
-                        pred_label_1based = int(pred_label_0based) + 1
-
-                        # optionally also make the distribution keys 1–4
-                        dist = {cls + 1: float(p) for cls, p in enumerate(prob_vec)}
-
-                        self.subject.trials[trial_idx].set_prediction(int(pred_label_0based))
-                        self.subject.trials[trial_idx].prediction_distribution = dist
-
-        return get_accuracy(self.subject, True)
-
-    def train(self):
-        """
-        To be implemented later
-        """
-
-    def infer(self, trials: list[EEGTrial]):
-        """
-        To be implemented later
-        """
+    # def train(self, *, 
+    #     trials: list[EEGTrial] = [], 
+    #     pickle_to: str | Path | None = None,
+    #     overwrite: bool = True
+    # ):
+        
+    #     if pickle_to is not None:
+    #         if isinstance(pickle_to, str):
+    #             pickle_to = Path(pickle_to)
+            
+    #         if pickle_to.is_dir():
+    #             raise ValueError("Path provided is a directory")
+    #         if not overwrite and pickle_to.exists():
+    #             raise ValueError("File already exists at the provided location")
+        
+    #     if len(trials) == 0:
+    #         trials = self.subject.trials
+        
+    #     model = self._core_train(trials=trials)
+        
+    #     # Save to this instance
+    #     self.model = model
+        
+    #     # Save to disk if path is specified
+    #     if pickle_to is not None:
+    #         self_copy = deepcopy(self)
+    #         self_copy.subject = None
+    #         pickle_to.parent.mkdir(parents=True, exist_ok=True)
+    #         with pickle_to.open("wb") as file:
+    #             pickle.dump(self, file)
+            
+    #         print(f"Model written to {pickle_to.absolute()}")
+            
+    # def infer(self, *, trials: list[EEGTrial] = []) -> float:
+        
+    #     if len(trials) == 0:
+    #         trials = self.subject.trials
+        
+    #     batch_size = self.training_options.get("batch_size", BATCH_SIZE)
+    #     prediction_distributions = self._core_infer(
+    #         trials=trials, 
+    #         batch_size=batch_size
+    #     )
+        
+    #     for i, trial in enumerate(trials):
+    #         trial.set_prediction_distribution(
+    #             enumerated_prediction_distribution=prediction_distributions[i]
+    #         )
+        
+    #     return EEGTrial.get_accuracy(trials)
+        

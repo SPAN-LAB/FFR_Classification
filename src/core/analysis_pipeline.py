@@ -19,6 +19,11 @@ from .eeg_trial import EEGTrial
 from ..models.utils import ModelInterface
 from ..models.utils import find_model
 from .utils import detail, undetailed, gui_private, details
+from pathlib import Path
+import pickle
+
+from rich.console import Console
+console = Console()
 
 
 class AnalysisPipeline:
@@ -82,7 +87,7 @@ class AnalysisPipeline:
         -------
         A reference to this object.
         """
-
+        print("Reading...")
         def load_subjects_helper(filepath: str, check_extension: bool = True):
             if check_extension and not filepath.endswith(".mat"):
                 raise ValueError(f"File does not end with .mat: {filepath}")
@@ -238,48 +243,135 @@ class AnalysisPipeline:
             model = concrete_model(training_options)
             model.set_subject(subject)
 
+            accuracy = model.evaluate()
+            print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            self.models.append(model)
+
             # Evaluate it
-            try:
-                accuracy = model.evaluate()
-                print(f"Accuracy on {subject.name}: {accuracy}")
-                self.models.append(model)
-            except Exception as e:
-                print(f"⚠️  Error evaluating {subject.name}: {e}")
-            
-            # accuracy = model.evaluate()
-            # print(f"Accuracy on {subject.name}: {accuracy}")
-            # self.models.append(model)
+            # try:
+            #     accuracy = model.evaluate()
+            #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            #     self.models.append(model)
+            # except Exception as e:
+                # print(f"Error evaluating {subject.name}: {e}")
         
         return self
+    
+    # def evaluate_generic_model(
+    #     self, 
+    #     model_name: str, 
+    #     training_options: dict[str, any]
+    # ) -> AnalysisPipeline:
+        
+    #     # Create the pseudo subject representing all subject data
+    #     pseudo_grand_subject = deepcopy(self.subjects[0])
+    #     for i, subject in enumerate(self.subjects):
+    #         subject = deepcopy(subject)
+    #         if i == 0: 
+    #             continue
+    #         pseudo_grand_subject.trials += subject.trials
+    #     pseudo_grand_subject.reindex_trials()
+        
+    #     print(f"Pseudo grand subject trial count: {len(pseudo_grand_subject.trials)}")
+        
+    #     concrete_model = find_model(model_name)
+    #     model = concrete_model(training_options)
+    #     model.set_subject(pseudo_grand_subject)
+
+    #     # Evaluate it
+    #     try:
+    #         accuracy = model.evaluate()
+    #         print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+    #         self.models = []
+    #         for i in range(len(self.subjects)):
+    #             self.models.append(model)
+    #     except Exception as e:
+    #         print(f"Error evaluating {subject.name}: {e}")
+        
+    #     return self
 
     @detail(details.train_model_detail)
     def train_model(
         self,
         model_name: str,
         hyperparameters: dict[str, any],
-        output_path: str
+        output_dirpath: str | Path | None = None
     ) -> AnalysisPipeline:
         """
         TODO
         """
+        
+        if output_dirpath is not None:
+            output_dirpath = Path(output_dirpath)
+        
+        self.models = []
         concrete_model = find_model(model_name)
         for subject in self.subjects:
             # Construct the model
             model = concrete_model(hyperparameters)
             model.set_subject(subject)
+            
+            print(f"training on {len(model.subject.trials)} trials")
 
             # Train and save to disk
-            model.train(output_path)
+            if output_dirpath is not None:
+                output_filepath = output_dirpath / f"pytorch-model-{subject.name}.pkl"
+                model.train(pickle_to=output_filepath)
+            else:
+                model.train()
 
+            self.models.append(model)
+
+        return self
+    
+    def load_model(
+        self,
+        model_pickle_filepath: str | Path | list[str] | list[Path]
+    ) -> AnalysisPipeline: 
+        
+        list_of_models = isinstance(model_pickle_filepath, list)
+        
+        if list_of_models:
+            if len(model_pickle_filepath) != len(self.subjects):
+                print("Length mismatch! Skipping...")
+                return
+                    
+        new_models = []
+        for i, subject in enumerate(self.subjects): 
+            
+            # Determine the filepath
+            model_filepath = ""
+            if list_of_models:
+                model_filepath = model_pickle_filepath[i]
+            else:
+                model_filepath = model_pickle_filepath
+            
+            # Load the model
+            with open(model_filepath, "rb") as file:
+                new_model: ModelInterface = deepcopy(pickle.load(file))
+            print(new_model.subject)
+            new_model.set_subject(subject) # Important step! Don't remove
+            
+            new_models.append(new_model)
+        
+        self.models = new_models
+        
         return self
 
     @detail(details.infer_on_model_detail)
-    def infer_on_model(self, path_to_model: str, trial: EEGTrial) -> AnalysisPipeline:
+    def infer_on_model(self, training_options: dict[str, any]) -> AnalysisPipeline:
         """
         TODO
         """
-        # TODO
+        
+        for i, subject in enumerate(self.subjects):
+            self.models[i].set_training_options(training_options)
+            accuracy = self.models[i].infer()
+            print(f"Inference accuracy on {subject.name}: {accuracy}")
+        
         return self
+            
+            
 
 # Type alias for ``AnalysisPipeline`` for more expressive use.
 # When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be

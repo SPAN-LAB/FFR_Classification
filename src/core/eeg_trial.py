@@ -7,52 +7,15 @@ Description: The interface and implementation of the EEGTrial type.
     EEGTrial represents a collection of the data associated with a single trial. 
 """
 
-
+from __future__ import annotations
 from numpy import typing as npt
 import numpy as np
 
-class EEGTrialInterface:
-    subject: any
-    data: npt.NDArray
-    trial_index: int
-    timestamps: npt.NDArray
-    raw_label: any
-    mapped_label: any
-    prediction: any
-    prediction_distribution: dict[any, float]
 
-    @property
-    def label(self):
-        raise NotImplementedError("Implement this method.")
-
-    @property
-    def enumerated_label(self):
-        raise NotImplementedError("Implement this method.")
-
-    def set_label_preference(self, pref: str | None):
-        """
-        There are 3 different preference types:
-            - "raw" : when the `` label`` property should return the raw label
-            - "mapped" : when the ``label`` property should return the mapped label
-            - None : when the ``label`` property should default to the mapped label but
-                     use the raw label if the mapped one is None
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def trim_by_index(self, start_index: int, end_index: int):
-        raise NotImplementedError("Implement this method.")
-
-    def trim_by_timestamp(self, start_time: float, end_time: float):
-        raise NotImplementedError("Implement this method.")
-
-    def __len__(self):
-        raise NotImplementedError("Implement this method.")
-
-    def set_prediction(self, enumerated_label):
-        raise NotImplementedError("Implement this method.")
-
-
-class EEGTrial(EEGTrialInterface):
+class EEGTrial:
+    
+    # MARK: Initializer and stored properties
+    
     def __init__(
         self,
         subject,
@@ -76,6 +39,8 @@ class EEGTrial(EEGTrialInterface):
         # Use default label-grabbing behavior
         self._label_preference = None
 
+    # MARK: Computed properties
+
     @property
     def label(self):
         if self._label_preference is None:
@@ -88,17 +53,61 @@ class EEGTrial(EEGTrialInterface):
             return self.mapped_label
         else:
             raise ValueError("Unrecognized label preference")
+    
+    @property
+    def enumerated_label(self):
+        return self.subject.labels_map[self.label]
+
+    # MARK: Label management
 
     def set_label_preference(self, pref: str | None = None):
         """
         "raw", "mapped", or None
         """
         self._label_preference = pref
+    
+    def unemumerated(self, *, enumerated_label: int) -> any:
+        unenumerating_label_map = self.subject.get_unenumerating_label_map()
+        if enumerated_label in unenumerating_label_map:
+            return unenumerating_label_map[enumerated_label]
+        else:
+            raise ValueError("Bad label!")
+    
+    def enumerated(self, *, unenumerated_label: int) -> int:
+        enumerating_label_map = self.subject.get_enumerating_label_map()
+        if unenumerated_label in enumerating_label_map:
+            return enumerating_label_map[unenumerated_label]
+        else:
+            raise ValueError("Bad label!")            
+    
+    # MARK: Prediction management
 
+    # WARNING: This method has been deprecated! Use set_prediction_distribution
     def set_prediction(self, enumerated_label):
+        print("The set_prediction method has been deprecated! Use \"set_prediction_distribution\"")
         reversed_labels_map = {value: key for key, value in self.subject.labels_map.items()}
         self.prediction = reversed_labels_map[enumerated_label]
+    
+    def set_prediction_distribution(self, *, enumerated_prediction_distribution):
+        
+        best_unenumerated_label = None
+        highest_probability = 0
+        prediction_distribution = {}
+        
+        for enumerated_label, probability in enumerated_prediction_distribution.items():
+            
+            unenumerated_label = self.unemumerated(enumerated_label=enumerated_label)
+            prediction_distribution[unenumerated_label] = probability
+            
+            if probability > highest_probability:
+                best_unenumerated_label = unenumerated_label
+                highest_probability = probability
+        
+        self.prediction_distribution = prediction_distribution
+        self.prediction = best_unenumerated_label
 
+    # MARK: Transformations
+    
     def trim_by_index(self, start_index: int, end_index: int):
         self.data = self.data[start_index : end_index + 1]
         self.timestamps = self.timestamps[start_index : end_index + 1]
@@ -111,7 +120,29 @@ class EEGTrial(EEGTrialInterface):
 
     def __len__(self):
         return len(self.timestamps)
+    
+    @staticmethod
+    def get_accuracy(trials: list[EEGTrial] | list[list[EEGTrial]]) -> float:
+        
+        if len(trials) == 0:
+            print("Warning: No trials supplied.")
+            return 0
+        
+        num_correct = 0
+        total = 0
+        
+        # list[EEGTrial]
+        if isinstance(trials[0], EEGTrial):
+            total = len(trials)
+            for trial in trials:
+                if trial.prediction == trial.label:
+                    num_correct += 1
+        # list[list[EEGTrial]]
+        else:
+            for trial_list in trials:
+                for trial in trial_list:
+                    total += 1
+                    if trial.prediction == trial.label:
+                        num_correct += 1
 
-    @property
-    def enumerated_label(self):
-        return self.subject.labels_map[self.label]
+        return num_correct / total
