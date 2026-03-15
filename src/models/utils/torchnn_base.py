@@ -24,8 +24,6 @@ class TorchNNBase(ModelInterface):
         # Initialize ``self.training_options``
         super().__init__(training_options)
 
-        torch.manual_seed(0)
-
         self.model: nn.Module | None = None
         self.device = None
 
@@ -49,6 +47,10 @@ class TorchNNBase(ModelInterface):
         else:
             self.device = torch.device("cpu")
             print("Using CPU for torch computations")
+    
+    def reset_seed(self):
+        torch.manual_seed(0)
+        torch.mps.manual_seed(0)
 
     def build(self):
         raise NotImplementedError("This method needs to be implemented")

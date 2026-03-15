@@ -37,6 +37,9 @@ class ModelInterface:
     
     def set_training_options(self, training_options: dict[str, any]):
         self.training_options = training_options
+    
+    def reset_seed(self):
+        raise NotImplementedError("This needs to be implemented!")
 
     # MARK: Training parameter getters
 
@@ -120,6 +123,7 @@ class ModelInterface:
             trials = self.subject.trials
         
         # Training
+        self.reset_seed()
         self._core_train(
             trials=trials,
             num_epochs=self.get_num_epochs(),
@@ -165,6 +169,7 @@ class ModelInterface:
                 else:
                     train_trials += trial_list
             
+            self.reset_seed()
             self._core_train(
                 trials=train_trials,
                 num_epochs=num_epochs,
