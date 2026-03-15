@@ -1,6 +1,11 @@
 **/.DS_Store
 **/__pycache__
 
+# Ignore all folders except a few
+*/
+!src/
+!server_analysis/
+
 # Ignore all .txt files except requirements.txt.
 *.txt
 !requirements.txt
