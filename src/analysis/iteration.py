@@ -1,6 +1,6 @@
 import pickle 
 from .utils import strip_data_away
-from ..configurations import NUM_FOLDS, TRIM_START_TIME, TRIM_END_TIME
+from ..constants.defaults import NUM_FOLDS, TRIM_START_TIME, TRIM_END_TIME
 from ..time import TimeKeeper
 from ..printing.logging import log, is_empty
 from datetime import datetime, timezone

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .utils import get_subject_loaded_pipelines, stratified_deterministic_sample
 from ..core import AnalysisPipeline
-from ..configurations import SUBAVERAGE_SIZE
+from ..constants.defaults import SUBAVERAGE_SIZE
 from .iteration import iteration
 from ..time import TimeKeeper
 from datetime import datetime, timezone

@@ -18,7 +18,7 @@ from ...time import TimeKeeper
 
 from ...printing import print, printl, unlock
 
-from ...configurations import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY
+from ...constants.defaults import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY
 
 
 class ModelInterface:
