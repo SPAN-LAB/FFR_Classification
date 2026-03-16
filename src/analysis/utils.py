@@ -109,7 +109,7 @@ def get_results(dir_path: str) -> list[tuple[int, float]]:
             subject: EEGSubject = pickle.load(file)
 
             subaverage_size = get_trailing_number(filename)
-            accuracy = EEGTrial.get_accuracy(subject)
+            accuracy = EEGTrial.get_accuracy(subject.trials)
             
             axes.append((subaverage_size, accuracy))
     
