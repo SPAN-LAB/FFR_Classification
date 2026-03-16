@@ -72,7 +72,7 @@ class AnalysisPipeline:
     # MARK: IO
 
     @gui_private()
-    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
+    def load_subjects(self, path: str | list[str], *, combine: bool = False) -> AnalysisPipeline:
         """
         Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
         instances and adds them to this object's subjects list. 
@@ -93,7 +93,13 @@ class AnalysisPipeline:
                 raise ValueError(f"File does not end with .mat: {filepath}")
             subject = EEGSubject.init_from_filepath(filepath)
             print(f"load_subjects : Subject loaded from {filepath}")
-            self.subjects.append(subject)
+            if not combine: 
+                self.subjects.append(subject)
+            else:
+                if len(self.subjects) == 0:
+                    self.subjects.append(subject)
+                else:
+                    self.subjects[0].trials += deepcopy(subject).trials
 
         if type(path) is str:
 
@@ -117,6 +123,9 @@ class AnalysisPipeline:
                 load_subjects_helper(filepath)
         else:
             raise ValueError("Unrecognized input: path must be a string or list of strings")
+        
+        if combine and len(self.subjects) != 0:
+            self.subjects[0].reindex_trials()
 
         return self
 
