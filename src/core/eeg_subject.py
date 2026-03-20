@@ -18,6 +18,7 @@ from pathlib import Path
 from .eeg_trial import EEGTrial
 import os
 import sys
+from copy import deepcopy
 
 # from .utils import silence_stderr
 
@@ -239,3 +240,19 @@ class EEGSubject:
     def reindex_trials(self):
         for i, trial in enumerate(self.trials):
             trial.trial_index = i
+            
+    @staticmethod
+    def create_merged(*, subjects: list[EEGSubject]) -> EEGSubject:
+        
+        if len(subjects) == 0:
+            return
+        
+        # Gather all trials
+        all_trials = []
+        for subject in subjects:
+            for trial in subject.trials:
+                all_trials.append(deepcopy(trial))
+        
+        merged_subject = EEGSubject(all_trials, source_filepath="DNE")
+        return merged_subject
+        
