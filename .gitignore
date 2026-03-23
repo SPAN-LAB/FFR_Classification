@@ -14,6 +14,7 @@
 /*.py
 !demo.py
 !analysis.py
+!analyze.py
 
 *.png
 *.jpg
