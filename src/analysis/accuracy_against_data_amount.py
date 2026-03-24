@@ -47,7 +47,12 @@ def accuracy_against_data_amount(
                 pipeline = AnalysisPipeline().load_subjects(subject_filepath)
 
             subject_filename = Path(subject_filepath).stem
-            write_directory = Path(output_folder_path) / model_name / subject_filename
+            write_directory = (
+                Path(output_folder_path)
+                / independent_var_name
+                / model_name
+                / subject_filename
+            )
 
             max_data_amount = len(pipeline.subjects[0].trials)
             for data_amount in range(min_trials, max_data_amount + 1, stride):
