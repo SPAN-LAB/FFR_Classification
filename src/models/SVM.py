@@ -21,7 +21,7 @@ class SVM(ModelInterface):
     # This combination is the one to speed up testing,(the best fit one for now), but feel free to use above combinations for a more thorough grid search.
     
     PARAM_GRID = {
-        'C': [1,10],               
+        'C': [10],               
         'gamma': ['scale'],     
         'kernel': ['rbf']       
     }
@@ -32,7 +32,7 @@ class SVM(ModelInterface):
     PARAM_DIST = {
         'C': loguniform(1e-3, 1e3),
         'gamma': loguniform(1e-4, 1e1),
-        'kernel': ['rbf', 'linear']
+        'kernel': ['rbf']
     }
 
     def __init__(self, training_options: dict[str, any] = None):
@@ -45,12 +45,13 @@ class SVM(ModelInterface):
         self.param_dist = self.PARAM_DIST
 
         self.model: SVC | None = None
+
         self.scaler: StandardScaler | None = None
         self.best_params: dict | None = None
 
     # In demo.py/analysis.py 
-    # "search_type": "random",  # <--- add this line in moldle (In TRAINING_OPTIONS in Analysis.py)
-    # "n_iter": 30              # optional: number of random search iterations
+    # "search_type": "random",  # <--- add this line in moldle (In TRAINING_OPTIONS)
+    # "n_iter": x              # optional: x is a integer, which is number of random search iterations
 
     def _build_search(self, base_svc, cv):
 
@@ -60,9 +61,9 @@ class SVM(ModelInterface):
                 estimator=base_svc,
                 param_distributions=self.param_dist,
                 n_iter=self.n_iter,
-                cv=cv,
+                cv=cv, 
                 scoring='accuracy',
-                n_jobs=-1,
+                n_jobs=-1, # Use all available CPU cores
                 random_state=42
             )
 
@@ -73,7 +74,7 @@ class SVM(ModelInterface):
                 param_grid=self.param_grid,
                 cv=cv,
                 scoring='accuracy',
-                n_jobs=-1
+                n_jobs=-1 # Use all available CPU cores
             )
 
     def train(self):
@@ -84,7 +85,7 @@ class SVM(ModelInterface):
         self.scaler = StandardScaler()
         X_train_scaled = self.scaler.fit_transform(X_train)
 
-        base_svc = SVC(probability=True, random_state=42)
+        base_svc = SVC(probability=True, random_state=42, decision_function_shape='ovr')
         cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
         search = self._build_search(base_svc, cv)
@@ -129,7 +130,7 @@ class SVM(ModelInterface):
             self.scaler = StandardScaler()
             X_train_scaled = self.scaler.fit_transform(X_train)
 
-            base_svc = SVC(probability=True, random_state=42)
+            base_svc = SVC(probability=True, random_state=42,decision_function_shape='ovr')
             cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
             search = self._build_search(base_svc, cv)
