@@ -1,7 +1,10 @@
 import pickle
+from pathlib import Path
+
 from .utils import strip_data_away
 from ..constants.defaults import NUM_FOLDS, TRIM_START_TIME, TRIM_END_TIME
-
+from ..time import TimeKeeper
+from ..printing.logging import log, is_empty
 
 def iteration(
     model_name,
@@ -13,6 +16,7 @@ def iteration(
     iteration_quantifier
 ):
 
+    tk = TimeKeeper(); tk.reset(); tk.start();
     p = (
         pipeline_copy
         .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
@@ -23,6 +27,7 @@ def iteration(
             training_options=training_options
         )
     )
+    tk.stop()
 
     subject = p.subjects[0]
     # So that storage size is smaller, since we only need predictions
@@ -33,3 +38,10 @@ def iteration(
     full.parent.mkdir(parents=True, exist_ok=True)
     with full.open("wb") as file:
         pickle.dump(subject, file)
+
+    # Save times
+    log_filename = "times_log.csv"
+    log_filepath = write_directory / log_filename
+    if not log_filepath.exists() or is_empty(log_filepath):
+        log("iteration_quantifier,duration(s)", log_filepath)
+    log(f"{iteration_quantifier},{tk.accumulated_duration}", log_filepath)
