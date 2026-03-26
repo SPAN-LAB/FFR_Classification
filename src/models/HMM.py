@@ -2,8 +2,7 @@
 
 Pipeline per trial:
   1. Bandpass filter 80-1000 Hz
-  2. Short-time spectral analysis: extract log-power in the F0 range (70-300 Hz)
-     using 40 ms frames, 10 ms hop, zero-padded FFT for ~8 Hz resolution
+  2. Autocorrelation-based pitch tracking (40 ms frames, 1 ms hop)
   3. Train one Gaussian HMM per tone class (Baum-Welch via hmmlearn)
   4. Classify by maximum log-likelihood
 """
@@ -13,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfiltfilt, find_peaks
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
 
@@ -27,35 +26,56 @@ def _bandpass(sig: np.ndarray, fs: float, lo: float = 80.0, hi: float = 1000.0) 
     return sosfiltfilt(sos, sig)
 
 
-def _extract_frames(sig: np.ndarray, fs: float,
-                    frame_ms: float = 40.0, hop_ms: float = 10.0,
-                    n_fft: int = 2048,
-                    fmin: float = 70.0, fmax: float = 300.0) -> np.ndarray:
-    """Narrowband log-power spectrogram in the F0 range.
+def _autocorr_pitch_track(sig: np.ndarray, fs: float,
+                          windur: float = 40.0, hop_ms: float = 1.0,
+                          minpitch: float = 70.0, maxpitch: float = 300.0
+                          ) -> np.ndarray:
+    """Autocorrelation-based pitch extraction.
 
-    Returns (n_frames, n_bins) array where n_bins covers [fmin, fmax] Hz
-    at ~8 Hz resolution (n_fft=2048, fs≈16384).
+    Returns (n_frames, 2) array with columns [pitchtrack, pitchstrength].
     """
-    frame_len = int(round(frame_ms * fs / 1000.0))
-    hop = int(round(hop_ms * fs / 1000.0))
-    window = np.hanning(frame_len)
+    winlen = int(round((windur / 1000) * fs))
+    hop = int(round((hop_ms / 1000) * fs))
+    envelope = np.hanning(winlen)
+    lagsamples = winlen
 
-    freqs = np.arange(n_fft // 2 + 1) * (fs / n_fft)
-    keep = (freqs >= fmin) & (freqs <= fmax)
-    n_kept = int(keep.sum())
+    data = np.atleast_1d(sig).ravel()
 
-    n_frames = max(1, (len(sig) - frame_len) // hop + 1)
-    feats = np.zeros((n_frames, n_kept), dtype=np.float64)
+    pitchtrack = []
+    pitchstrength = []
 
-    for i in range(n_frames):
-        start = i * hop
-        frame = sig[start: start + frame_len]
-        if len(frame) < frame_len:
-            frame = np.pad(frame, (0, frame_len - len(frame)))
-        spectrum = np.abs(np.fft.rfft(frame * window, n=n_fft)) ** 2 + 1e-12
-        feats[i] = np.log(spectrum[keep])
+    # Precompute lag-to-frequency mapping and valid range
+    lags = np.arange(lagsamples, dtype=np.float64)
+    lags[0] = 1.0  # avoid division by zero
+    freq = fs / lags
+    minpitch_idx = np.argmin(np.abs(freq - minpitch))
+    maxpitch_idx = np.argmin(np.abs(freq - maxpitch))
+    if maxpitch_idx > minpitch_idx:
+        maxpitch_idx, minpitch_idx = minpitch_idx, maxpitch_idx
 
-    return feats
+    pos = 0
+    while pos <= (len(data) - winlen):
+        datacut = data[pos:pos + winlen]
+        datasamp = envelope * datacut
+
+        # Normalized autocorrelation
+        r = np.correlate(datasamp, datasamp, mode='full')
+        r = r[len(r) // 2:]
+        r = r[:lagsamples]
+        if r[0] != 0:
+            r = r / r[0]
+
+        # Find best peak in the pitch range
+        r_range = r[maxpitch_idx:minpitch_idx + 1]
+        freq_range = freq[maxpitch_idx:minpitch_idx + 1]
+
+        best_idx = np.argmax(r_range)
+        pitchtrack.append(freq_range[best_idx])
+        pitchstrength.append(max(r_range[best_idx], 0.0))
+
+        pos += hop
+
+    return np.column_stack([pitchtrack, pitchstrength])
 
 
 class HMM(ModelInterface):
@@ -74,7 +94,7 @@ class HMM(ModelInterface):
         for t in trials:
             sig = np.asarray(t.data, dtype=np.float64).ravel()
             sig = _bandpass(sig, self.fs)
-            out.append(_extract_frames(sig, self.fs))
+            out.append(_autocorr_pitch_track(sig, self.fs))
         return out
 
     def _fit_and_predict(

@@ -30,7 +30,7 @@ p = (
     .save(to=loading_result)
     .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
     .save(to=trimming_result)
-    .subaverage(50)
+    .subaverage(100)
     .fold(5)
     .save(to=subaverage_and_fold_result)
     .evaluate_model(
