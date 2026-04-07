@@ -22,6 +22,7 @@ def iteration(
         .trim_by_timestamp(start_time=TRIM_START_TIME, end_time=TRIM_END_TIME)
         .subaverage(size=subaverage_size)
         .fold(num_folds=NUM_FOLDS)
+        .validate_evaluation_ready()
         .evaluate_model(
             model_name=model_name,
             training_options=training_options

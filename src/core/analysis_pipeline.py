@@ -26,6 +26,12 @@ from rich.console import Console
 console = Console()
 
 
+class InsufficientDataError(ValueError):
+    """
+    Raised when preprocessing leaves too little usable data for evaluation.
+    """
+
+
 class AnalysisPipeline:
     def __init__(self):
         """
@@ -238,6 +244,104 @@ class AnalysisPipeline:
         print("fold : done")
         return self
 
+    @undetailed()
+    def validate_evaluation_ready(self) -> AnalysisPipeline:
+        """
+        Validates that preprocessing left enough usable data to evaluate a model.
+        """
+
+        def safe_len(values) -> int:
+            if values is None:
+                return 0
+            try:
+                return len(values)
+            except TypeError:
+                return 0
+
+        if len(self.subjects) == 0:
+            raise InsufficientDataError("No subjects are loaded.")
+
+        for subject in self.subjects:
+            subject_name = subject.name
+
+            if len(subject.trials) == 0:
+                raise InsufficientDataError(
+                    f"{subject_name}: no trials remain after preprocessing."
+                )
+
+            empty_trials = []
+            for trial in subject.trials:
+                if safe_len(trial.data) == 0 or safe_len(trial.timestamps) == 0:
+                    empty_trials.append(trial.trial_index)
+
+            if empty_trials:
+                empty_trial_list = ", ".join(str(index) for index in empty_trials)
+                raise InsufficientDataError(
+                    f"{subject_name}: trial(s) {empty_trial_list} have no data after trimming."
+                )
+
+            label_counts = {
+                label: len(trials)
+                for label, trials in subject.grouped_trials().items()
+            }
+            if len(label_counts) < 2:
+                raise InsufficientDataError(
+                    f"{subject_name}: at least 2 labels are required after subaveraging, "
+                    f"but found {len(label_counts)}."
+                )
+
+            sparse_labels = {
+                label: count
+                for label, count in label_counts.items()
+                if count < 2
+            }
+            if sparse_labels:
+                raise InsufficientDataError(
+                    f"{subject_name}: label counts after subaveraging are too small: "
+                    f"{sparse_labels}. Each label needs at least 2 trials before folding."
+                )
+
+            if subject.folds is None or len(subject.folds) == 0:
+                raise InsufficientDataError(
+                    f"{subject_name}: folds have not been created."
+                )
+
+            total_trials = len(subject.trials)
+            all_labels = set(label_counts.keys())
+            for fold_i, fold in enumerate(subject.folds, start=1):
+                if len(fold) == 0:
+                    raise InsufficientDataError(
+                        f"{subject_name}: fold {fold_i} has no test trials."
+                    )
+
+                train_trials = [trial for trial in subject.trials if trial not in fold]
+                if len(train_trials) == 0:
+                    raise InsufficientDataError(
+                        f"{subject_name}: fold {fold_i} has no training trials."
+                    )
+
+                if len(fold) >= total_trials:
+                    raise InsufficientDataError(
+                        f"{subject_name}: fold {fold_i} consumes all available trials."
+                    )
+
+                train_labels = {trial.label for trial in train_trials}
+                if len(train_labels) < 2:
+                    raise InsufficientDataError(
+                        f"{subject_name}: fold {fold_i} training split has fewer than 2 labels."
+                    )
+
+                missing_train_labels = sorted(all_labels - train_labels)
+                if missing_train_labels:
+                    raise InsufficientDataError(
+                        f"{subject_name}: fold {fold_i} training split is missing label(s) "
+                        f"{missing_train_labels}."
+                    )
+
+            print("validate_evaluation_ready : done")
+
+        return self
+
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
@@ -354,4 +458,3 @@ class AnalysisPipeline:
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
 BlankPipeline = AnalysisPipeline
-
