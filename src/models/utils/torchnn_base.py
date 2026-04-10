@@ -90,55 +90,102 @@ class TorchNNBase(ModelInterface):
         
         return prediction_distributions
     
-    def _core_train(self, *, 
-        trials: list[EEGTrial], 
+    def get_patience(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return 5
+        return self.training_options.get("patience", 5)
+
+    def _core_train(self, *,
+        trials: list[EEGTrial],
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
         weight_decay: float
     ) -> nn.Module:
-        
-        # Set up 
-        
+
+        # Split into 80% train, 20% val (keeping temporal order)
+        split = int(len(trials) * 0.8)
+        train_trials = trials[:split]
+        val_trials = trials[split:]
+
+        # Set up
         self.build()
         self.model.to(self.device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.AdamW(
-            self.model.parameters(), 
-            lr=learning_rate, 
+            self.model.parameters(),
+            lr=learning_rate,
             weight_decay=weight_decay
         )
-        
+
         train_loader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=train_trials),
             batch_size=batch_size,
             shuffle=False
         )
-        
+        val_loader = DataLoader(
+            IndexTrackedDataset(trials=val_trials),
+            batch_size=batch_size,
+            shuffle=False
+        )
+
         epoch_tk = TimeKeeper()
         epoch_tk.reset()
         epoch_tk.start()
-        
-        self.model.train()
+
+        best_val_loss = float("inf")
+        best_weights = None
+        epochs_no_improve = 0
+        patience = self.get_patience()
+
         for epoch_i in range(num_epochs):
-            
+
+            # Training
+            self.model.train()
             for batch in train_loader:
-                
                 inputs = batch["x"].to(self.device)
                 labels = batch["y"].to(self.device)
-
                 optimizer.zero_grad(set_to_none=True)
                 logits = self.model(inputs)
                 loss = criterion(logits, labels)
                 loss.backward()
                 optimizer.step()
-            
+
+            # Validation
+            self.model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for batch in val_loader:
+                    inputs = batch["x"].to(self.device)
+                    labels = batch["y"].to(self.device)
+                    logits = self.model(inputs)
+                    val_loss += criterion(logits, labels).item()
+            val_loss /= len(val_loader)
+
+            # Early stopping check
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_weights = {k: v.clone() for k, v in self.model.state_dict().items()}
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+
             epoch_tk.lap()
             print_content = (
                 f"Epoch [ {epoch_i + 1}/{num_epochs} ]"
-                f" | Fold time: [ {epoch_tk.accumulated_duration:.3f}s ]"
+                f" | Val Loss: [ {val_loss:.4f} ]"
+                f" | Best Val Loss: [ {best_val_loss:.4f} ]"
+                f" | No improve: [ {epochs_no_improve}/{patience} ]"
                 f" | [ {epoch_tk.last_lap_duration:.3f}s / epoch ]"
             )
             self.update_printed_training_status(print_content)
-        
+
+            if epochs_no_improve >= patience:
+                print(f"Early stopping at epoch {epoch_i + 1}")
+                break
+
+        # Restore best weights
+        if best_weights is not None:
+            self.model.load_state_dict(best_weights)
+
         return self.model
