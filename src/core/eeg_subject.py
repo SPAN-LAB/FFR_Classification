@@ -164,6 +164,9 @@ class EEGSubject:
 
         for _, trial_group in grouped_trials.items():
             # shuffle(trial_group)
+            if len(trial_group) < num_folds:
+                raise ValueError("""Fewer trials in one category than num_folds.
+This causes some folds to have 0 trials from this category.""")
             for i, trial in enumerate(trial_group):
                 folds[i % num_folds].append(trial)
         self.folds = folds

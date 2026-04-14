@@ -252,17 +252,17 @@ class AnalysisPipeline:
             model = concrete_model(training_options)
             model.set_subject(subject)
 
-            # accuracy = model.evaluate()
-            # print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-            # self.models.append(model)
+            accuracy = model.evaluate()
+            print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            self.models.append(model)
 
             # Evaluate it
-            try:
-                accuracy = model.evaluate()
-                print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-                self.models.append(model)
-            except Exception as e:
-                print(f"Error evaluating {subject.name}: {e}")
+            # try:
+            #     accuracy = model.evaluate()
+            #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            #     self.models.append(model)
+            # except Exception as e:
+            #     print(f"Error evaluating {subject.name}: {e}")
         
         return self
 
