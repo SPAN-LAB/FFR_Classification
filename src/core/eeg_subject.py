@@ -34,6 +34,7 @@ class EEGSubject:
         self.source_filepath = source_filepath
         self.folds: list[list[EEGTrial]] | None = None
         self.labels_map = {}
+        self.setup_labels_map()
 
     # MARK: Computed properties
 
