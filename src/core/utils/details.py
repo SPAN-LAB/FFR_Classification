@@ -7,13 +7,14 @@ Description: Decorators for the methods of AnalysisPipeline that provide additio
     on a function for a GUI to represent it accurately. 
 """
 
+"""THIS IS UNMAINTAINED"""
 
 from .function_detail import FunctionDetail as FD
 from .function_detail import ArgumentDetail as AD
 from .function_detail import FunctionKind
 from .function_detail import Selection
 
-from ...models.utils import find_models
+# from ...models.utils import find_models
 
 def detail(detail: FD):
     def decorator(func):
@@ -113,12 +114,13 @@ fold_detail = FD(
 evaluate_model_detail = FD(
     label="Evaluate Model",
     argument_details=[
-        AD(
-            label="Select Model",
-            type=Selection,
-            default_value=Selection(map=find_models),
-            description="Select your model here."
-        ),
+        # AD(
+        #     label="Select Model",
+        #     type=Selection,
+        #     default_value=Selection(map=find_models),
+        #     description="Select your model here."
+        # ),
+        
         AD(
             label="Training Options",
             type=dict[str, any],
