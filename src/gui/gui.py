@@ -1,1059 +1,590 @@
+from __future__ import annotations
+
+import contextlib
 import sys
-import os
-import copy
 import traceback
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QPushButton, QLabel, QComboBox,
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
-    QFrame, QListWidget, QListWidgetItem, QAbstractItemView, QLineEdit, QInputDialog, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QSplitter, QGridLayout, QCheckBox, QScrollArea, QSizePolicy, QPlainTextEdit
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPalette
-from .GUIFunctionManager import GUIFunctionManager
-from . import user_functions
 
-PIPELINE_FILE = "pipeline.txt"
+from .manager import Manager
+from .widgets import FunctionCardWidget, ParameterEditorWidget
+from ..core.utils.function_detail import FunctionDetail, Selection
 
-# Global dark theme stylesheet
-STYLE = """
-QMainWindow { background-color: #121212; }
-QLabel { color: #e6e6e6; }
-QPushButton { background: #2b2b2b; color: #e6e6e6; border: 1px solid #3a3a3a; border-radius: 6px; padding: 6px 10px; }
-QPushButton:hover { background: #343434; }
-QPushButton:disabled { background: #242424; color: #777777; border: 1px solid #2a2a2a; }
-QComboBox { background: #1c1c1c; color: #e6e6e6; border: 1px solid #3a3a3a; border-radius: 6px; padding: 4px 8px; }
-QFrame#FunctionCard { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; }
+
+def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
+    func = getattr(fn, "__func__", fn)
+    return getattr(func, "detail", None)
+
+
+class _LogStream(QObject):
+    text = pyqtSignal(str)
+
+    def write(self, s: str) -> None:
+        if s:
+            self.text.emit(s)
+
+    def flush(self) -> None:
+        pass
+
+
+class _FunctionWorker(QObject):
+    finished = pyqtSignal()
+    failed = pyqtSignal(str, str)
+
+    def __init__(self, fn: Callable, kwargs: dict, stream: _LogStream) -> None:
+        super().__init__()
+        self._fn = fn
+        self._kwargs = kwargs
+        self._stream = stream
+
+    def run(self) -> None:
+        try:
+            with contextlib.redirect_stdout(self._stream):
+                self._fn(**self._kwargs)
+        except Exception as exc:
+            self.failed.emit(str(exc), traceback.format_exc())
+            return
+        self.finished.emit()
+
+
+_PANEL_STYLE = """
+    background: white;
+    border: 1px solid #d8d8d8;
+    border-radius: 6px;
+"""
+
+_HEADER_BTN_STYLE = """
+    QPushButton {
+        background: #f4f4f4; border: 1px solid #d0d0d0;
+        border-radius: 6px; padding: 6px 16px; font-size: 13px;
+    }
+    QPushButton:hover { background: #e4e4e4; }
+"""
+
+_RUN_BTN_STYLE = """
+    QPushButton {
+        background: #4285f4; color: white; border: none;
+        border-radius: 6px; padding: 10px 24px;
+        font-size: 13px; font-weight: bold;
+    }
+    QPushButton:hover { background: #3367d6; }
+    QPushButton:disabled { background: #ccc; }
+"""
+
+_ADD_FUNC_BTN_STYLE = """
+    QPushButton {
+        background: #f0f0f0; border: 1px dashed #aaa;
+        border-radius: 6px; padding: 10px 20px; font-size: 13px; color: #555;
+    }
+    QPushButton:hover { background: #e0e0e0; border-color: #888; }
 """
 
 
-class QtLogTee(QObject):
-    """
-    A stream-like object that writes to an underlying stream and emits text
-    to the GUI via a Qt signal. Use to tee stdout/stderr to the GUI.
-    """
-    text_emitted = pyqtSignal(str)
+def _titled_panel(title: str) -> QWidget:
+    panel = QWidget()
+    panel.setStyleSheet(_PANEL_STYLE)
+    layout = QVBoxLayout()
+    layout.setContentsMargins(10, 10, 10, 10)
+    lbl = QLabel(title)
+    lbl.setStyleSheet(
+        "font-weight: bold; font-size: 13px; color: #333;"
+        " border: none; background: transparent;"
+    )
+    layout.addWidget(lbl)
+    panel.setLayout(layout)
+    return panel
 
-    def __init__(self, stream):
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
         super().__init__()
-        self._stream = stream
+        self.setWindowTitle("FFR Pipeline Tool")
+        self.resize(1400, 900)
 
-    def write(self, text: str):
-        if not text:
-            return
-        try:
-            self._stream.write(text)
-        except Exception:
-            # If the underlying stream is unavailable, still emit to GUI
-            pass
-        self.text_emitted.emit(text)
-        # Process events so the GUI updates immediately, even during long operations
-        try:
-            QApplication.processEvents()
-        except Exception:
-            pass
+        self.manager = Manager()
+        self.function_map: dict[str, Callable] = {}
+        self._pipeline_functions: list[dict[str, Any]] = []
+        self._selected_index: Optional[int] = None
+        self._thread: Optional[QThread] = None
+        self._worker: Optional[_FunctionWorker] = None
+        self._pending_queue: list[tuple[str, dict]] = []
 
-    def flush(self):
-        try:
-            self._stream.flush()
-        except Exception:
-            pass
+        self._build_ui()
+        self._refresh_function_map()
 
-class FunctionBlock(QFrame):
-    """
-    Legacy placeholder retained for compatibility with older code; not used in current UI.
-    """
+    # ── UI construction ──────────────────────────────────────────────────────
 
-    def __init__(self, name, index, move_up, move_down, delete):
-        super().__init__()
-        # Legacy placeholder retained for compatibility; no longer used.
-        self.setObjectName("FunctionCard")
+    def _build_ui(self) -> None:
+        central = QWidget()
+        central.setStyleSheet("background: #eaeaea;")
+        self.setCentralWidget(central)
+        root = QVBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        central.setLayout(root)
 
+        root.addWidget(self._build_header())
+        root.addWidget(self._build_content(), stretch=1)
+        root.addWidget(self._build_bottom_bar())
 
-class DragHandleView(QLabel):
-    """
-    Small label that acts as a drag handle; shows grab/closed-hand cursors on hover/press.
-    """
+    # ── header ───────────────────────────────────────────────────────────────
 
-    def __init__(self, text: str = "≡", parent=None):
-        super().__init__(text, parent)
-        self.setCursor(Qt.OpenHandCursor)
-
-    def mousePressEvent(self, event):
-        self.setCursor(Qt.ClosedHandCursor)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self.setCursor(Qt.OpenHandCursor)
-        super().mouseReleaseEvent(event)
-
-    def enterEvent(self, event):
-        self.setCursor(Qt.OpenHandCursor)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.unsetCursor()
-        super().leaveEvent(event)
-
-
-class FunctionBlockView(QFrame):
-    """
-    Visual representation of a pipeline step: handle, position number, name, args, and delete action.
-    """
-
-    def __init__(self, name: str, arg: str = "", guidance: dict | None = None):
-        super().__init__()
-        self.setObjectName("FunctionCard")
-        layout = QHBoxLayout()
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
-        self.setLayout(layout)
-
-        # Drag handle (three lines) and position number
-        handle = DragHandleView("≡")
-        handle.setFixedWidth(14)
-        handle.setAlignment(Qt.AlignCenter)
-        handle.setToolTip("Drag to reorder")
-        layout.addWidget(handle)
-
-        self.position_label = QLabel("1.")
-        self.position_label.setFixedWidth(24)
-        self.position_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        layout.addWidget(self.position_label)
-
-        self.name = name
-        self.label = QLabel(name)
-        self.label.setMinimumWidth(120)
-        layout.addWidget(self.label, 1)
-
-        # Parameter views row: generated from guidance (param -> type or schema dict)
-        self.param_views = {}
-        guidance = guidance or {}
-        params_row = QHBoxLayout()
-        params_row.setSpacing(6)
-        for param_name, spec in guidance.items():
-            # spec can be a type or a dict with keys: 'type', 'default'
-            if isinstance(spec, dict):
-                param_type = spec.get('type', str)
-                default_value = spec.get('default', None)
-                display_label = spec.get('label', param_name)
-            else:
-                param_type = spec
-                default_value = None
-                display_label = param_name
-
-            param_label = QLabel(f"{display_label}:")
-            params_row.addWidget(param_label)
-            if param_type is int:
-                editor = QSpinBox()
-                editor.setMinimum(-10_000_000)
-                editor.setMaximum(10_000_000)
-                editor.setFixedWidth(72)
-                if default_value is not None:
-                    try:
-                        editor.setValue(int(default_value))
-                    except Exception:
-                        pass
-                editor.valueChanged.connect(self._notify_changed)
-            elif param_type is float:
-                editor = QDoubleSpinBox()
-                editor.setDecimals(6)
-                editor.setMinimum(-1e12)
-                editor.setMaximum(1e12)
-                editor.setFixedWidth(96)
-                if default_value is not None:
-                    try:
-                        editor.setValue(float(default_value))
-                    except Exception:
-                        pass
-                editor.valueChanged.connect(self._notify_changed)
-            elif param_type is bool:
-                editor = QCheckBox()
-                if default_value is not None:
-                    try:
-                        editor.setChecked(bool(default_value))
-                    except Exception:
-                        pass
-                editor.stateChanged.connect(self._notify_changed)
-            else:
-                editor = QLineEdit()
-                editor.setFixedWidth(140)
-                if default_value is not None:
-                    editor.setText(str(default_value))
-                editor.textChanged.connect(self._notify_changed)
-            self.param_views[param_name] = (editor, param_type)
-            params_row.addWidget(editor)
-        layout.addLayout(params_row, 2)
-
-        # Delete button (red 'x') on the right
-        self.delete_button = QPushButton("x")
-        self.delete_button.setToolTip("Remove this step")
-        self.delete_button.setFixedWidth(24)
-        self.delete_button.setStyleSheet(
-            "QPushButton { color: #ff5555; background: transparent; border: none; font-size: 14px; } "
-            "QPushButton:hover { color: #ff7777; }"
+    def _build_header(self) -> QWidget:
+        header = QWidget()
+        header.setFixedHeight(70)
+        header.setStyleSheet(
+            "background: white; border-bottom: 1px solid #d0d0d0;"
         )
-        self.delete_button.clicked.connect(self._request_delete)
-        layout.addWidget(self.delete_button)
+        layout = QHBoxLayout()
+        layout.setContentsMargins(12, 4, 12, 4)
+        layout.setSpacing(10)
+        header.setLayout(layout)
 
-        # No single arg edit; param editors above signal changes
-
-    def _notify_changed(self):
-        # Parent container (BuildFunctionView) will catch and save
-        parent = self.parent()
-        # QListWidget sets the widget inside a viewport, so we bubble to top-level
-        while parent and not isinstance(parent, BuildFunctionView):
-            parent = parent.parent()
-        if isinstance(parent, BuildFunctionView):
-            parent.notify_child_edit()
-
-    def get_name(self) -> str:
-        return self.name
-
-    def get_arg(self) -> str:
-        # Reconstruct key=value string for backward-compat save format
-        parts = []
-        for key, (editor, typ) in self.param_views.items():
-            if typ is int:
-                parts.append(f"{key}={int(editor.value())}")
-            elif typ is float:
-                parts.append(f"{key}={float(editor.value())}")
-            elif typ is bool:
-                parts.append(f"{key}={'True' if editor.isChecked() else 'False'}")
-            else:
-                parts.append(f"{key}={editor.text()}")
-        return " ".join(parts)
-
-    def get_args_dict(self) -> dict:
-        args = {}
-        for key, (editor, typ) in self.param_views.items():
-            if typ is int:
-                args[key] = int(editor.value())
-            elif typ is float:
-                args[key] = float(editor.value())
-            elif typ is bool:
-                args[key] = bool(editor.isChecked())
-            else:
-                args[key] = editor.text()
-        return args
-
-    def apply_args_dict(self, args: dict) -> None:
-        for key, (editor, typ) in self.param_views.items():
-            if key not in args:
-                continue
-            value = args[key]
-            try:
-                if typ is int:
-                    editor.setValue(int(value))
-                elif typ is float:
-                    editor.setValue(float(value))
-                elif typ is bool:
-                    # accept bool or truthy strings
-                    if isinstance(value, str):
-                        editor.setChecked(value.strip().lower() in ['1','true','yes','y','on'])
-                    else:
-                        editor.setChecked(bool(value))
-                else:
-                    editor.setText(str(value))
-            except Exception:
-                # Ignore bad values; keep current
-                pass
-
-    def set_supported(self, is_supported: bool) -> None:
-        # Red if unsupported, normal otherwise
-        if is_supported:
-            self.label.setStyleSheet("")
-        else:
-            self.label.setStyleSheet("QLabel { color: #ff5555; }")
-
-    def set_position(self, pos_index: int):
-        # Display as 1-based index
-        self.position_label.setText(f"{pos_index + 1}.")
-
-    def _request_delete(self):
-        parent = self.parent()
-        while parent and not isinstance(parent, BuildFunctionView):
-            parent = parent.parent()
-        if isinstance(parent, BuildFunctionView):
-            parent.remove_function_widget(self)
-
-    def set_running(self, is_running: bool) -> None:
-        # Temporarily override card style to show running state
-        if is_running:
-            self.setStyleSheet(
-                "QFrame#FunctionCard { background: #163d1a; border: 1px solid #2e7d32; border-radius: 10px; }"
+        logo_label = QLabel()
+        logo_path = (
+            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
+        )
+        if logo_path.exists():
+            pix = QPixmap(str(logo_path))
+            logo_label.setPixmap(
+                pix.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
-            # Clear to inherit global STYLE again
-            self.setStyleSheet("")
+            logo_label.setText("SPANLAB")
+            logo_label.setStyleSheet(
+                "font-size: 20px; font-weight: bold; color: #8B0000;"
+            )
+        layout.addWidget(logo_label)
+        layout.addStretch()
 
+        load_pipe_btn = QPushButton("+  Load Pipeline")
+        load_pipe_btn.setFixedHeight(34)
+        load_pipe_btn.setStyleSheet(_HEADER_BTN_STYLE)
+        layout.addWidget(load_pipe_btn)
 
-class SquareCard(QFrame):
-    """
-    A frame that keeps its height equal to its current width to form a square box.
-    """
-    def __init__(self):
-        super().__init__()
-        self._side = 150
-        self.setFixedWidth(self._side)
-        self.setFixedHeight(self._side)
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._load_subjects_btn = QPushButton("+  Load Subjects")
+        self._load_subjects_btn.setFixedHeight(34)
+        self._load_subjects_btn.setStyleSheet(_HEADER_BTN_STYLE)
+        self._load_subjects_btn.clicked.connect(self._choose_subjects)
+        layout.addWidget(self._load_subjects_btn)
 
-    def resizeEvent(self, event):
-        try:
-            # Maintain square size; do not grow with pane
-            self.setFixedWidth(self._side)
-            self.setFixedHeight(self._side)
-        finally:
-            super().resizeEvent(event)
+        return header
 
-class RightPaneView(QWidget):
-    """
-    Placeholder right-side pane. Future widgets can be added here.
-    """
+    # ── main content with splitters ──────────────────────────────────────────
 
-    def __init__(self, manager: GUIFunctionManager):
-        super().__init__()
-        self.manager = manager
-        layout = QVBoxLayout()
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-        self.setLayout(layout)
+    def _build_content(self) -> QSplitter:
+        # Top level: left panel | right area
+        self._main_splitter = QSplitter(Qt.Horizontal)
+        self._main_splitter.setStyleSheet(
+            "QSplitter { background: #eaeaea; }"
+            " QSplitter::handle { background: #d0d0d0; width: 3px; height: 3px; }"
+        )
+        self._main_splitter.setHandleWidth(4)
+        self._main_splitter.setContentsMargins(8, 8, 8, 0)
 
-        # Top-left aligned subject grid inside a scroll area
-        self.grid_container = QWidget()
-        self.grid_container.setObjectName("SubjectGrid")
-        self.grid_layout = QGridLayout()
-        self.grid_layout.setContentsMargins(4, 4, 4, 4)
-        self.grid_layout.setHorizontalSpacing(8)
-        self.grid_layout.setVerticalSpacing(8)
-        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.grid_container.setLayout(self.grid_layout)
+        self._main_splitter.addWidget(self._build_left_panel())
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setWidget(self.grid_container)
-
-        layout.addWidget(self.scroll_area)
-        # Ensure scroll area grows to fill available space
-        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        layout.setStretch(layout.count() - 1, 1)
-
-        # Listen for palette changes (light/dark mode toggles)
-        app = QApplication.instance()
-        if app is not None and hasattr(app, "paletteChanged"):
-            app.paletteChanged.connect(self._on_palette_changed)
-
-        # Simple logs panel
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(5000)
-        self.log_view.setPlaceholderText("Logs will appear here…")
-        self.log_view.setStyleSheet("QPlainTextEdit { background: #0f0f0f; color: #dcdcdc; border: 1px solid #2a2a2a; }")
-        layout.addWidget(self.log_view)
-
-        self.refresh_summary()
-
-    def refresh_summary(self):
-        # Rebuild grid of subject cards
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-
-        # Build summaries directly from subject fields (no dependency on EEGSubject.summary())
-        summaries = []
-        try:
-            subjects = user_functions.SUBJECTS if getattr(user_functions, 'SUBJECTS', []) else getattr(user_functions, 'ORIGINAL_SUBJECTS', [])
-        except Exception:
-            subjects = []
-        for i, subj in enumerate(subjects):
-            try:
-                num_trials = len(getattr(subj, 'trials', []) or [])
-            except Exception:
-                num_trials = 0
-            # Prefer mapped_label if present; otherwise use raw_label
-            try:
-                labels = []
-                for t in (getattr(subj, 'trials', []) or []):
-                    label = getattr(t, 'mapped_label', None)
-                    if label is None:
-                        label = getattr(t, 'raw_label', None)
-                    labels.append(label)
-                num_classes = len({l for l in labels if l is not None})
-            except Exception:
-                num_classes = 0
-            try:
-                folds = getattr(subj, 'folds', None)
-                num_folds = len(folds) if folds else 0
-            except Exception:
-                num_folds = 0
-            summaries.append({
-                "index": i,
-                "num_trials": num_trials,
-                "num_classes": num_classes,
-                "num_folds": num_folds,
-            })
-
-        if not summaries:
-            placeholder = QLabel("No subjects loaded")
-            placeholder.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            self.grid_layout.addWidget(placeholder, 0, 0)
-            return
-
-        # Determine number of columns based on a simple minimum card width
-        try:
-            current_width = max(0, int(self.width()))
-        except Exception:
-            current_width = 0
-        card_min_width = 150
-        spacing = max(8, self.grid_layout.horizontalSpacing())
-        effective_width = max(1, current_width - (self.grid_layout.contentsMargins().left() + self.grid_layout.contentsMargins().right()))
-        max_cols = max(1, effective_width // (card_min_width + spacing))
-        for idx, s in enumerate(summaries):
-            r = idx // max_cols
-            c = idx % max_cols
-            card = self._make_subject_card(s)
-            self.grid_layout.addWidget(card, r, c, Qt.AlignTop | Qt.AlignLeft)
-
-    def append_log(self, text: str):
-        # Append only meaningful text lines to avoid excessive blank lines
-        if not isinstance(text, str):
-            text = str(text)
-        # Split to handle partial writes gracefully
-        lines = text.splitlines()
-        for line in lines:
-            if line.strip() == "":
-                continue
-            self.log_view.appendPlainText(line)
-
-    def _make_subject_card(self, summary: dict) -> QWidget:
-        card = SquareCard()
-        card.setObjectName("SubjectCard")
-        card.setFrameShape(QFrame.StyledPanel)
-        card.setStyleSheet(self._subject_card_stylesheet())
-        # Let the card determine its own square height based on width
-        card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
-        card.setLayout(layout)
-
-        title = QLabel(f"Subject {summary.get('index', 0) + 1}")
-        title.setStyleSheet("QLabel { font-weight: 600; }")
-        layout.addWidget(title)
-
-        rows = [
-            ("Trials", summary.get("num_trials", 0)),
-            ("Classes", summary.get("num_classes", 0)),
-            ("Folds", summary.get("num_folds", 0)),
-        ]
-        for label_text, value in rows:
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            lbl = QLabel(f"{label_text}:")
-            val = QLabel(str(value))
-            row.addWidget(lbl)
-            row.addWidget(val)
-            row.addStretch(1)
-            layout.addLayout(row)
-
-        return card
-
-    def _subject_card_stylesheet(self) -> str:
-        palette = QApplication.palette()
-        window_color = palette.color(QPalette.Window)
-        base_color = palette.color(QPalette.Base)
-
-        # Determine perceived brightness to decide on light vs dark adjustments
-        def luminance(color: QColor) -> float:
-            return 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
-
-        is_dark_mode = luminance(window_color) < luminance(base_color)
-
-        if is_dark_mode:
-            background = window_color.lighter(110)
-            border = window_color.lighter(140)
-        else:
-            background = window_color.darker(108)
-            border = window_color.darker(125)
-
-        return (
-            "QFrame#SubjectCard {"
-            f"  background: {background.name()};"
-            f"  border: 1px solid {border.name()};"
-            "  border-radius: 10px;"
-            "}"
+        # Right area: top row / bottom row
+        right_splitter = QSplitter(Qt.Vertical)
+        right_splitter.setHandleWidth(4)
+        right_splitter.setStyleSheet(
+            "QSplitter::handle { background: #d0d0d0; }"
         )
 
-    def _on_palette_changed(self, *_args) -> None:
-        self.refresh_summary()
+        # Top right: confusion matrix | ROC curve
+        top_right = QSplitter(Qt.Horizontal)
+        top_right.setHandleWidth(4)
+        top_right.setStyleSheet(
+            "QSplitter::handle { background: #d0d0d0; }"
+        )
+        top_right.addWidget(self._build_confusion_panel())
+        top_right.addWidget(self._build_roc_panel())
+        top_right.setSizes([500, 500])
 
-    def resizeEvent(self, event):
-        # Reflow grid on resize to adapt column count
-        try:
-            super().resizeEvent(event)
-        finally:
-            self.refresh_summary()
+        # Bottom right: subjects | signal plots
+        bottom_right = QSplitter(Qt.Horizontal)
+        bottom_right.setHandleWidth(4)
+        bottom_right.setStyleSheet(
+            "QSplitter::handle { background: #d0d0d0; }"
+        )
+        bottom_right.addWidget(self._build_subjects_panel())
+        bottom_right.addWidget(self._build_signals_panel())
+        bottom_right.setSizes([180, 700])
 
+        right_splitter.addWidget(top_right)
+        right_splitter.addWidget(bottom_right)
+        right_splitter.setSizes([420, 380])
 
-class BuildFunctionView(QWidget):
-    """
-    Main builder view for configuring the pipeline: path input, DnD function list,
-    add/run controls, empty state messaging, and autosave behavior.
-    """
+        self._main_splitter.addWidget(right_splitter)
+        self._main_splitter.setSizes([300, 1050])
 
-    def __init__(self):
-        super().__init__()
-        self.pipeline_steps = []
-        self.pipeline_path = ""
-        self.is_dirty = False
-        # Initialize function manager (methods-only access contract)
-        self.function_manager = GUIFunctionManager()
-        
-        self.init_ui()
+        return self._main_splitter
 
-    def init_ui(self):
-        self.layout_view = QVBoxLayout()
-        self.layout_view.setContentsMargins(16, 12, 16, 12)
-        self.layout_view.setSpacing(12)
-        self.setLayout(self.layout_view)
+    # ── left panel (functions + editor) ──────────────────────────────────────
 
-        # Top bar: filename (left), Close and Save (next), Open (far right when no file open)
-        top_row = QHBoxLayout()
-        self.filename_label_view = QLabel("")
-        self.filename_label_view.setMinimumWidth(0)
-        self.close_and_save_button_view = QPushButton("Close and Save")
-        self.new_button_view = QPushButton("New Pipeline")
-        self.open_button_view = QPushButton("Open")
+    def _build_left_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setMinimumWidth(260)
+        panel.setStyleSheet("background: #f2f2f2; border-radius: 6px;")
+        layout = QVBoxLayout()
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+        panel.setLayout(layout)
 
-        top_row.addWidget(self.filename_label_view)
-        top_row.addWidget(self.close_and_save_button_view)
-        top_row.addStretch(1)
-        top_row.addWidget(self.new_button_view)
-        top_row.addWidget(self.open_button_view)
-        self.layout_view.addLayout(top_row)
+        self._cards_layout = QVBoxLayout()
+        self._cards_layout.setSpacing(4)
+        self._cards_layout.setContentsMargins(2, 2, 2, 2)
+        self._cards_layout.addStretch()
 
-        self.close_and_save_button_view.clicked.connect(self.close_and_save)
-        self.new_button_view.clicked.connect(self.new_pipeline)
-        self.open_button_view.clicked.connect(self.open_file_dialog)
+        cards_widget = QWidget()
+        cards_widget.setStyleSheet("background: transparent;")
+        cards_widget.setLayout(self._cards_layout)
 
-        # Folder selection section
-        folder_row = QHBoxLayout()
-        folder_row.setSpacing(8)
-        self.folder_section_label = QLabel("Data folder:")
-        self.folder_path_value_label = QLabel("No folder selected")
-        self.folder_path_value_label.setStyleSheet("QLabel { color: #aaaaaa; }")
-        self.folder_path_value_label.setMinimumWidth(0)
-        self.folder_open_button_view = QPushButton("Open Folder")
-        folder_row.addWidget(self.folder_section_label)
-        folder_row.addWidget(self.folder_path_value_label, 1)
-        folder_row.addStretch(1)
-        folder_row.addWidget(self.folder_open_button_view)
-        self.layout_view.addLayout(folder_row)
-        self.folder_open_button_view.clicked.connect(self.open_folder_dialog)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(cards_widget)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
+        layout.addWidget(self._scroll, stretch=1)
 
-        # Empty state label (shown when no file is open)
-        self.empty_label_view = QLabel("No config file opened. Create one in the top bar.")
-        self.empty_label_view.setWordWrap(True)
-        self.empty_label_view.setAlignment(Qt.AlignCenter)
-        self.layout_view.addWidget(self.empty_label_view)
+        self._param_editor = ParameterEditorWidget(self.manager)
+        self._param_editor.apply_clicked.connect(self._on_apply_params)
+        layout.addWidget(self._param_editor)
 
-        # Draggable list of function blocks
-        self.list_view = QListWidget()
-        self.list_view.setObjectName("FunctionList")
-        self.list_view.setDragDropMode(QAbstractItemView.InternalMove)
-        self.list_view.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.list_view.setDefaultDropAction(Qt.MoveAction)
-        self.list_view.setSpacing(8)
-        self.layout_view.addWidget(self.list_view)
+        return panel
 
-        # Initial visibility: no file open => show empty label, hide list, show Open
-        self.empty_label_view.show()
-        self.list_view.hide()
-        self._update_top_controls()
+    # ── right-side panels ────────────────────────────────────────────────────
 
-        # List events
-        self.list_view.model().rowsMoved.connect(self._mark_dirty_and_autosave)
-        self.list_view.model().rowsMoved.connect(lambda *_: self._refresh_positions())
+    def _build_confusion_panel(self) -> QWidget:
+        panel = _titled_panel("Confusion Matrix")
+        lbl = QLabel("(Placeholder)")
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(
+            "color: #aaa; font-size: 13px; border: none; background: transparent;"
+        )
+        panel.layout().addWidget(lbl, stretch=1)
+        return panel
 
-        # Initial state
-        self._update_bottom_buttons_enabled()
+    def _build_roc_panel(self) -> QWidget:
+        panel = _titled_panel("ROC Curve")
+        lbl = QLabel("(Placeholder)")
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(
+            "color: #aaa; font-size: 13px; border: none; background: transparent;"
+        )
+        panel.layout().addWidget(lbl, stretch=1)
+        return panel
 
-        # Bottom bar: Add function
-        bottom_row = QHBoxLayout()
-        self.add_button_view = QPushButton("Add function")
-        self.run_button_view = QPushButton("Run")
-        bottom_row.addWidget(self.add_button_view)
-        bottom_row.addStretch(1)
-        bottom_row.addWidget(self.run_button_view)
-        self.layout_view.addLayout(bottom_row)
-        self.add_button_view.clicked.connect(self.add_function)
-        self.run_button_view.clicked.connect(self.run_pipeline)
+    def _build_subjects_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet(_PANEL_STYLE)
+        panel.setMinimumWidth(140)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        panel.setLayout(layout)
 
-        # Disable bottom buttons until a file is opened
-        self._update_bottom_buttons_enabled()
+        self._subject_list = QListWidget()
+        self._subject_list.setStyleSheet(
+            "QListWidget { border: none; font-size: 12px;"
+            " background: white; }"
+            " QListWidget::item { padding: 3px 8px; }"
+            " QListWidget::item:hover { background: #f0f4ff; }"
+        )
+        layout.addWidget(self._subject_list)
+        return panel
 
-    def load_pipeline(self):
-        # Clear previous
-        self.list_view.clear()
+    def _build_signals_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet(_PANEL_STYLE)
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        grid.setContentsMargins(8, 8, 8, 8)
 
-        # No file selected/opened
-        if not self.pipeline_path:
-            self.empty_label_view.show()
-            self.list_view.hide()
-            self._update_top_controls()
-            self._update_bottom_buttons_enabled()
-            return
-
-        target_path = self.pipeline_path
-        # Reflect filename in the top bar
-        self.filename_label_view.setText(os.path.basename(target_path))
-
-        if not os.path.exists(target_path):
-            # No file exists at path yet
-            self.empty_label_view.show()
-            self.list_view.hide()
-            self._update_top_controls()
-            self._update_bottom_buttons_enabled()
-            return
-
-        with open(target_path, "r") as f:
-            lines = [line.strip() for line in f.readlines() if line.strip()]
-
-        self.pipeline_steps = []
-
-        for line in lines:
-            parts = line.split()
-            if len(parts) == 0:
-                continue
-            # Reconstruct full name (can contain spaces) by splitting before first key=value token
-            first_kv_index = None
-            for idx, token in enumerate(parts):
-                if '=' in token:
-                    first_kv_index = idx
-                    break
-            if first_kv_index is None:
-                # Entire line is the function name; no args
-                name = line
-                arg = ""
-            else:
-                name = " ".join(parts[:first_kv_index])
-                arg = " ".join(parts[first_kv_index:])
-            self.pipeline_steps.append((name, arg))
-
-            usage_schema = self._get_usage_schema(name) or {}
-            widget = FunctionBlockView(name, arg, usage_schema)
-            item = QListWidgetItem()
-            item.setSizeHint(widget.sizeHint())
-            self.list_view.addItem(item)
-            self.list_view.setItemWidget(item, widget)
-            # Apply saved args to override defaults
-            if arg:
-                widget.apply_args_dict(self._parse_named_args(arg))
-
-        # Update position labels
-        self._refresh_positions()
-        self._refresh_support_highlighting()
-
-        # Show list now that content is present
-        self.empty_label_view.hide()
-        self.list_view.show()
-
-        self.is_dirty = False
-        self._update_top_controls()
-        self._update_bottom_buttons_enabled()
-        self._refresh_support_highlighting()
-    
-    def save_pipeline(self):
-        lines = []
-        for i in range(self.list_view.count()):
-            item = self.list_view.item(i)
-            widget = self.list_view.itemWidget(item)
-            name = widget.get_name().strip()
-            arg = widget.get_arg().strip()
-            line = name if not arg else f"{name} {arg}"
-            lines.append(line)
-        target_path = self.pipeline_path or PIPELINE_FILE
-        with open(target_path, "w") as f:
-            f.write("\n".join(lines))
-        self.is_dirty = False
-        self._update_save_visibility()
-        return True
-
-    def open_file_dialog(self):
-        # Use native dialog to select a file to open
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open pipeline", os.getcwd(), "Text Files (*.txt);;All Files (*)")
-        if not file_path:
-            return
-        self.pipeline_path = file_path
-        if not os.path.exists(self.pipeline_path):
-            with open(self.pipeline_path, "w") as f:
-                f.write("")
-        self.load_pipeline()
-        self._update_top_controls()
-        self._update_bottom_buttons_enabled()
-
-    def new_pipeline(self):
-        # Use native dialog to choose where to create a new pipeline file
-        file_path, _ = QFileDialog.getSaveFileName(self, "New pipeline", os.path.join(os.getcwd(), "pipeline.txt"), "Text Files (*.txt);;All Files (*)")
-        if not file_path:
-            return
-        # Ensure .txt extension if none provided
-        if not os.path.splitext(file_path)[1]:
-            file_path = file_path + ".txt"
-        # Create/overwrite empty file
-        with open(file_path, "w") as f:
-            f.write("")
-        self.pipeline_path = file_path
-        self.load_pipeline()
-        self._update_top_controls()
-        self._update_bottom_buttons_enabled()
-
-    def close_and_save(self):
-        user_functions.SUBJECTS = []
-        # Refresh right pane to reflect cleared subjects
-        parent = self.parent()
-        while parent and not isinstance(parent, MainWindowView):
-            parent = parent.parent()
-        if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
-            parent.right_pane_view.refresh_summary()
-        # Save current pipeline, then close and reset UI to initial state
-        if self.pipeline_path:
-            self.save_pipeline()
-        self.pipeline_path = ""
-        self.list_view.clear()
-        self.empty_label_view.show()
-        self.list_view.hide()
-        self.is_dirty = False
-        self._update_top_controls()
-        self._update_bottom_buttons_enabled()
-
-    def _mark_dirty_and_autosave(self, *args, **kwargs):
-        self.is_dirty = True
-        self._update_save_visibility()
-        self.save_pipeline()
-
-    def open_folder_dialog(self):
-        # Use native dialog to select a directory containing .mat files
-        folder_path = QFileDialog.getExistingDirectory(self, "Select data folder", os.getcwd())
-        if not folder_path:
-            return
-        self.folder_path_value_label.setText(folder_path)
-
-        # Find .mat files in the selected folder
-        try:
-            entries = os.listdir(folder_path)
-        except Exception as e:
-            QMessageBox.warning(self, "Folder error", f"Unable to open folder: {e}")
-            return
-
-        mat_files = []
-        for name in entries:
-            if name.lower().endswith('.mat'):
-                mat_files.append(os.path.join(folder_path, name))
-
-        if not mat_files:
-            QMessageBox.information(self, "No files", "No .mat files found in the selected folder.")
-            return
-
-        # Load each .mat file via GUI function
-        for fp in mat_files:
-            try:
-                self.function_manager.run_function("Load Subject Data", filepath=fp)
-            except Exception as e:
-                QMessageBox.warning(self, "Load error", f"Failed to load {os.path.basename(fp)}: {e}")
-
-        # Refresh right pane to reflect loaded subjects
-        parent = self.parent()
-        while parent and not isinstance(parent, MainWindowView):
-            parent = parent.parent()
-        if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
-            parent.right_pane_view.refresh_summary()
-
-    def _refresh_positions(self):
-        for i in range(self.list_view.count()):
-            item = self.list_view.item(i)
-            widget = self.list_view.itemWidget(item)
-            if hasattr(widget, 'set_position'):
-                widget.set_position(i)
-
-    def run_pipeline(self):
-        # Reset SUBJECTS to deep copies of ORIGINAL_SUBJECTS
-        user_functions.TRAINERS = []
-        try:
-            user_functions.SUBJECTS = [copy.deepcopy(s) for s in getattr(user_functions, 'ORIGINAL_SUBJECTS', [])]
-        except Exception:
-            user_functions.SUBJECTS = []
-        # Refresh right pane to reflect reset subjects
-        parent = self.parent()
-        while parent and not isinstance(parent, MainWindowView):
-            parent = parent.parent()
-        if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
-            parent.right_pane_view.refresh_summary()
-        # Execute functions sequentially via manager; dynamically resolves functions as they become available
-        for i in range(self.list_view.count()):
-            item = self.list_view.item(i)
-            widget = self.list_view.itemWidget(item)
-            name = widget.get_name().strip()
-            # Check function availability at this moment
-            if name not in set(self._get_all_function_names()):
-                QMessageBox.warning(self, "Unsupported functions", f"Cannot run. Unsupported: {name}")
-                return
-            # Prefer structured args when available
-            if hasattr(widget, 'get_args_dict'):
-                args_dict = widget.get_args_dict()
-            else:
-                args_text = widget.get_arg().strip()
-                args_dict = self._parse_named_args(args_text)
-            try:
-                # Highlight running block
-                if hasattr(widget, 'set_running'):
-                    widget.set_running(True)
-                    # Force repaint so user sees highlight immediately
-                    QApplication.processEvents()
-                self.function_manager.run_function(name, **args_dict)
-                # After each step, refresh the right pane summary (subject may have changed)
-                parent = self.parent()
-                # bubble up to MainWindow to access right pane
-                while parent and not isinstance(parent, MainWindowView):
-                    parent = parent.parent()
-                if isinstance(parent, MainWindowView) and hasattr(parent, 'right_pane_view'):
-                    parent.right_pane_view.refresh_summary()
-            except Exception as e:
-                tb = traceback.format_exc()
-                print(tb)
-                QMessageBox.warning(
-                    self,
-                    "Execution error",
-                    f"Failed to run {name}: {e}\n\nCheck console log for traceback."
+        for r in range(2):
+            for c in range(2):
+                frame = QFrame()
+                frame.setFrameShape(QFrame.StyledPanel)
+                frame.setStyleSheet(
+                    "QFrame { border: 1px solid #ddd; border-radius: 4px;"
+                    " background: #fafafa; }"
                 )
-                # Remove highlight on failure before exiting
-                if hasattr(widget, 'set_running'):
-                    widget.set_running(False)
-                return
-            finally:
-                # Dehighlight after completion
-                if hasattr(widget, 'set_running'):
-                    widget.set_running(False)
+                fl = QVBoxLayout()
+                fl.setContentsMargins(4, 4, 4, 4)
+                lbl = QLabel(f"Signal Plot {r * 2 + c + 1}")
+                lbl.setAlignment(Qt.AlignCenter)
+                lbl.setStyleSheet(
+                    "color: #aaa; font-size: 12px; border: none;"
+                    " background: transparent;"
+                )
+                fl.addWidget(lbl, stretch=1)
+                frame.setLayout(fl)
+                grid.addWidget(frame, r, c)
 
-        # Ensure positions are up-to-date and saved
-        self._refresh_positions()
-        self.save_pipeline()
+        panel.setLayout(grid)
+        return panel
 
-    def notify_child_edit(self):
-        self.is_dirty = True
-        self._update_top_controls()
-        self.save_pipeline()
+    # ── bottom bar ───────────────────────────────────────────────────────────
 
-    def _update_save_visibility(self):
-        # Deprecated in top-bar refactor; retained for compatibility if called
-        self._update_top_controls()
+    def _build_bottom_bar(self) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: #eaeaea;")
+        outer = QVBoxLayout()
+        outer.setContentsMargins(8, 0, 8, 8)
+        outer.setSpacing(0)
+        container.setLayout(outer)
 
-    def _update_bottom_buttons_enabled(self):
-        if not hasattr(self, 'add_button_view') or not hasattr(self, 'run_button_view'):
-            return
-        has_path = bool(self.pipeline_path)
-        enabled = has_path and os.path.exists(self.pipeline_path)
-        self.add_button_view.setEnabled(enabled)
-        self.run_button_view.setEnabled(enabled)
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background: rgba(0,0,0,0.08);")
+        outer.addWidget(sep)
 
-    def _update_top_controls(self):
-        # Show filename and Close/Save when a file is open; otherwise show Open button only
-        file_open = bool(self.pipeline_path)
-        if hasattr(self, 'filename_label_view'):
-            self.filename_label_view.setVisible(file_open)
-            if file_open and os.path.exists(self.pipeline_path):
-                self.filename_label_view.setText(os.path.basename(self.pipeline_path))
-            elif file_open:
-                self.filename_label_view.setText(os.path.basename(self.pipeline_path))
-            else:
-                self.filename_label_view.setText("")
-        if hasattr(self, 'close_and_save_button_view'):
-            self.close_and_save_button_view.setVisible(file_open)
-        if hasattr(self, 'open_button_view'):
-            self.open_button_view.setVisible(not file_open)
-        if hasattr(self, 'new_button_view'):
-            self.new_button_view.setVisible(not file_open)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(4, 8, 4, 0)
 
-    def _refresh_support_highlighting(self):
-        available_names = set(self._get_all_function_names())
-        for i in range(self.list_view.count()):
-            item = self.list_view.item(i)
-            widget = self.list_view.itemWidget(item)
-            name = widget.get_name().strip()
-            is_supported = name in available_names
-            if hasattr(widget, 'set_supported'):
-                widget.set_supported(is_supported)
+        add_btn = QPushButton("Add Function")
+        add_btn.setStyleSheet(_ADD_FUNC_BTN_STYLE)
+        add_btn.clicked.connect(self._add_function)
+        bar.addWidget(add_btn)
 
-    def _parse_named_args(self, args_text: str) -> dict:
-        result = {}
-        if not args_text:
-            return result
-        parts = args_text.split()
-        for part in parts:
-            if '=' not in part:
-                continue
-            key, value = part.split('=', 1)
-            value_cast = self._auto_cast(value)
-            result[key] = value_cast
-        return result
+        bar.addStretch()
 
-    def _auto_cast(self, value: str):
-        # Try bool first (explicit tokens)
-        low = value.strip().lower()
-        if low in ['true','false','1','0','yes','no','y','n','on','off']:
-            return low in ['true','1','yes','y','on']
+        self._run_btn = QPushButton("Run Functions")
+        self._run_btn.setStyleSheet(_RUN_BTN_STYLE)
+        self._run_btn.clicked.connect(self._run_pipeline)
+        bar.addWidget(self._run_btn)
+
+        outer.addLayout(bar)
+        return container
+
+    # ── function map ─────────────────────────────────────────────────────────
+
+    def _refresh_function_map(self) -> None:
         try:
-            return int(value)
-        except ValueError:
-            try:
-                return float(value)
-            except ValueError:
-                return value
-
-    def add_function(self):
-        # Choose from manager-registered function names
-        items = self._get_all_function_names()
-        items.sort()
-        selected, ok = QInputDialog.getItem(self, "Add function", "Select function:", items, 0, False)
-        if not ok or not selected:
-            return
-
-        # Ensure list is visible
-        self.empty_label_view.hide()
-        self.list_view.show()
-
-        # Append new item using usage as guidance
-        usage_schema = self._get_usage_schema(selected) or {}
-        widget = FunctionBlockView(selected, "", usage_schema)
-        item = QListWidgetItem()
-        item.setSizeHint(widget.sizeHint())
-        self.list_view.addItem(item)
-        self.list_view.setItemWidget(item, widget)
-
-        # Mark dirty and autosave
-        self.is_dirty = True
-        self._update_save_visibility()
-        # Update numbering and support highlighting
-        self._refresh_positions()
-        self._refresh_support_highlighting()
-        self.save_pipeline()
-
-    def _get_all_function_names(self):
-        return list(self.function_manager.get_possible_function_labels())
-
-    def _get_usage_schema(self, function_name: str):
-        # Build a schema mapping parameter_name -> { 'type': type, 'default': value, 'label': str }
-        try:
-            spec = self.function_manager.get_function_specification(function_name)
+            self.function_map = self.manager.find_functions()
         except Exception:
-            return {}
-        schema = {}
-        for arg in getattr(spec, 'arg_specs', []):
-            schema[arg.parameter_name] = {
-                'type': self._normalize_param_type(arg.data_type),
-                'default': arg.default_value,
-                'label': getattr(arg, 'parameter_label', arg.parameter_name),
-            }
-        return schema
+            self.function_map = {}
 
-    def _normalize_param_type(self, t):
-        # Ensure built-in types for editor selection
-        if t in (int, float, str, bool):
-            return t
-        name = getattr(t, '__name__', None) or getattr(t, '__qualname__', None)
-        if isinstance(name, str):
-            lname = name.lower()
-            if 'int' == lname or 'integer' in lname:
-                return int
-            if 'float' == lname or 'double' in lname:
-                return float
-            if 'str' == lname or 'string' in lname:
-                return str
-            if 'bool' == lname or 'boolean' in lname:
-                return bool
-        # Fallback: parse textual representation
-        text = str(t).lower()
-        if 'int' in text and 'print' not in text:
-            return int
-        if 'float' in text or 'double' in text:
-            return float
-        if 'str' in text or 'string' in text:
-            return str
-        if 'bool' in text or 'boolean' in text:
-            return bool
-        # Default to str if unknown
-        return str
+    # ── add / edit / apply ───────────────────────────────────────────────────
 
-    def remove_function_widget(self, widget: QWidget):
-        # Find the matching QListWidgetItem and remove it
-        for i in range(self.list_view.count()):
-            item = self.list_view.item(i)
-            w = self.list_view.itemWidget(item)
-            if w is widget:
-                self.list_view.takeItem(i)
-                break
-        # Refresh numbering and autosave
-        self._refresh_positions()
-        self._refresh_support_highlighting()
-        self.is_dirty = True
-        self._update_top_controls()
-        self.save_pipeline()
+    def _add_function(self) -> None:
+        self._refresh_function_map()
+        if not self.function_map:
+            QMessageBox.information(
+                self, "No Functions", "No pipeline functions available."
+            )
+            return
 
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Function")
+        dialog.setMinimumWidth(320)
+        dlayout = QVBoxLayout()
+        dlayout.addWidget(QLabel("Select a function to add:"))
 
-class MainWindowView(QMainWindow):
-    """
-    Application main window hosting the BuildFunctionView as the central widget.
-    """
+        lw = QListWidget()
+        for name, func in self.function_map.items():
+            det = _function_detail(func)
+            display = det.label if det and det.label else name
+            item = QListWidgetItem(display)
+            item.setData(Qt.UserRole, name)
+            lw.addItem(item)
+        dlayout.addWidget(lw)
 
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Frequency-Following Response Pipeline Editor")
-        self.setGeometry(200, 200, 1000, 500)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dialog.accept)
+        btns.rejected.connect(dialog.reject)
+        dlayout.addWidget(btns)
+        dialog.setLayout(dlayout)
 
-        # Split view: left (builder) and right (placeholder) with resizable divider
-        self.build_function_view = BuildFunctionView()
-        self.right_pane_view = RightPaneView(self.build_function_view.function_manager)
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self.build_function_view)
-        splitter.addWidget(self.right_pane_view)
-        # Prevent panes from collapsing and give them sensible minimum widths
-        self.build_function_view.setMinimumWidth(700)
-        self.right_pane_view.setMinimumWidth(300)
-        splitter.setCollapsible(0, False)
-        splitter.setCollapsible(1, False)
-        splitter.setHandleWidth(2)
-        splitter.setStyleSheet(
-            "QSplitter::handle { background-color: #2a2a2a; } "
-            "QSplitter::handle:hover { background-color: #3a3a3a; }"
+        if dialog.exec_() != QDialog.Accepted or lw.currentItem() is None:
+            return
+
+        func_name = lw.currentItem().data(Qt.UserRole)
+        func = self.function_map[func_name]
+        detail = _function_detail(func)
+
+        params: dict[str, Any] = {}
+        if detail:
+            for ad in detail.argument_details:
+                if isinstance(ad.default_value, Selection):
+                    try:
+                        mapping = ad.default_value.option_value_map(
+                            self.manager.state
+                        )
+                    except TypeError:
+                        mapping = ad.default_value.option_value_map()
+                    opts = list(mapping.keys())
+                    params[ad.name] = opts[0] if opts else ""
+                else:
+                    params[ad.name] = ad.default_value
+            label = detail.label
+        else:
+            label = func_name
+
+        self._pipeline_functions.append(
+            {"name": func_name, "label": label, "params": params, "detail": detail}
         )
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+        self._rebuild_cards()
 
-    def save_blocks_pipeline(self):
-        ok = self.build_function_view.save_pipeline()
-        if ok:
-            pass
+    def _rebuild_cards(self) -> None:
+        while self._cards_layout.count() > 1:
+            item = self._cards_layout.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+
+        for i, entry in enumerate(self._pipeline_functions):
+            card = FunctionCardWidget(
+                i, entry["label"], entry["params"], entry["detail"]
+            )
+            card.edit_clicked.connect(self._on_edit_card)
+            card.set_selected(i == self._selected_index)
+            self._cards_layout.insertWidget(i, card)
+
+    def _on_edit_card(self, index: int) -> None:
+        self._selected_index = index
+        entry = self._pipeline_functions[index]
+
+        for i in range(self._cards_layout.count()):
+            w = self._cards_layout.itemAt(i).widget()
+            if isinstance(w, FunctionCardWidget):
+                w.set_selected(w._index == index)
+
+        if entry["detail"]:
+            self._param_editor.display(entry["detail"], entry["params"])
+
+    def _on_apply_params(self, params: dict) -> None:
+        if self._selected_index is None:
+            return
+        if self._selected_index >= len(self._pipeline_functions):
+            return
+
+        self._pipeline_functions[self._selected_index]["params"] = params
+        self._rebuild_cards()
+        self._param_editor.clear_and_hide()
+        self._selected_index = None
+
+    # ── subjects ─────────────────────────────────────────────────────────────
+
+    def _choose_subjects(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Subject Folder", str(Path.cwd())
+        )
+        if not folder:
+            return
+        try:
+            self.manager.load_subjects(folder)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
+            return
+
+        self._update_subjects()
+        self._refresh_function_map()
+
+    def _update_subjects(self) -> None:
+        self._subject_list.clear()
+        for subj in self.manager.state.subjects:
+            self._subject_list.addItem(subj.name)
+
+    # ── pipeline execution ───────────────────────────────────────────────────
+
+    def _run_pipeline(self) -> None:
+        if not self._pipeline_functions:
+            QMessageBox.information(
+                self, "Empty Pipeline", "Add functions to the pipeline first."
+            )
+            return
+        self._pending_queue = [
+            (f["name"], dict(f["params"])) for f in self._pipeline_functions
+        ]
+        self._start_next_queued()
+
+    def _start_next_queued(self) -> None:
+        if not self._pending_queue:
+            self._set_running(False)
+            self._update_subjects()
+            QMessageBox.information(
+                self, "Complete", "Pipeline execution finished."
+            )
+            return
+
+        name, params = self._pending_queue.pop(0)
+        func = self.function_map.get(name)
+        if func is None:
+            QMessageBox.critical(self, "Error", f"Unknown function: {name}")
+            self._pending_queue.clear()
+            self._set_running(False)
+            return
+
+        self._set_running(True)
+        stream = _LogStream()
+        thread = QThread(self)
+        worker = _FunctionWorker(func, params, stream)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_run_finished)
+        worker.failed.connect(self._on_run_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._thread = thread
+        self._worker = worker
+        thread.start()
+
+    def _on_run_finished(self) -> None:
+        self._thread = None
+        self._worker = None
+        self._refresh_function_map()
+        if self._pending_queue:
+            self._start_next_queued()
+        else:
+            self._set_running(False)
+            self._update_subjects()
+            QMessageBox.information(
+                self, "Complete", "Pipeline execution finished."
+            )
+
+    def _on_run_failed(self, message: str, _tb: str) -> None:
+        self._thread = None
+        self._worker = None
+        self._pending_queue.clear()
+        self._set_running(False)
+        QMessageBox.critical(self, "Execution Error", message)
+
+    def _set_running(self, running: bool) -> None:
+        self._run_btn.setEnabled(not running)
+        self._load_subjects_btn.setEnabled(not running)
 
 
-def main():
+def main() -> None:
     app = QApplication(sys.argv)
-    window = MainWindowView()
-    # Tee stdout/stderr to GUI logs
-    try:
-        stdout_tee = QtLogTee(sys.stdout)
-        stderr_tee = QtLogTee(sys.stderr)
-        stdout_tee.text_emitted.connect(window.right_pane_view.append_log)
-        stderr_tee.text_emitted.connect(window.right_pane_view.append_log)
-        sys.stdout = stdout_tee
-        sys.stderr = stderr_tee
-    except Exception:
-        # If tee setup fails, continue with normal stdout/stderr
-        pass
+    # app.setStyle("Fusion")
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())
 

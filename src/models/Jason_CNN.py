@@ -6,9 +6,10 @@ import os
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
-# from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit
 
 from ..core.eeg_trial import EEGTrial
+from ..core.ffr_proc import get_accuracy
 from .utils.model_interface import ModelInterface
 
 
@@ -53,9 +54,30 @@ class Jason_CNN(ModelInterface):
         self.lr = lr
         self.signal_attr = signal_attr
         self.label_attr = label_attr
+        # raw_use_gpu = opts.get("use_gpu", True)
+        # self.use_gpu = self._parse_bool(raw_use_gpu)
+        # self.device_name = self._select_device(self.use_gpu)
         self.model: tf.keras.Model | None = None
         self._label_to_idx: dict[int, int] | None = None
         self._idx_to_label: dict[int, int] | None = None
+
+    # def _parse_bool(self, value: Any) -> bool:
+    #     if isinstance(value, bool):
+    #         return value
+    #     if isinstance(value, str):
+    #         return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    #     return bool(value)
+
+    # def _select_device(self, use_gpu: bool) -> str:
+    #     gpus = tf.config.list_physical_devices("GPU")
+    #     if use_gpu and gpus:
+    #         print("[Jason_CNN] Using GPU: /GPU:0")
+    #         return "/GPU:0"
+    #     if use_gpu and not gpus:
+    #         print("[Jason_CNN] use_gpu=True but no GPU detected. Falling back to CPU.")
+    #     if not use_gpu:
+    #         print("[Jason_CNN] use_gpu=False. Forcing CPU execution.")
+    #     return "/CPU:0"
 
     def _build_model(self, input_len: int, n_classes: int) -> tf.keras.Model:
         inp = layers.Input(shape=(input_len, 1))
@@ -171,22 +193,29 @@ class Jason_CNN(ModelInterface):
         # Map raw labels to 0..n_classes-1
         y = np.array([self._label_to_idx[int(l)] for l in y_raw], dtype=np.int32)
 
-        # Randomized split disabled per request.
-        # sss = StratifiedShuffleSplit(
-        #     n_splits=1,
-        #     test_size=self.val_split,
-        #     random_state=42,
-        # )
-        # tr_idx, val_idx = next(sss.split(X, y))
-        # Xtr, ytr = X[tr_idx], y[tr_idx]
-        # Xval, yval = X[val_idx], y[val_idx]
+        # Use a deterministic stratified split for stable validation behavior.
         n_val = max(1, int(len(X) * self.val_split))
         n_val = min(n_val, len(X) - 1)
-        Xtr, ytr = X[:-n_val], y[:-n_val]
-        Xval, yval = X[-n_val:], y[-n_val:]
+        min_class_count = int(np.min(np.bincount(y, minlength=self.n_classes)))
+        can_stratify = n_val >= self.n_classes and min_class_count >= 2
+        if can_stratify:
+            sss = StratifiedShuffleSplit(
+                n_splits=1,
+                test_size=n_val,
+                random_state=42,
+            )
+            tr_idx, val_idx = next(sss.split(X, y))
+        else:
+            rng = np.random.default_rng(42)
+            perm = rng.permutation(len(X))
+            val_idx = perm[:n_val]
+            tr_idx = perm[n_val:]
+        Xtr, ytr = X[tr_idx], y[tr_idx]
+        Xval, yval = X[val_idx], y[val_idx]
 
         # Build model
         input_len = X.shape[1]
+        # with tf.device(self.device_name):
         self.model = self._build_model(input_len, self.n_classes)
 
         # Bias init with log-priors
@@ -218,6 +247,7 @@ class Jason_CNN(ModelInterface):
             min_lr=1e-5,
         )
 
+        # with tf.device(self.device_name):
         self.model.fit(
             Xtr,
             ytr,
@@ -230,7 +260,11 @@ class Jason_CNN(ModelInterface):
         )
 
     def infer(self, trials: list[EEGTrial]):
-        """Predict labels for a list of EEGTrial objects and set trial.prediction."""
+        """
+        Predict labels for a list of EEGTrial objects and set:
+          - trial.prediction
+          - trial.trial_prediction_distribution
+        """
         if not trials:
             return []
 
@@ -241,6 +275,7 @@ class Jason_CNN(ModelInterface):
             )
 
         X, _ = self._trials_to_xy(trials, require_labels=False)
+        # with tf.device(self.device_name):
         probs = self.model.predict(X, batch_size=self.batch_size, verbose=0)
         idx_preds = np.argmax(probs, axis=1)
 
@@ -250,8 +285,17 @@ class Jason_CNN(ModelInterface):
             # Fallback: assume indices are the labels
             label_preds = [int(i) for i in idx_preds]
 
-        for trial, label in zip(trials, label_preds):
+        for trial, label, prob_vec in zip(trials, label_preds, probs):
             trial.prediction = int(label)
+            if self._idx_to_label is not None:
+                trial.prediction_distribution = {
+                    str(self._idx_to_label[int(i)]): float(p)
+                    for i, p in enumerate(prob_vec)
+                }
+            else:
+                trial.prediction_distribution = {
+                    str(i): float(p) for i, p in enumerate(prob_vec)
+                }
 
         return label_preds
 
@@ -310,13 +354,4 @@ class Jason_CNN(ModelInterface):
             tf.keras.backend.clear_session()
             self.model = None
 
-        t = 0
-        s = 0
-
-        for trial in self.subject.trials:
-            t += 1
-            if int(trial.raw_label) == trial.prediction:
-                s += 1
-        
-        # accuracy = get_accuracy(subject)
-        return s / t * 100
+        return get_accuracy(self.subject, enforce_saturation=True)

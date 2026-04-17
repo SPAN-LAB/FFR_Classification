@@ -49,3 +49,16 @@ def find_model(name: str) -> type[ModelInterface]:
             return cls
 
     raise ValueError(f"No model found matching '{name}'.")
+
+def find_models() -> dict[str, type[ModelInterface]]:
+    """
+    Returns a dictionary that maps from the names of available models to 
+    the model types.
+
+    :returns: TODO
+    """
+    models = [(module_name, cls) for module_name, cls in _iter_model_classes()]
+    map = {}
+    for (name, cls) in models:
+        map[name] = cls
+    return map
