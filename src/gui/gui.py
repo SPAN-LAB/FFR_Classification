@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import sys
 import traceback
 from pathlib import Path
@@ -39,31 +38,18 @@ def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
     return getattr(func, "detail", None)
 
 
-class _LogStream(QObject):
-    text = pyqtSignal(str)
-
-    def write(self, s: str) -> None:
-        if s:
-            self.text.emit(s)
-
-    def flush(self) -> None:
-        pass
-
-
 class _FunctionWorker(QObject):
     finished = pyqtSignal()
     failed = pyqtSignal(str, str)
 
-    def __init__(self, fn: Callable, kwargs: dict, stream: _LogStream) -> None:
+    def __init__(self, fn: Callable, kwargs: dict) -> None:
         super().__init__()
         self._fn = fn
         self._kwargs = kwargs
-        self._stream = stream
 
     def run(self) -> None:
         try:
-            with contextlib.redirect_stdout(self._stream):
-                self._fn(**self._kwargs)
+            self._fn(**self._kwargs)
         except Exception as exc:
             self.failed.emit(str(exc), traceback.format_exc())
             return
@@ -76,14 +62,6 @@ _PANEL_STYLE = """
     border-radius: 6px;
 """
 
-_HEADER_BTN_STYLE = """
-    QPushButton {
-        background: #f4f4f4; border: 1px solid #d0d0d0;
-        border-radius: 6px; padding: 6px 16px; font-size: 13px;
-    }
-    QPushButton:hover { background: #e4e4e4; }
-"""
-
 _RUN_BTN_STYLE = """
     QPushButton {
         background: #4285f4; color: white; border: none;
@@ -94,12 +72,14 @@ _RUN_BTN_STYLE = """
     QPushButton:disabled { background: #ccc; }
 """
 
-_ADD_FUNC_BTN_STYLE = """
+_OUTLINED_BTN_STYLE = """
     QPushButton {
-        background: #f0f0f0; border: 1px dashed #aaa;
-        border-radius: 6px; padding: 10px 20px; font-size: 13px; color: #555;
+        background: white; color: #333; border: 1px solid #ccc;
+        border-radius: 6px; padding: 8px 18px;
+        font-size: 13px; font-weight: bold;
     }
-    QPushButton:hover { background: #e0e0e0; border-color: #888; }
+    QPushButton:hover { background: #f5f5f5; border-color: #aaa; }
+    QPushButton:disabled { background: #eee; color: #999; }
 """
 
 
@@ -181,13 +161,13 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         load_pipe_btn = QPushButton("+  Load Pipeline")
+        load_pipe_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
         load_pipe_btn.setFixedHeight(34)
-        load_pipe_btn.setStyleSheet(_HEADER_BTN_STYLE)
         layout.addWidget(load_pipe_btn)
 
         self._load_subjects_btn = QPushButton("+  Load Subjects")
+        self._load_subjects_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
         self._load_subjects_btn.setFixedHeight(34)
-        self._load_subjects_btn.setStyleSheet(_HEADER_BTN_STYLE)
         self._load_subjects_btn.clicked.connect(self._choose_subjects)
         layout.addWidget(self._load_subjects_btn)
 
@@ -368,7 +348,7 @@ class MainWindow(QMainWindow):
         bar.setContentsMargins(4, 8, 4, 0)
 
         add_btn = QPushButton("Add Function")
-        add_btn.setStyleSheet(_ADD_FUNC_BTN_STYLE)
+        add_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
         add_btn.clicked.connect(self._add_function)
         bar.addWidget(add_btn)
 
@@ -406,13 +386,22 @@ class MainWindow(QMainWindow):
         dlayout = QVBoxLayout()
         dlayout.addWidget(QLabel("Select a function to add:"))
 
+        already_added = {f["name"] for f in self._pipeline_functions}
         lw = QListWidget()
         for name, func in self.function_map.items():
+            if name in already_added:
+                continue
             det = _function_detail(func)
             display = det.label if det and det.label else name
             item = QListWidgetItem(display)
             item.setData(Qt.UserRole, name)
             lw.addItem(item)
+        if lw.count() == 0:
+            QMessageBox.information(
+                self, "No Functions",
+                "All available functions have already been added."
+            )
+            return
         dlayout.addWidget(lw)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -462,8 +451,18 @@ class MainWindow(QMainWindow):
                 i, entry["label"], entry["params"], entry["detail"]
             )
             card.edit_clicked.connect(self._on_edit_card)
+            card.delete_clicked.connect(self._on_delete_card)
             card.set_selected(i == self._selected_index)
             self._cards_layout.insertWidget(i, card)
+
+    def _on_delete_card(self, index: int) -> None:
+        self._pipeline_functions.pop(index)
+        if self._selected_index == index:
+            self._selected_index = None
+            self._param_editor.clear_and_hide()
+        elif self._selected_index is not None and self._selected_index > index:
+            self._selected_index -= 1
+        self._rebuild_cards()
 
     def _on_edit_card(self, index: int) -> None:
         self._selected_index = index
@@ -541,9 +540,8 @@ class MainWindow(QMainWindow):
             return
 
         self._set_running(True)
-        stream = _LogStream()
         thread = QThread(self)
-        worker = _FunctionWorker(func, params, stream)
+        worker = _FunctionWorker(func, params)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._on_run_finished)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -32,16 +33,7 @@ def _is_dict_type(typ) -> bool:
 
 class FunctionCardWidget(QFrame):
     edit_clicked = pyqtSignal(int)
-
-    _BASE_STYLE = """
-        FunctionCardWidget {{
-            background: {bg};
-            border: {border};
-            border-radius: 6px;
-            padding: 8px;
-            margin: 2px 4px;
-        }}
-    """
+    delete_clicked = pyqtSignal(int)
 
     def __init__(
         self,
@@ -57,8 +49,16 @@ class FunctionCardWidget(QFrame):
         self._params = dict(params)
         self._detail = detail
 
-        self.setFrameShape(QFrame.StyledPanel)
+        self.setFrameShape(QFrame.Box)
+        self.setLineWidth(1)
         self._apply_style(selected=False)
+        self.setMouseTracking(True)
+
+        self._description = detail.description if detail and detail.description else None
+        self._tooltip_timer = QTimer(self)
+        self._tooltip_timer.setSingleShot(True)
+        self._tooltip_timer.setInterval(2000)
+        self._tooltip_timer.timeout.connect(self._show_delayed_tooltip)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 8, 10, 8)
@@ -66,25 +66,32 @@ class FunctionCardWidget(QFrame):
 
         header = QHBoxLayout()
         self._title = QLabel(f"<b>{label}</b>")
-        self._title.setStyleSheet("border: none;")
         header.addWidget(self._title)
         header.addStretch()
 
         edit_btn = QPushButton("Edit")
         edit_btn.setFixedSize(50, 24)
         edit_btn.setStyleSheet(
-            "QPushButton { background: #e8e8e8; border: 1px solid #bbb;"
+            "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
             " border-radius: 4px; font-size: 11px; }"
             " QPushButton:hover { background: #d0d0d0; }"
         )
         edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self._index))
         header.addWidget(edit_btn)
+
+        delete_btn = QPushButton("Delete")
+        delete_btn.setFixedSize(50, 24)
+        delete_btn.setStyleSheet(
+            "QPushButton { background: #e0e0e0; color: #c62828; border: 1px solid #ccc;"
+            " border-radius: 4px; font-size: 11px; }"
+            " QPushButton:hover { background: #ffcdd2; }"
+        )
+        delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self._index))
+        header.addWidget(delete_btn)
         layout.addLayout(header)
 
         self._summary_label = QLabel(self._make_summary())
-        self._summary_label.setStyleSheet(
-            "color: #555; font-size: 11px; border: none;"
-        )
+        self._summary_label.setStyleSheet("color: #555; font-size: 11px;")
         self._summary_label.setWordWrap(True)
         layout.addWidget(self._summary_label)
 
@@ -114,12 +121,31 @@ class FunctionCardWidget(QFrame):
     def _apply_style(self, selected: bool):
         if selected:
             self.setStyleSheet(
-                self._BASE_STYLE.format(bg="#cfe0fc", border="2px solid #4285f4")
+                "FunctionCardWidget { background: #cfe0fc;"
+                " border: 2px solid #4285f4; border-radius: 6px;"
+                " padding: 6px; margin: 2px 4px; }"
             )
         else:
             self.setStyleSheet(
-                self._BASE_STYLE.format(bg="white", border="1px solid #ccc")
+                "FunctionCardWidget { background: white;"
+                " border: 1px solid #ccc; border-radius: 6px;"
+                " padding: 8px; margin: 2px 4px; }"
             )
+
+    def enterEvent(self, event):
+        if self._description:
+            self._tooltip_timer.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._tooltip_timer.stop()
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
+    def _show_delayed_tooltip(self):
+        if self._description and self.underMouse():
+            from PyQt5.QtGui import QCursor
+            QToolTip.showText(QCursor.pos(), self._description, self)
 
 
 class ParameterEditorWidget(QWidget):
@@ -130,13 +156,20 @@ class ParameterEditorWidget(QWidget):
         self._manager = manager
         self._editors: list[tuple[str, QWidget, ArgumentDetail]] = []
 
+        self.setStyleSheet("background: transparent;")
+
         layout = QVBoxLayout()
-        layout.setContentsMargins(4, 8, 4, 4)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         self._title = QLabel("<b>Edit Function Parameters</b>")
+        self._title.setStyleSheet(
+            "background: transparent; border: none;"
+            " border-bottom: 1px solid #ccc; padding-bottom: 6px;"
+        )
         layout.addWidget(self._title)
 
         self._form_container = QWidget()
+        self._form_container.setStyleSheet("background: transparent;")
         self._form_layout = QFormLayout()
         self._form_layout.setLabelAlignment(Qt.AlignRight)
         self._form_container.setLayout(self._form_layout)
@@ -144,9 +177,10 @@ class ParameterEditorWidget(QWidget):
 
         self._apply_btn = QPushButton("Apply Changes")
         self._apply_btn.setStyleSheet(
-            "QPushButton { background: #4285f4; color: white; border: none;"
-            " border-radius: 4px; padding: 6px 18px; font-weight: bold; }"
-            " QPushButton:hover { background: #3367d6; }"
+            "QPushButton { background: white; color: #333; border: 1px solid #ccc;"
+            " border-radius: 6px; padding: 8px 18px;"
+            " font-size: 13px; font-weight: bold; }"
+            " QPushButton:hover { background: #f5f5f5; border-color: #aaa; }"
         )
         self._apply_btn.clicked.connect(self._on_apply)
         layout.addWidget(self._apply_btn, alignment=Qt.AlignCenter)
@@ -163,10 +197,45 @@ class ParameterEditorWidget(QWidget):
             self._form_layout.addRow(f"{ad.label}:", widget)
         self.show()
 
+    _EDITOR_STYLE = (
+        "border: 1px solid #ccc; border-radius: 4px;"
+        " padding: 4px 6px; background: white;"
+    )
+
+    _TEXTEDIT_STYLE = (
+        "QPlainTextEdit { border: 1px solid #ccc; border-radius: 4px;"
+        " padding: 4px 6px; background: white; }"
+        " QPlainTextEdit QScrollBar:vertical {"
+        "   background: #f0f0f0; width: 8px; border-radius: 4px;"
+        " }"
+        " QPlainTextEdit QScrollBar::handle:vertical {"
+        "   background: #c0c0c0; border-radius: 4px; min-height: 20px;"
+        " }"
+        " QPlainTextEdit QScrollBar::handle:vertical:hover {"
+        "   background: #a0a0a0;"
+        " }"
+        " QPlainTextEdit QScrollBar::add-line:vertical,"
+        " QPlainTextEdit QScrollBar::sub-line:vertical {"
+        "   height: 0px;"
+        " }"
+    )
+
+    _COMBO_STYLE = (
+        "QComboBox { border: 1px solid #ccc; border-radius: 4px;"
+        " padding: 4px 6px; background: white; }"
+        " QComboBox QAbstractItemView {"
+        "   background: white; color: #333;"
+        "   selection-background-color: #4285f4;"
+        "   selection-color: white;"
+        "   outline: none;"
+        " }"
+    )
+
     def _build_editor(self, ad: ArgumentDetail, current_value: Any) -> QWidget:
         typ = ad.type
         if typ is int:
             w = QSpinBox()
+            w.setStyleSheet(self._EDITOR_STYLE)
             w.setMinimum(-10_000_000)
             w.setMaximum(10_000_000)
             if current_value is not None:
@@ -174,6 +243,7 @@ class ParameterEditorWidget(QWidget):
             return w
         if typ is float:
             w = QDoubleSpinBox()
+            w.setStyleSheet(self._EDITOR_STYLE)
             w.setDecimals(6)
             w.setMinimum(-1e9)
             w.setMaximum(1e9)
@@ -182,11 +252,13 @@ class ParameterEditorWidget(QWidget):
             return w
         if typ is str:
             w = QLineEdit()
+            w.setStyleSheet(self._EDITOR_STYLE)
             if current_value is not None:
                 w.setText(str(current_value))
             return w
         if _is_dict_type(typ):
             w = QPlainTextEdit()
+            w.setStyleSheet(self._TEXTEDIT_STYLE)
             w.setMaximumHeight(100)
             w.setPlaceholderText("Enter JSON object")
             if isinstance(current_value, dict):
@@ -194,6 +266,9 @@ class ParameterEditorWidget(QWidget):
             return w
         if typ is Selection:
             combo = QComboBox()
+            combo.setStyleSheet(self._COMBO_STYLE)
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            combo.setMinimumWidth(120)
             selection = (
                 current_value
                 if isinstance(current_value, Selection)
@@ -212,6 +287,7 @@ class ParameterEditorWidget(QWidget):
                         combo.setCurrentIndex(idx)
             return combo
         w = QLineEdit()
+        w.setStyleSheet(self._EDITOR_STYLE)
         if current_value is not None:
             w.setText(str(current_value))
         return w
