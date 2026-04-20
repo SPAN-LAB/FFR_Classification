@@ -25,15 +25,25 @@ class ModelInterface:
     """
     Abstract class representing any model used for FFR classification.
     """
+
+    needs_all_subjects: bool = False
     
     def __init__(self, training_options: dict[str, any]):
         self.subject = None
+        self.all_subjects = None
         self.training_options = training_options
     
     # MARK: Setters
     
     def set_subject(self, subject: EEGSubject):
         self.subject = subject
+
+    def set_all_subjects(self, subjects: list):
+        """
+        Provides the full subject list to models that require it (e.g. Autoencoder LOSO pretraining).
+        Default implementation stores the list — only models with needs_all_subjects = True use this.
+        """
+        self.all_subjects = subjects
     
     def set_training_options(self, training_options: dict[str, any]):
         self.training_options = training_options

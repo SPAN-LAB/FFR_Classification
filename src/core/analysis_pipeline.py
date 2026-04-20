@@ -252,6 +252,10 @@ class AnalysisPipeline:
             model = concrete_model(training_options)
             model.set_subject(subject)
 
+            # If the model requires all subjects (e.g. Autoencoder LOSO pretraining), pass them in
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
+
             accuracy = model.evaluate()
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
@@ -354,4 +358,3 @@ class AnalysisPipeline:
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
 BlankPipeline = AnalysisPipeline
-
