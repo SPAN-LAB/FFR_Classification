@@ -13,10 +13,14 @@ import torch.optim as optim
 from torch.utils.data.dataloader import DataLoader
 
 from ...core import EEGTrial
+from ...core.utils.sampling import sds2
 from .index_tracked_dataset import IndexTrackedDataset
 from .model_interface import ModelInterface
 
 from ...time import TimeKeeper
+from ...printing.printing import Line
+from random import shuffle
+from numbers import Number
 
 
 class TorchNNBase(ModelInterface):
@@ -25,6 +29,7 @@ class TorchNNBase(ModelInterface):
         super().__init__(training_options)
 
         self.model: nn.Module | None = None
+        self._best_weights = None
         self.device = None
 
         self.set_device() # Automatically attempt to use the GPU
@@ -51,9 +56,61 @@ class TorchNNBase(ModelInterface):
     def reset_seed(self):
         torch.manual_seed(0)
         torch.mps.manual_seed(0)
+    
+    def _store_best(self, best):
+        self._best_weights = {}
+        for k, v in best.state_dict().items():
+            self._best_weights[k] = v.cpu().clone()
+
+    def _restore_best(self):
+        if self._best_weights is None:
+            raise ValueError("self._best_weights = None unexpectedly")
+        self.model.load_state_dict(self._best_weights)
+        self.model.to(self.device)
 
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
+
+    def _core_avg_val_loss(self, *, 
+        trials: list[EEGTrial], 
+        batch_size: int
+    ) -> float:
+        """
+        Determines the average loss for the input trials. 
+        Called strictly inside the training loop in _core_train
+        """
+        
+        self.model.eval()
+        criterion = nn.CrossEntropyLoss()
+        
+        validation_loader = DataLoader(
+            IndexTrackedDataset(trials=trials),
+            batch_size=batch_size,
+            shuffle=False
+        )
+        
+        total_loss = 0.0
+        
+        with torch.no_grad():
+            for batch in validation_loader: 
+                inputs = batch["x"].to(self.device)
+                labels = batch["y"].to(self.device)
+
+                logits = self.model(inputs)
+                loss = criterion(logits, labels)
+                
+                # NOTE: 
+                # loss.item() is the average loss per batch item
+                # inputs.size(0) is the number of items in the batch
+                # We do not use batch_size here, and instead use inputs.size(0), 
+                # to protect against a last batch having fewer 
+                # than <batch_size> items
+                total_loss += loss.item() * inputs.size(0)
+                
+        self.model.train()
+        
+        average_loss = total_loss / len(trials)
+        return average_loss
 
     def _core_infer(self, *, 
         trials: list[EEGTrial],
@@ -90,102 +147,98 @@ class TorchNNBase(ModelInterface):
         
         return prediction_distributions
     
-    def get_patience(self) -> int:
-        if not isinstance(self.training_options, dict):
-            return 5
-        return self.training_options.get("patience", 5)
-
-    def _core_train(self, *,
-        trials: list[EEGTrial],
+    def _core_train(self, *, 
+        trials: list[EEGTrial], 
+        validation_trials: list[EEGTrial] | float | None = None,
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
-        weight_decay: float
+        weight_decay: float,
+        min_delta: float,
+        patience: int
     ) -> nn.Module:
-
-        # Split into 80% train, 20% val (keeping temporal order)
-        split = int(len(trials) * 0.8)
-        train_trials = trials[:split]
-        val_trials = trials[split:]
-
-        # Set up
+        
+        # Set up 
+        
         self.build()
         self.model.to(self.device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.AdamW(
-            self.model.parameters(),
-            lr=learning_rate,
+            self.model.parameters(), 
+            lr=learning_rate, 
             weight_decay=weight_decay
         )
-
+        
+        must_validate = validation_trials is not None and validation_trials != 0
+        if must_validate and isinstance(validation_trials, float):
+            # Sample the validation trials from `trials` if a ratio is provided
+            # and remove those from `trials`
+            num_validation_trials = int(len(trials) * validation_trials)
+            if num_validation_trials <= 0 or len(trials) - num_validation_trials <= 0:
+                raise ValueError("The splitting of trials results in some group being empty")
+            validation_trials = sds2(trials=trials, num_trials=num_validation_trials)
+            for trial in validation_trials:
+                trials.remove(trial)
+        # Now, type of validation_trials is strictly either None or list[EEGTrial]
+        
         train_loader = DataLoader(
-            IndexTrackedDataset(trials=train_trials),
+            IndexTrackedDataset(trials=trials),
             batch_size=batch_size,
-            shuffle=False
+            shuffle=True
         )
-        val_loader = DataLoader(
-            IndexTrackedDataset(trials=val_trials),
-            batch_size=batch_size,
-            shuffle=False
-        )
-
+        
         epoch_tk = TimeKeeper()
         epoch_tk.reset()
         epoch_tk.start()
-
-        best_val_loss = float("inf")
-        best_weights = None
-        epochs_no_improve = 0
-        patience = self.get_patience()
-
+        
+        line = Line()
+        
+        self.model.train()
+        self._reset_loss_trackers()
         for epoch_i in range(num_epochs):
-
-            # Training
-            self.model.train()
+            
             for batch in train_loader:
+                
                 inputs = batch["x"].to(self.device)
                 labels = batch["y"].to(self.device)
+
                 optimizer.zero_grad(set_to_none=True)
                 logits = self.model(inputs)
                 loss = criterion(logits, labels)
                 loss.backward()
                 optimizer.step()
-
-            # Validation
-            self.model.eval()
-            val_loss = 0.0
-            with torch.no_grad():
-                for batch in val_loader:
-                    inputs = batch["x"].to(self.device)
-                    labels = batch["y"].to(self.device)
-                    logits = self.model(inputs)
-                    val_loss += criterion(logits, labels).item()
-            val_loss /= len(val_loader)
-
-            # Early stopping check
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_weights = {k: v.clone() for k, v in self.model.state_dict().items()}
-                epochs_no_improve = 0
-            else:
-                epochs_no_improve += 1
-
+            
+            validation_loss = 0
+            if must_validate:
+                validation_loss = self._core_avg_val_loss(trials=validation_trials, batch_size=batch_size)
+                self._record_loss(validation_loss, self.model)
+                if not self._should_continue():
+                    self._restore_best()
+                    break
+            
             epoch_tk.lap()
+            # Formatting resets
+            RESET     = "\033[0m"
+            BOLD      = "\033[1m"
+            UNDERLINE = "\033[4m"
+            
+            # Standard Colors
+            
+            # "Bright" Variants (Often look better in dark terminals)
+            BR_GREEN   = "\033[92m"
+            BR_YELLOW  = "\033[93m"
+            BR_MAGENTA = "\033[95m"
+            BR_CYAN    = "\033[96m"
+            ORANGE = "\033[38;5;208m"
+            msl_epoch = len(str(num_epochs)) # max string length 
             print_content = (
-                f"Epoch [ {epoch_i + 1}/{num_epochs} ]"
-                f" | Val Loss: [ {val_loss:.4f} ]"
-                f" | Best Val Loss: [ {best_val_loss:.4f} ]"
-                f" | No improve: [ {epochs_no_improve}/{patience} ]"
-                f" | [ {epoch_tk.last_lap_duration:.3f}s / epoch ]"
+                f"Epoch {BR_CYAN}{epoch_i + 1:>{msl_epoch}}{RESET}/{BR_CYAN}{num_epochs}{RESET} | "
+                f"Total {BR_GREEN}{epoch_tk.accumulated_duration:>7.3f}{RESET}s | "
+                f"{BR_YELLOW}{epoch_tk.last_lap_duration:.3f}s{RESET}/epoch{RESET}"
             )
-            self.update_printed_training_status(print_content)
-
-            if epochs_no_improve >= patience:
-                print(f"Early stopping at epoch {epoch_i + 1}")
-                break
-
-        # Restore best weights
-        if best_weights is not None:
-            self.model.load_state_dict(best_weights)
-
+            if must_validate:
+                print_content += f" | vloss={BR_MAGENTA}{validation_loss:.4f}{RESET} | low={BOLD}{ORANGE}{self._lowest_loss:.4f}{RESET}"
+            
+            line.place(print_content)
+        
         return self.model

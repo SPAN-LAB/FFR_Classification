@@ -30,6 +30,13 @@ class AnalysisPipeline:
     def __init__(self):
         """
         Initialize the pipeline container with an empty subject list.
+        
+        The `subjects` and `models` attributes arrays equal in length. 
+        The i-th element of `subjects` "corresponds" to the i-th element of 
+        `models`. The word "corresponds" can mean different things in different 
+        contexts. When training models on individual subject, `models[i]` 
+        is trained on `subjects[i]`; when training generic models, 
+        `models[i]` is trained on all subjects except `subjects[i]`. 
         """
         self.subjects: list[EEGSubject] = []
         self.models: list[ModelInterface] = []
@@ -72,7 +79,7 @@ class AnalysisPipeline:
     # MARK: IO
 
     @gui_private()
-    def load_subjects(self, path: str | list[str], *, combine: bool = False) -> AnalysisPipeline:
+    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
         """
         Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
         instances and adds them to this object's subjects list. 
@@ -93,13 +100,8 @@ class AnalysisPipeline:
                 raise ValueError(f"File does not end with .mat: {filepath}")
             subject = EEGSubject.init_from_filepath(filepath)
             print(f"load_subjects : Subject loaded from {filepath}")
-            if not combine: 
-                self.subjects.append(subject)
-            else:
-                if len(self.subjects) == 0:
-                    self.subjects.append(subject)
-                else:
-                    self.subjects[0].trials += deepcopy(subject).trials
+            self.subjects.append(subject)
+            
 
         if type(path) is str:
 
@@ -123,9 +125,6 @@ class AnalysisPipeline:
                 load_subjects_helper(filepath)
         else:
             raise ValueError("Unrecognized input: path must be a string or list of strings")
-        
-        if combine and len(self.subjects) != 0:
-            self.subjects[0].reindex_trials()
 
         return self
 
@@ -246,23 +245,24 @@ class AnalysisPipeline:
         """
         TODO @Kevin
         """
+        self.models = []
         concrete_model = find_model(model_name)
-        for subject in self.subjects:
+        for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)
             model.set_subject(subject)
 
-            accuracy = model.evaluate()
-            print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-            self.models.append(model)
+            # accuracy = model.evaluate()
+            # print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            # self.models.append(model)
 
-            # # Evaluate it
-            # try:
-            #     accuracy = model.evaluate()
-            #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-            #     self.models.append(model)
-            # except Exception as e:
-            #     print(f"Error evaluating {subject.name}: {e}")
+            # Evaluate it
+            try:
+                accuracy = model.evaluate()
+                print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+                self.models.append(model)
+            except Exception as e:
+                print(f"Error evaluating {subject.name}: {e}")
         
         return self
 
