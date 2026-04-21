@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import sys
 import traceback
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -20,6 +22,8 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -39,8 +43,8 @@ def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
 
 
 class _FunctionWorker(QObject):
-    finished = pyqtSignal()
-    failed = pyqtSignal(str, str)
+    finished = pyqtSignal(str)
+    failed = pyqtSignal(str, str, str)
 
     def __init__(self, fn: Callable, kwargs: dict) -> None:
         super().__init__()
@@ -48,12 +52,14 @@ class _FunctionWorker(QObject):
         self._kwargs = kwargs
 
     def run(self) -> None:
+        buf = io.StringIO()
         try:
-            self._fn(**self._kwargs)
+            with redirect_stdout(buf), redirect_stderr(buf):
+                self._fn(**self._kwargs)
         except Exception as exc:
-            self.failed.emit(str(exc), traceback.format_exc())
+            self.failed.emit(str(exc), traceback.format_exc(), buf.getvalue())
             return
-        self.finished.emit()
+        self.finished.emit(buf.getvalue())
 
 
 _PANEL_STYLE = """
@@ -352,14 +358,44 @@ class MainWindow(QMainWindow):
         add_btn.clicked.connect(self._add_function)
         bar.addWidget(add_btn)
 
-        bar.addStretch()
-
         self._run_btn = QPushButton("Run Functions")
         self._run_btn.setStyleSheet(_RUN_BTN_STYLE)
         self._run_btn.clicked.connect(self._run_pipeline)
         bar.addWidget(self._run_btn)
 
+        bar.addSpacing(12)
+
+        self._status_label = QPushButton("")
+        self._status_label.setFlat(True)
+        self._status_label.setStyleSheet(
+            "QPushButton { background: transparent; color: #555; border: none;"
+            " font-size: 12px; text-align: left; padding: 0; }"
+            " QPushButton:hover { color: #1a73e8; text-decoration: underline; }"
+        )
+        self._status_label.setCursor(Qt.PointingHandCursor)
+        self._status_label.clicked.connect(self._show_log)
+        self._status_label.hide()
+        bar.addWidget(self._status_label)
+
+        bar.addStretch()
+
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setFixedWidth(260)
+        self._progress_bar.setFixedHeight(18)
+        self._progress_bar.setTextVisible(True)
+        self._progress_bar.setStyleSheet(
+            "QProgressBar { border: 1px solid #ccc; border-radius: 4px;"
+            " background: #e0e0e0; text-align: center; font-size: 11px; color: #333; }"
+            " QProgressBar::chunk { background: #4285f4; border-radius: 3px; }"
+        )
+        self._progress_bar.setValue(0)
+        self._progress_bar.hide()
+        bar.addWidget(self._progress_bar)
+
         outer.addLayout(bar)
+
+        self._log_lines: list[str] = []
+
         return container
 
     # ── function map ─────────────────────────────────────────────────────────
@@ -520,12 +556,21 @@ class MainWindow(QMainWindow):
         self._pending_queue = [
             (f["name"], dict(f["params"])) for f in self._pipeline_functions
         ]
+        self._total_steps = len(self._pending_queue)
+        self._completed_steps = 0
+        self._log_lines = []
+        self._progress_bar.setMaximum(self._total_steps)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFormat(f"0/{self._total_steps}")
+        self._progress_bar.show()
+        self._status_label.show()
         self._start_next_queued()
 
     def _start_next_queued(self) -> None:
         if not self._pending_queue:
             self._set_running(False)
             self._update_subjects()
+            self._status_label.setText("Pipeline finished. Click to view log.")
             QMessageBox.information(
                 self, "Complete", "Pipeline execution finished."
             )
@@ -534,10 +579,18 @@ class MainWindow(QMainWindow):
         name, params = self._pending_queue.pop(0)
         func = self.function_map.get(name)
         if func is None:
+            self._log_lines.append(f"Error: Unknown function: {name}")
             QMessageBox.critical(self, "Error", f"Unknown function: {name}")
             self._pending_queue.clear()
             self._set_running(False)
             return
+
+        detail = _function_detail(func)
+        display_name = detail.label if detail and detail.label else name
+        subjects = self.manager.state.subjects
+        subject_suffix = f" on {subjects[-1].name}" if subjects else ""
+        self._status_label.setText(f"Evaluating {display_name}{subject_suffix}")
+        self._log_lines.append(f"--- {display_name}{subject_suffix} ---")
 
         self._set_running(True)
         thread = QThread(self)
@@ -554,25 +607,58 @@ class MainWindow(QMainWindow):
         self._worker = worker
         thread.start()
 
-    def _on_run_finished(self) -> None:
+    def _on_run_finished(self, output: str) -> None:
         self._thread = None
         self._worker = None
+        if output.strip():
+            self._log_lines.append(output.rstrip())
+        self._completed_steps += 1
+        self._progress_bar.setValue(self._completed_steps)
+        self._progress_bar.setFormat(
+            f"{self._completed_steps}/{self._total_steps}"
+        )
         self._refresh_function_map()
         if self._pending_queue:
             self._start_next_queued()
         else:
             self._set_running(False)
             self._update_subjects()
+            self._status_label.setText("Pipeline finished. Click to view log.")
             QMessageBox.information(
                 self, "Complete", "Pipeline execution finished."
             )
 
-    def _on_run_failed(self, message: str, _tb: str) -> None:
+    def _on_run_failed(self, message: str, _tb: str, output: str) -> None:
         self._thread = None
         self._worker = None
+        if output.strip():
+            self._log_lines.append(output.rstrip())
+        self._log_lines.append(f"ERROR: {message}")
         self._pending_queue.clear()
         self._set_running(False)
+        self._status_label.setText("Pipeline failed. Click to view log.")
         QMessageBox.critical(self, "Execution Error", message)
+
+    def _show_log(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Pipeline Log")
+        dialog.setMinimumSize(480, 320)
+        layout = QVBoxLayout()
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText("\n".join(self._log_lines) if self._log_lines else "(no log)")
+        text.setStyleSheet(
+            "QPlainTextEdit { font-family: monospace; font-size: 12px;"
+            " background: white; border: 1px solid #ccc; border-radius: 4px;"
+            " padding: 8px; }"
+        )
+        layout.addWidget(text)
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignRight)
+        dialog.setLayout(layout)
+        dialog.exec_()
 
     def _set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
