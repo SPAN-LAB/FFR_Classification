@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
+import threading
 import traceback
-from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
@@ -42,9 +43,92 @@ def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
     return getattr(func, "detail", None)
 
 
+class _FdCapture:
+    """Tee fd 1 (stdout) and fd 2 (stderr) to both the real terminal and
+    an in-memory buffer. Captures C-level output too (torch, tqdm, etc.)."""
+
+    def __init__(
+        self, on_chunk: Optional[Callable[[str], None]] = None
+    ) -> None:
+        self._buf = io.BytesIO()
+        self._lock = threading.Lock()
+        self._on_chunk = on_chunk
+        self._saved_out_fd: Optional[int] = None
+        self._saved_err_fd: Optional[int] = None
+        self._pipe_r: Optional[int] = None
+        self._pipe_w: Optional[int] = None
+        self._reader: Optional[threading.Thread] = None
+
+    def start(self) -> None:
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        self._saved_out_fd = os.dup(1)
+        self._saved_err_fd = os.dup(2)
+        self._pipe_r, self._pipe_w = os.pipe()
+        os.dup2(self._pipe_w, 1)
+        os.dup2(self._pipe_w, 2)
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+
+    def _read_loop(self) -> None:
+        assert self._pipe_r is not None and self._saved_out_fd is not None
+        while True:
+            try:
+                chunk = os.read(self._pipe_r, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            with self._lock:
+                self._buf.write(chunk)
+            try:
+                os.write(self._saved_out_fd, chunk)
+            except OSError:
+                pass
+            if self._on_chunk is not None:
+                try:
+                    self._on_chunk(chunk.decode("utf-8", errors="replace"))
+                except Exception:
+                    pass
+
+    def stop(self) -> str:
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        if self._saved_out_fd is not None:
+            os.dup2(self._saved_out_fd, 1)
+        if self._saved_err_fd is not None:
+            os.dup2(self._saved_err_fd, 2)
+        if self._pipe_w is not None:
+            os.close(self._pipe_w)
+            self._pipe_w = None
+        if self._reader is not None:
+            self._reader.join(timeout=2.0)
+        if self._pipe_r is not None:
+            try:
+                os.close(self._pipe_r)
+            except OSError:
+                pass
+            self._pipe_r = None
+        if self._saved_out_fd is not None:
+            os.close(self._saved_out_fd)
+            self._saved_out_fd = None
+        if self._saved_err_fd is not None:
+            os.close(self._saved_err_fd)
+            self._saved_err_fd = None
+        with self._lock:
+            return self._buf.getvalue().decode("utf-8", errors="replace")
+
+
 class _FunctionWorker(QObject):
-    finished = pyqtSignal(str)
-    failed = pyqtSignal(str, str, str)
+    finished = pyqtSignal()
+    failed = pyqtSignal(str, str)
+    output_chunk = pyqtSignal(str)
 
     def __init__(self, fn: Callable, kwargs: dict) -> None:
         super().__init__()
@@ -52,14 +136,16 @@ class _FunctionWorker(QObject):
         self._kwargs = kwargs
 
     def run(self) -> None:
-        buf = io.StringIO()
+        cap = _FdCapture(on_chunk=lambda text: self.output_chunk.emit(text))
+        cap.start()
         try:
-            with redirect_stdout(buf), redirect_stderr(buf):
-                self._fn(**self._kwargs)
+            self._fn(**self._kwargs)
         except Exception as exc:
-            self.failed.emit(str(exc), traceback.format_exc(), buf.getvalue())
+            cap.stop()
+            self.failed.emit(str(exc), traceback.format_exc())
             return
-        self.finished.emit(buf.getvalue())
+        cap.stop()
+        self.finished.emit()
 
 
 _PANEL_STYLE = """
@@ -355,11 +441,15 @@ class MainWindow(QMainWindow):
 
         add_btn = QPushButton("Add Function")
         add_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        add_btn.setFixedSize(160, 40)
         add_btn.clicked.connect(self._add_function)
         bar.addWidget(add_btn)
 
+        bar.addSpacing(16)
+
         self._run_btn = QPushButton("Run Functions")
         self._run_btn.setStyleSheet(_RUN_BTN_STYLE)
+        self._run_btn.setFixedSize(160, 40)
         self._run_btn.clicked.connect(self._run_pipeline)
         bar.addWidget(self._run_btn)
 
@@ -394,7 +484,8 @@ class MainWindow(QMainWindow):
 
         outer.addLayout(bar)
 
-        self._log_lines: list[str] = []
+        self._log_text: str = ""
+        self._log_dialog_text: Optional[QPlainTextEdit] = None
 
         return container
 
@@ -558,7 +649,9 @@ class MainWindow(QMainWindow):
         ]
         self._total_steps = len(self._pending_queue)
         self._completed_steps = 0
-        self._log_lines = []
+        self._log_text = ""
+        if self._log_dialog_text is not None:
+            self._log_dialog_text.setPlainText("")
         self._progress_bar.setMaximum(self._total_steps)
         self._progress_bar.setValue(0)
         self._progress_bar.setFormat(f"0/{self._total_steps}")
@@ -579,7 +672,7 @@ class MainWindow(QMainWindow):
         name, params = self._pending_queue.pop(0)
         func = self.function_map.get(name)
         if func is None:
-            self._log_lines.append(f"Error: Unknown function: {name}")
+            self._append_log(f"Error: Unknown function: {name}\n")
             QMessageBox.critical(self, "Error", f"Unknown function: {name}")
             self._pending_queue.clear()
             self._set_running(False)
@@ -588,15 +681,21 @@ class MainWindow(QMainWindow):
         detail = _function_detail(func)
         display_name = detail.label if detail and detail.label else name
         subjects = self.manager.state.subjects
-        subject_suffix = f" on {subjects[-1].name}" if subjects else ""
+        if not subjects:
+            subject_suffix = ""
+        elif len(subjects) <= 3:
+            subject_suffix = f" on {', '.join(s.name for s in subjects)}"
+        else:
+            subject_suffix = f" on {len(subjects)} subjects"
         self._status_label.setText(f"Evaluating {display_name}{subject_suffix}")
-        self._log_lines.append(f"--- {display_name}{subject_suffix} ---")
+        self._append_log(f"--- {display_name}{subject_suffix} ---\n")
 
         self._set_running(True)
         thread = QThread(self)
         worker = _FunctionWorker(func, params)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.output_chunk.connect(self._append_log)
         worker.finished.connect(self._on_run_finished)
         worker.failed.connect(self._on_run_failed)
         worker.finished.connect(thread.quit)
@@ -607,11 +706,9 @@ class MainWindow(QMainWindow):
         self._worker = worker
         thread.start()
 
-    def _on_run_finished(self, output: str) -> None:
+    def _on_run_finished(self) -> None:
         self._thread = None
         self._worker = None
-        if output.strip():
-            self._log_lines.append(output.rstrip())
         self._completed_steps += 1
         self._progress_bar.setValue(self._completed_steps)
         self._progress_bar.setFormat(
@@ -628,37 +725,49 @@ class MainWindow(QMainWindow):
                 self, "Complete", "Pipeline execution finished."
             )
 
-    def _on_run_failed(self, message: str, _tb: str, output: str) -> None:
+    def _on_run_failed(self, message: str, _tb: str) -> None:
         self._thread = None
         self._worker = None
-        if output.strip():
-            self._log_lines.append(output.rstrip())
-        self._log_lines.append(f"ERROR: {message}")
+        self._append_log(f"ERROR: {message}\n")
         self._pending_queue.clear()
         self._set_running(False)
         self._status_label.setText("Pipeline failed. Click to view log.")
         QMessageBox.critical(self, "Execution Error", message)
 
+    def _append_log(self, text: str) -> None:
+        self._log_text += text
+        if self._log_dialog_text is not None:
+            self._log_dialog_text.moveCursor(QTextCursor.End)
+            self._log_dialog_text.insertPlainText(text)
+            self._log_dialog_text.moveCursor(QTextCursor.End)
+
     def _show_log(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Pipeline Log")
         dialog.setMinimumSize(480, 320)
+        dialog.setModal(False)
         layout = QVBoxLayout()
         text = QPlainTextEdit()
         text.setReadOnly(True)
-        text.setPlainText("\n".join(self._log_lines) if self._log_lines else "(no log)")
+        text.setPlainText(self._log_text)
         text.setStyleSheet(
             "QPlainTextEdit { font-family: monospace; font-size: 12px;"
             " background: white; border: 1px solid #ccc; border-radius: 4px;"
             " padding: 8px; }"
         )
+        text.moveCursor(QTextCursor.End)
         layout.addWidget(text)
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
         close_btn.clicked.connect(dialog.accept)
         layout.addWidget(close_btn, alignment=Qt.AlignRight)
         dialog.setLayout(layout)
-        dialog.exec_()
+        self._log_dialog_text = text
+        dialog.finished.connect(lambda _: self._clear_log_dialog_ref())
+        dialog.show()
+
+    def _clear_log_dialog_ref(self) -> None:
+        self._log_dialog_text = None
 
     def _set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
