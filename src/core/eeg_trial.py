@@ -156,31 +156,28 @@ class EEGTrial:
             print("Warning: No trials supplied.")
             return 0
         
-        num_correct_dict = 0
-        total_dict = 0
+        num_correct_dict = {}
+        total_dict = {}
+        
+        def parse_trials(trials: list[EEGTrial]):
+            for trial in trials:
+                if trial.label not in num_correct_dict:
+                    num_correct_dict[trial.label] = 0
+                if trial.label not in total_dict:
+                    total_dict[trial.label] = 0
+                total_dict[trial.label] += 1
+                if trial.prediction == trial.label:
+                    num_correct_dict[trial.label] += 1
+                
+                
         
         # list[EEGTrial]
         if isinstance(trials[0], EEGTrial):
-            total = len(trials)
-            for trial in trials:
-                
-                new_total = total_dict.get(trial.label, 0) + 1
-                total_dict[trial.label] = new_total
-                
-                if trial.prediction == trial.label:
-                    new_correct = num_correct_dict.get(trial.label, 0) + 1
-                    num_correct_dict[trial.label] = new_correct
+            parse_trials(trials)
         # list[list[EEGTrial]]
         else:
             for trial_list in trials:
-                for trial in trial_list:
-                    
-                    new_total = total_dict.get(trial.label, 0) + 1
-                    total_dict[trial.label] = new_total
-                    
-                    if trial.prediction == trial.label:
-                        new_correct = num_correct_dict.get(trial.label, 0) + 1
-                        num_correct_dict[trial.label] = new_correct
+                parse_trials(trial_list)
 
         accuracies = {}
         for key in num_correct_dict.keys():

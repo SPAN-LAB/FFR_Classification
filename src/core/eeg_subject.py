@@ -256,3 +256,17 @@ class EEGSubject:
         merged_subject = EEGSubject(all_trials, source_filepath="DNE")
         return merged_subject
         
+    @staticmethod
+    def min_trials_per_label(*, subjects: list[EEGSubject]) -> dict[any, int]:
+        """
+        Returns the minimum number of trials for each tone across all subjects.
+        """
+        mins = {}
+        for subject in subjects:
+            for label, trials in subject.grouped_trials().items():
+                mins[label] = min(
+                    mins.get(label, float("inf")),
+                    len(trials)
+                )
+                
+        return mins

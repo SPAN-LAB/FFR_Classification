@@ -247,22 +247,23 @@ class AnalysisPipeline:
         """
         self.models = []
         concrete_model = find_model(model_name)
+        print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)
             model.set_subject(subject)
 
-            # accuracy = model.evaluate()
-            # print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-            # self.models.append(model)
+            accuracy = model.evaluate()
+            print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            self.models.append(model)
 
             # Evaluate it
-            try:
-                accuracy = model.evaluate()
-                print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-                self.models.append(model)
-            except Exception as e:
-                print(f"Error evaluating {subject.name}: {e}")
+            # try:
+            #     accuracy = model.evaluate()
+            #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
+            #     self.models.append(model)
+            # except Exception as e:
+            #     print(f"Error evaluating {subject.name}: {e}")
         
         return self
 

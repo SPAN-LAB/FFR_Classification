@@ -18,7 +18,7 @@ from ...time import TimeKeeper
 
 from ...printing import print, printl, unlock
 
-from ...constants.defaults import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY, MIN_DELTA, PATIENCE, VALIDATION_RATIO
+from ...constants.defaults import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY, MIN_DELTA, PATIENCE, VALIDATION_RATIO, LR_PATIENCE
 
 
 class ModelInterface:
@@ -50,9 +50,7 @@ class ModelInterface:
         raise NotImplementedError("This needs to be implemented!")
     
     def _record_loss(self, loss: float, model):
-        # print(f"{loss = } {self._lowest_loss = } {self.get_min_delta()}")
         if loss < self._lowest_loss - self.get_min_delta():
-            # print(f"Lowering lowest_loss to {loss}")
             self._lowest_loss = loss
             self._num_stagnant_epochs = 0
             self._store_best(model)
@@ -60,8 +58,7 @@ class ModelInterface:
             self._num_stagnant_epochs += 1
     
     def _should_continue(self) -> bool:
-        # print(f"{self._num_stagnant_epochs = }")
-        return self._num_stagnant_epochs < self.get_patience()
+        return self._num_stagnant_epochs <= self.get_patience()
         
     def _reset_loss_trackers(self):
         self._num_stagnant_epochs = 0
@@ -98,6 +95,11 @@ class ModelInterface:
         if not isinstance(self.training_options, dict):
             return PATIENCE
         return self.training_options.get("patience", PATIENCE)
+    
+    def get_lr_patience(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return LR_PATIENCE
+        return self.training_options.get("lr_patience", LR_PATIENCE)
     
     def get_validation_ratio(self) -> float:
         if not isinstance(self.training_options, dict):
@@ -185,7 +187,6 @@ class ModelInterface:
             min_delta=self.get_min_delta(),
             patience=self.get_patience()
         )
-        unlock()
         
         # Save to disk if path is specified
         if pickle_to is not None:
@@ -274,5 +275,7 @@ class ModelInterface:
                 folded_trials[i][j].set_prediction_distribution(
                     enumerated_prediction_distribution=folded_prediction_distributions[i][j]
                 )
-        
+        per_label_accuracies = EEGTrial.get_per_label_accuracy(trials=folded_trials)
+        for label, accuracy in per_label_accuracies.items():
+            print(f"Tone {label} | {accuracy}")
         return EEGTrial.get_accuracy(trials=folded_trials)

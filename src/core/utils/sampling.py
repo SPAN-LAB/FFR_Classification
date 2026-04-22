@@ -25,9 +25,9 @@ def sds2(trials: list[EEGTrial], num_trials: int) -> list[EEGTrial]:
     num_trials_allocated = 0
     distances = []
     for label, num_trials_tuple in num_trials_per_label.items():
-        distances.append([label, num_trials_tuple[0] - num_trials_tuple[1]])
+        distances.append([label, num_trials_tuple[0]])
         num_trials_allocated += num_trials_tuple[1]
-    distances.sort(key=lambda x: x[1], reverse=True)
+    distances.sort(key=lambda x: x[1], reverse=False)
     
     # Now, distances contains tuples of the form (Label, fractional_trials_needed)
     # sorted by the second value. So we can allocate remaining trials to 

@@ -39,19 +39,19 @@ class TorchNNBase(ModelInterface):
         Searches for a compatible GPU device if ``use_gpu`` is True.
         If one isn't found, or if ``use_gpu`` is False, uses the CPU instead.
         """
-        if use_gpu:
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-                print("Using CUDA for GPU computations")
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-                print("Using MPS for GPU computations")
-            else:
-                self.device = torch.device("cpu")
-                print("Using CPU for torch computations")
+        if not use_gpu:
+            self.device = torch.device("cpu")
+            print("Using CPU for torch computations")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print("Using CUDA for GPU computations")
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            print("Using MPS for GPU computations")
         else:
             self.device = torch.device("cpu")
             print("Using CPU for torch computations")
+
     
     def reset_seed(self):
         torch.manual_seed(0)
@@ -168,6 +168,12 @@ class TorchNNBase(ModelInterface):
             lr=learning_rate, 
             weight_decay=weight_decay
         )
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.25,
+            patience=max(1, patience // 2)
+        )
         
         must_validate = validation_trials is not None and validation_trials != 0
         if must_validate and isinstance(validation_trials, float):
@@ -212,6 +218,7 @@ class TorchNNBase(ModelInterface):
             if must_validate:
                 validation_loss = self._core_avg_val_loss(trials=validation_trials, batch_size=batch_size)
                 self._record_loss(validation_loss, self.model)
+                scheduler.step(validation_loss)
                 if not self._should_continue():
                     self._restore_best()
                     break
@@ -221,6 +228,7 @@ class TorchNNBase(ModelInterface):
             RESET     = "\033[0m"
             BOLD      = "\033[1m"
             UNDERLINE = "\033[4m"
+            BLINK = "\033[5m"
             
             # Standard Colors
             
@@ -230,14 +238,20 @@ class TorchNNBase(ModelInterface):
             BR_MAGENTA = "\033[95m"
             BR_CYAN    = "\033[96m"
             ORANGE = "\033[38;5;208m"
+            BG_BR_RED = "\033[91m"
             msl_epoch = len(str(num_epochs)) # max string length 
+            current_learning_rate = optimizer.param_groups[0]["lr"]
             print_content = (
                 f"Epoch {BR_CYAN}{epoch_i + 1:>{msl_epoch}}{RESET}/{BR_CYAN}{num_epochs}{RESET} | "
                 f"Total {BR_GREEN}{epoch_tk.accumulated_duration:>7.3f}{RESET}s | "
                 f"{BR_YELLOW}{epoch_tk.last_lap_duration:.3f}s{RESET}/epoch{RESET}"
             )
             if must_validate:
-                print_content += f" | vloss={BR_MAGENTA}{validation_loss:.4f}{RESET} | low={BOLD}{ORANGE}{self._lowest_loss:.4f}{RESET}"
+                print_content += (
+                    f" | vloss={BR_MAGENTA}{validation_loss:.4f}{RESET}" 
+                    f" | low={ORANGE}{self._lowest_loss:.4f}{RESET} [{ORANGE}{epoch_i + 1 - self._num_stagnant_epochs:>{msl_epoch}}{RESET}]"
+                    f" | lr={BG_BR_RED}{current_learning_rate}{RESET}"
+                )
             
             line.place(print_content)
         
