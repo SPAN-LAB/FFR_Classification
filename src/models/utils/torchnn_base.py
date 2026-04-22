@@ -218,7 +218,12 @@ class TorchNNBase(ModelInterface):
             if must_validate:
                 validation_loss = self._core_avg_val_loss(trials=validation_trials, batch_size=batch_size)
                 self._record_loss(validation_loss, self.model)
+                prev_lr = optimizer.param_groups[0]["lr"]
                 scheduler.step(validation_loss)
+                new_lr = optimizer.param_groups[0]["lr"]
+                learning_rate_updated = new_lr != prev_lr
+                if learning_rate_updated:
+                    self._restore_best()
                 if not self._should_continue():
                     self._restore_best()
                     break
