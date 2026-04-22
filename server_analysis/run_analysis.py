@@ -20,11 +20,11 @@ from src.analysis.accuracy_against_data_amount import accuracy_against_data_amou
 
 
 TRAINING_OPTIONS = {
-    "num_epochs": 20,
-    "batch_size": 32,
-    "learning_rate": 0.001,
-    "weight_decay": 0.1,
+    "CNN":  {"num_epochs": 50, "batch_size": 64, "learning_rate": 1e-3, "weight_decay": 1e-2},
+    "FFNN": {"num_epochs": 50, "batch_size": 64, "learning_rate": 5e-5, "weight_decay": 1e-3},
 }
+
+DEFAULT_TRAINING_OPTIONS = {"num_epochs": 50, "batch_size": 64, "learning_rate": 1e-3, "weight_decay": 1e-1}
 
 SUBAVERAGE_SIZES = list(range(5, 126, 5))  # 5, 10, ..., 125
 DATA_AMOUNT_MIN_TRIALS = 100
@@ -53,7 +53,7 @@ def main():
             subaverage_sizes=SUBAVERAGE_SIZES,
             subject_filepaths=subject_filepaths,
             model_names=model_names,
-            training_options=TRAINING_OPTIONS,
+            training_options=TRAINING_OPTIONS.get(args.model, DEFAULT_TRAINING_OPTIONS),
             output_folder_path=f"{args.output_dir}/subaverage",
             include_null_case=True,
             defer_subject_loading=True,
@@ -66,7 +66,7 @@ def main():
             stride=DATA_AMOUNT_STRIDE,
             subject_filepaths=subject_filepaths,
             model_names=model_names,
-            training_options=TRAINING_OPTIONS,
+            training_options=TRAINING_OPTIONS.get(args.model, DEFAULT_TRAINING_OPTIONS),
             output_folder_path=f"{args.output_dir}/data_amount",
             defer_subject_loading=True,
         )

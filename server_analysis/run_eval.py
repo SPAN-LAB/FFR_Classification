@@ -16,11 +16,11 @@ from src.core import AnalysisPipeline
 
 
 TRAINING_OPTIONS = {
-    "num_epochs": 50,
-    "batch_size": 64,
-    "learning_rate": 0.001,
-    "weight_decay": 0.1,
+    "CNN":  {"num_epochs": 50, "batch_size": 64, "learning_rate": 1e-3, "weight_decay": 1e-2},
+    "FFNN": {"num_epochs": 50, "batch_size": 64, "learning_rate": 5e-5, "weight_decay": 1e-3},
 }
+
+DEFAULT_TRAINING_OPTIONS = {"num_epochs": 50, "batch_size": 64, "learning_rate": 1e-3, "weight_decay": 1e-1}
 
 
 def main():
@@ -39,7 +39,7 @@ def main():
         .fold(5)
         .evaluate_model(
             model_name=args.model,
-            training_options=TRAINING_OPTIONS,
+            training_options=TRAINING_OPTIONS.get(args.model, DEFAULT_TRAINING_OPTIONS),
         )
     )
 
