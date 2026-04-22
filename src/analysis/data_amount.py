@@ -44,8 +44,8 @@ def generic_analyze(
     output_dirpath: str,
 ):
     
-    MIN_TRIALS = 1000
-    STRIDE = 1000
+    MIN_TRIALS = 100
+    STRIDE = 100
     
     # Set up output directory paths
     independent_var_name = "data_amount"

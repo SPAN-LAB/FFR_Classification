@@ -28,7 +28,7 @@ generic        = args.generic
 # Decide which type of analysis to run
 if generic == "true":
     if analysis_type == "data_amount":
-        from local.private_constants import ALL_D_PATHS
+        from local.constants import ALL_D_PATHS
         data_amount.generic_analyze(
             model_name=model_name,
             subject_filepath=data_filepath,
