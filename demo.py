@@ -16,7 +16,7 @@ from src.core import AnalysisPipeline, BlankPipeline
 #
 # Swap this variable into the ``load_subjects`` method on line 18 below.
 
-SUBJECT_FILEPATHS = [r"Z:\projects\trial_classification\4tone_cell\4T1002.mat"]
+SUBJECT_FILEPATHS = [r"//"]
 
 loading_result = BlankPipeline()
 trimming_result = BlankPipeline()
