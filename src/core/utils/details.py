@@ -132,16 +132,60 @@ evaluate_model_detail = FD(
     ]
 )
 
-# TODO
 train_model_detail = FD(
     label="Train Model",
-    argument_details=[],
-    description="This function is NOT YET implemented."
+    argument_details=[
+        AD(
+            label="Select Model",
+            type=Selection,
+            default_value=Selection(map=find_models),
+            description="Select the model architecture to train."
+        ),
+        AD(
+            label="Hyperparameters",
+            type=dict[str, any],
+            default_value={
+                "num_epochs": 20,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+                "weight_decay": 0.1
+            },
+            description="Hyperparameters for model training."
+        ),
+        AD(
+            label="Output Directory (Optional)",
+            type=str,
+            default_value="",
+            description="Directory to save trained models. Leave empty to skip saving."
+        )
+    ],
+    description="Trains a selected model on all subjects."
 )
 
-# TODO
 infer_on_model_detail = FD(
     label="Infer on Model",
-    argument_details=[],
-    description="This function is NOT YET implemented."
+    argument_details=[
+        AD(
+            label="Training Options",
+            type=dict[str, any],
+            default_value={
+                "batch_size": 32
+            },
+            description="Options for inference/evaluation."
+        )
+    ],
+    description="Runs inference on trained models for all subjects."
+)
+
+load_model_detail = FD(
+    label="Load Model",
+    argument_details=[
+        AD(
+            label="Model File Path(s)",
+            type=str,
+            default_value="",
+            description="Path to a model pickle file or JSON list of paths."
+        )
+    ],
+    description="Loads previously trained models from disk."
 )

@@ -11,86 +11,48 @@ Description: The interface and implementation of the EEGSubject type.
 from __future__ import annotations
 from typing import Any, Self, Callable
 
-from .eeg_trial import EEGTrialInterface, EEGTrial
-
 import numpy as np
 from pymatreader import read_mat
-from random import shuffle
 from pathlib import Path
 
-class EEGSubjectInterface:
-    trials: list[EEGTrialInterface]
-    source_filepath: str | None
-    folds: list[list[EEGTrialInterface]] | None
-    labels_map: dict[str, int]
+from .eeg_trial import EEGTrial
+import os
+import sys
 
-    @property
-    def name(self) -> str:
-        raise NotImplementedError("Implement this method.")
+# from .utils import silence_stderr
 
-    @property
-    def trial_size(self) -> int:
-        raise NotImplementedError("Implement this method.")
-
-    @property
-    def num_categories(self) -> int:
-        raise NotImplementedError("Implement this method.")
-
-    def set_label_preference(self, pref: str | None):
-        raise NotImplementedError("Implement this method.")
-
-    @staticmethod
-    def init_from_filepath(filepath: str, extract: Callable | None) -> EEGSubject:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def subaverage(self, size: int) -> EEGSubject:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def fold(self, num_folds: int) -> EEGSubject:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def map_trial_labels(self, rule_filepath: str) -> EEGSubject:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def grouped_trials(self) -> dict[any, list[EEGTrialInterface]]:
-        """
-        TODO
-        """
-        raise NotImplementedError("Implement this method.")
-
-class EEGSubject(EEGSubjectInterface):
-    def __init__(self, *, trials=None, source_filepath=None):
+class EEGSubject:
+    
+    # MARK: Initializer and stored properties
+    
+    def __init__(self, *, trials=[], source_filepath=None):
         """
         Provide argument for either `trials` or `source_filepath` but not both.
         """
-        self.trials = trials
+        self.trials: list[EEGTrial] = trials
         self.source_filepath = source_filepath
-        self.folds = None
+        self.folds: list[list[EEGTrial]] | None = None
         self.labels_map = {}
+
+    # MARK: Computed properties
+
+    @property
+    def name(self) -> str:
+        if self.source_filepath is None:
+            return "<Undeterminable name>"
+
+        filename = Path(self.source_filepath).stem # Get filename from filepath (without extension)
+        return filename
+
+    @property
+    def trial_size(self) -> int:
+        return len(self.trials[0])
+
+    @property
+    def num_categories(self) -> int:
+        return len(self.grouped_trials().keys())
+
+    # MARK: IO
 
     @staticmethod
     def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
@@ -107,7 +69,22 @@ class EEGSubject(EEGSubjectInterface):
             return output
 
         # Get the raw data from the .mat file
-        raw = read_mat(filepath)
+        # raw = None
+        # def do(): 
+        raw = None
+        with open(os.devnull, 'w') as null:
+            # Save original stderr
+            old_stderr = os.dup(sys.stderr.fileno())
+            # Replace stderr with null
+            os.dup2(null.fileno(), sys.stderr.fileno())
+            try:
+                raw = read_mat(filepath)
+            finally:
+                # Restore original stderr
+                os.dup2(old_stderr, sys.stderr.fileno())
+                os.close(old_stderr)
+        # raw = read_mat(filepath)
+        # silence_stderr(do)
 
         # Use the default extraction method if one isn't provided
         if extract is None:
@@ -136,6 +113,8 @@ class EEGSubject(EEGSubjectInterface):
         subject.setup_labels_map()
 
         return subject
+
+    # MARK: Processing methods
 
     def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject:
         for trial in self.trials:
@@ -217,27 +196,7 @@ class EEGSubject(EEGSubjectInterface):
 
         return self
 
-    def grouped_trials(self) -> dict[any, list[EEGTrial]]:
-        # Divide into groups separated by their label
-        g = {}
-        for trial in self.trials:
-            if trial.label in g:
-                g[trial.label].append(trial)
-            else:
-                g[trial.label] = [trial]
-        return g
-
-    @property
-    def name(self) -> str:
-        if self.source_filepath is None:
-            return "<Undeterminable name>"
-
-        filename = Path(self.source_filepath).stem # Get filename from filepath (without extension)
-        return filename
-
-    @property
-    def trial_size(self) -> int:
-        return len(self.trials[0])
+    # MARK: Label management
 
     def set_label_preference(self, pref: str | None = None):
         for trial in self.trials:
@@ -255,8 +214,28 @@ class EEGSubject(EEGSubjectInterface):
 
         for i, label in enumerate(labels_array):
             self.labels_map[label] = i
+    
+    def get_unenumerating_label_map(self) -> dict[int, any]:
+        unenumerating_label_map = {}
+        for label, enumerated_label in self.labels_map.items():
+            unenumerating_label_map[enumerated_label] = label
+        return unenumerating_label_map
+    
+    def get_enumerating_label_map(self) -> dict[any, int]:
+        return self.labels_map
+            
+    # MARK: Helpers
 
-    @property
-    def num_categories(self) -> int:
-        return len(self.grouped_trials().keys())
-
+    def grouped_trials(self) -> dict[any, list[EEGTrial]]:
+        # Divide into groups separated by their label
+        g = {}
+        for trial in self.trials:
+            if trial.label in g:
+                g[trial.label].append(trial)
+            else:
+                g[trial.label] = [trial]
+        return g
+    
+    def reindex_trials(self):
+        for i, trial in enumerate(self.trials):
+            trial.trial_index = i

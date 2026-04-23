@@ -9,7 +9,7 @@ Description: Defines functions that make it to make "stationary" prints.
 """
 
 
-from sys import stdout
+import sys
 
 class StationaryPrinter:
     is_locked: bool = False
@@ -33,9 +33,9 @@ class StationaryPrinter:
         StationaryPrinter.lock()
 
         # Clear previous text fully
-        stdout.write("\r" + " " * StationaryPrinter.last_length)
-        stdout.write("\r" + text)
-        stdout.flush()
+        sys.stdout.write("\r" + " " * StationaryPrinter.last_length)
+        sys.stdout.write("\r" + text)
+        sys.stdout.flush()
 
         StationaryPrinter.last_length = len(text)
     

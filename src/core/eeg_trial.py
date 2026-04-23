@@ -7,52 +7,15 @@ Description: The interface and implementation of the EEGTrial type.
     EEGTrial represents a collection of the data associated with a single trial. 
 """
 
-
+from __future__ import annotations
 from numpy import typing as npt
 import numpy as np
 
-class EEGTrialInterface:
-    subject: any
-    data: npt.NDArray
-    trial_index: int
-    timestamps: npt.NDArray
-    raw_label: any
-    mapped_label: any
-    prediction: any
-    prediction_distribution: dict[any, float]
 
-    @property
-    def label(self):
-        raise NotImplementedError("Implement this method.")
-
-    @property
-    def enumerated_label(self):
-        raise NotImplementedError("Implement this method.")
-
-    def set_label_preference(self, pref: str | None):
-        """
-        There are 3 different preference types:
-            - "raw" : when the `` label`` property should return the raw label
-            - "mapped" : when the ``label`` property should return the mapped label
-            - None : when the ``label`` property should default to the mapped label but
-                     use the raw label if the mapped one is None
-        """
-        raise NotImplementedError("Implement this method.")
-
-    def trim_by_index(self, start_index: int, end_index: int):
-        raise NotImplementedError("Implement this method.")
-
-    def trim_by_timestamp(self, start_time: float, end_time: float):
-        raise NotImplementedError("Implement this method.")
-
-    def __len__(self):
-        raise NotImplementedError("Implement this method.")
-
-    def set_prediction(self, enumerated_label):
-        raise NotImplementedError("Implement this method.")
-
-
-class EEGTrial(EEGTrialInterface):
+class EEGTrial:
+    
+    # MARK: Initializer and stored properties
+    
     def __init__(
         self,
         subject,
@@ -76,6 +39,8 @@ class EEGTrial(EEGTrialInterface):
         # Use default label-grabbing behavior
         self._label_preference = None
 
+    # MARK: Computed properties
+
     @property
     def label(self):
         if self._label_preference is None:
@@ -88,22 +53,84 @@ class EEGTrial(EEGTrialInterface):
             return self.mapped_label
         else:
             raise ValueError("Unrecognized label preference")
+    
+    @property
+    def enumerated_label(self):
+        return self.subject.labels_map[self.label]
+
+    # MARK: Label management
 
     def set_label_preference(self, pref: str | None = None):
         """
         "raw", "mapped", or None
         """
         self._label_preference = pref
+    
+    def unemumerated(self, *, enumerated_label: int) -> any:
+        unenumerating_label_map = self.subject.get_unenumerating_label_map()
+        if enumerated_label in unenumerating_label_map:
+            return unenumerating_label_map[enumerated_label]
+        else:
+            raise ValueError("Bad label!")
+    
+    def enumerated(self, *, unenumerated_label: int) -> int:
+        enumerating_label_map = self.subject.get_enumerating_label_map()
+        if unenumerated_label in enumerating_label_map:
+            return enumerating_label_map[unenumerated_label]
+        else:
+            raise ValueError("Bad label!")            
+    
+    # MARK: Prediction management
 
+    # WARNING: This method has been deprecated! Use set_prediction_distribution
     def set_prediction(self, enumerated_label):
+        print("The set_prediction method has been deprecated! Use \"set_prediction_distribution\"")
         reversed_labels_map = {value: key for key, value in self.subject.labels_map.items()}
         self.prediction = reversed_labels_map[enumerated_label]
+    
+    def set_prediction_distribution(self, *, enumerated_prediction_distribution):
+        
+        best_unenumerated_label = None
+        highest_probability = 0
+        prediction_distribution = {}
+        
+        for enumerated_label, probability in enumerated_prediction_distribution.items():
+            
+            unenumerated_label = self.unemumerated(enumerated_label=enumerated_label)
+            prediction_distribution[unenumerated_label] = probability
+            
+            if probability > highest_probability:
+                best_unenumerated_label = unenumerated_label
+                highest_probability = probability
+        
+        self.prediction_distribution = prediction_distribution
+        self.prediction = best_unenumerated_label
 
+    # MARK: Transformations
+    
     def trim_by_index(self, start_index: int, end_index: int):
         self.data = self.data[start_index : end_index + 1]
         self.timestamps = self.timestamps[start_index : end_index + 1]
 
     def trim_by_timestamp(self, start_time: float, end_time: float):
+        # Ensure timestamps is a NumPy array
+        if not isinstance(self.timestamps, np.ndarray):
+            self.timestamps = np.array(self.timestamps)
+        
+        # Validate inputs
+        if start_time > end_time:
+            raise ValueError(f"start_time ({start_time}) must be <= end_time ({end_time})")
+        
+        if len(self.timestamps) == 0:
+            return
+        
+        # Check timestamp range
+        min_ts = float(np.min(self.timestamps))
+        max_ts = float(np.max(self.timestamps))
+        
+        if start_time > max_ts or end_time < min_ts:
+            print(f"Warning: trim_by_timestamp range [{start_time}, {end_time}] is outside data range [{min_ts}, {max_ts}]. Data will be empty.")
+        
         start = int(np.searchsorted(self.timestamps, start_time, side="left"))
         end = int(np.searchsorted(self.timestamps, end_time, side="right"))
         self.timestamps = self.timestamps[start:end]
@@ -111,7 +138,70 @@ class EEGTrial(EEGTrialInterface):
 
     def __len__(self):
         return len(self.timestamps)
+    
+    # MARK: Obtaining accuracies
+    
+    @staticmethod
+    def get_accuracy(trials: list[EEGTrial] | list[list[EEGTrial]]) -> float:
+        
+        if len(trials) == 0:
+            print("Warning: No trials supplied.")
+            return 0
+        
+        num_correct = 0
+        total = 0
+        
+        # list[EEGTrial]
+        if isinstance(trials[0], EEGTrial):
+            total = len(trials)
+            for trial in trials:
+                if trial.prediction == trial.label:
+                    num_correct += 1
+        # list[list[EEGTrial]]
+        else:
+            for trial_list in trials:
+                for trial in trial_list:
+                    total += 1
+                    if trial.prediction == trial.label:
+                        num_correct += 1
 
-    @property
-    def enumerated_label(self):
-        return self.subject.labels_map[self.label]
+        return num_correct / total
+    
+    @staticmethod
+    def get_per_label_accuracy(trials: list[EEGTrial] | list[list[EEGTrial]]) -> dict[any, float]:
+        
+        if len(trials) == 0:
+            print("Warning: No trials supplied.")
+            return 0
+        
+        num_correct_dict = 0
+        total_dict = 0
+        
+        # list[EEGTrial]
+        if isinstance(trials[0], EEGTrial):
+            total = len(trials)
+            for trial in trials:
+                
+                new_total = total_dict.get(trial.label, 0) + 1
+                total_dict[trial.label] = new_total
+                
+                if trial.prediction == trial.label:
+                    new_correct = num_correct_dict.get(trial.label, 0) + 1
+                    num_correct_dict[trial.label] = new_correct
+        # list[list[EEGTrial]]
+        else:
+            for trial_list in trials:
+                for trial in trial_list:
+                    
+                    new_total = total_dict.get(trial.label, 0) + 1
+                    total_dict[trial.label] = new_total
+                    
+                    if trial.prediction == trial.label:
+                        new_correct = num_correct_dict.get(trial.label, 0) + 1
+                        num_correct_dict[trial.label] = new_correct
+
+        accuracies = {}
+        for key in num_correct_dict.keys():
+            accuracies[key] = num_correct_dict[key] / total_dict[key]
+
+        return accuracies
