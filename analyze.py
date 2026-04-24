@@ -27,15 +27,21 @@ generic        = args.generic
 
 # Decide which type of analysis to run
 if generic == "true":
+    from local.private_constants import ALL_D_PATHS
     if analysis_type == "data_amount":
-        from local.constants import ALL_D_PATHS
         data_amount.generic_analyze(
             model_name=model_name,
             subject_filepath=data_filepath,
             all_subject_filepaths=ALL_D_PATHS,
             output_dirpath=output_dirpath
         )
-    
+    elif analysis_type == "subaverage_size":
+        subaverage_size.generic_analyze(
+            model_name=model_name,
+            subject_filepath=data_filepath,
+            all_subject_filepaths=ALL_D_PATHS,
+            output_dirpath=output_dirpath
+        )
     else:
         raise ValueError(f"Unknown analysis_type: {analysis_type}")
 else:
