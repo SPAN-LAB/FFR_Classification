@@ -247,6 +247,7 @@ class AnalysisPipeline:
         """
         self.models = []
         concrete_model = find_model(model_name)
+        print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)
