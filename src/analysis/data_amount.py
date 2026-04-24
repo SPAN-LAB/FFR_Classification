@@ -77,8 +77,25 @@ def generic_analyze(
     
     for data_amount in range(MIN_TRIALS, max_data_amount + 1, STRIDE):
         
-        train_pipeline = deepcopy(base_train_pipeline)
-        test_pipeline = deepcopy(base_test_pipeline)
+        # Note the 3 versions of `test_pipeline`
+        # `pre_test_pipeline` is used to find the accuracy on the withheld 
+        #     subject right after training 
+        # `post_test_pipeline` is used to find the cross validation accuracy
+        #     of the model on the withheld subject. Each fold, the model is 
+        #     initialized with the weights found from the pre-training step. 
+        # `test_pipeline` is used to find the cross validation accuracy on the 
+        #     withheld subject, using a model that hasn't been pre-trained
+        train_pipeline     = deepcopy(base_train_pipeline)
+        pre_test_pipeline  = deepcopy(base_test_pipeline)
+        post_test_pipeline = deepcopy(base_test_pipeline)
+        test_pipeline      = deepcopy(base_test_pipeline)
+    
+        pre_test_pipeline.subaverage(defaults.SUBAVERAGE_SIZE)
+        pre_test_pipeline.fold(defaults.NUM_FOLDS)
+        post_test_pipeline.subaverage(defaults.SUBAVERAGE_SIZE)
+        post_test_pipeline.fold(defaults.NUM_FOLDS)
+        test_pipeline.subaverage(defaults.SUBAVERAGE_SIZE)
+        test_pipeline.fold(defaults.NUM_FOLDS)
         
         # Gather train, validation, and test sets
         train_trials = []
@@ -97,30 +114,70 @@ def generic_analyze(
             train_trials += [
                 trial for trial in subject.trials if trial not in validation_trials
             ]
-        for subject in test_pipeline.subjects:
-            subject.subaverage(defaults.SUBAVERAGE_SIZE)
-            test_trials += subject.trials
+        test_trials = pre_test_pipeline.subjects[0].trials
         
         # print(f"{len(train_trials) = }")
         # print(f"{len(validation_trials) = }")
         # print(f"{len(test_trials) = }")
         
         # ML stuff
-        tk = TimeKeeper(); tk.start()
+        tk_pre = TimeKeeper(); tk_pre.start()
         model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
-        model.set_subject(subject=test_pipeline.subjects[0]) # NOTE: dummy
+        model.set_subject(subject=pre_test_pipeline.subjects[0]) # NOTE: dummy
         model.train(
             trials=train_trials,
             validation_trials=validation_trials
         )
         model.infer(trials=test_trials)
-        tk.stop()
+        tk_pre.stop()
         
         # Writing the outputs to the directory
         
         # Data
         iteration_quantifier = data_amount
-        full = write_directory / f"{pkl_filename_prefix}_{iteration_quantifier}.pkl"
+        full = write_directory / f"pre_{pkl_filename_prefix}_{iteration_quantifier}.pkl"
+        full.parent.mkdir(parents=True, exist_ok=True)
+        with full.open("wb") as file:
+            strip_data_away(pre_test_pipeline.subjects[0])
+            pickle.dump(pre_test_pipeline.subjects[0], file)
+            
+        print(f"{EEGTrial.get_accuracy(trials=test_trials) = }")
+        print(f"{EEGTrial.get_per_label_accuracy(trials=test_trials) = }")
+        
+        
+        # Cross validation on the withheld subject using the pre-trained model
+        tk_post = TimeKeeper(); tk_post.start()
+        best_weights = deepcopy(model._get_best())
+        pre_trained_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
+        pre_trained_model.set_subject(subject=post_test_pipeline.subjects[0])
+        acc = pre_trained_model.evaluate(
+            folded_trials=post_test_pipeline.subjects[0].folds,
+            base_state=best_weights
+        )
+        print(f"Accuracy on pre-trained model: {acc}")
+        tk_post.stop()
+        
+        # Writing the outputs to the directory
+        iteration_quantifier = data_amount
+        full = write_directory / f"post_{pkl_filename_prefix}_{iteration_quantifier}.pkl"
+        full.parent.mkdir(parents=True, exist_ok=True)
+        with full.open("wb") as file:
+            strip_data_away(post_test_pipeline.subjects[0])
+            pickle.dump(post_test_pipeline.subjects[0], file)
+        
+        # Cross validation on the withheld subjects without the pre-trained model
+        tk_control = TimeKeeper(); tk_control.start()
+        blank_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
+        blank_model.set_subject(subject=test_pipeline.subjects[0])
+        acc = blank_model.evaluate(
+            folded_trials=test_pipeline.subjects[0].folds
+        )
+        print(f"Accuracy without pre-trained model: {acc}")
+        tk_control.stop()
+        
+        # Writing the outputs to the directory
+        iteration_quantifier = data_amount
+        full = write_directory / f"control_{pkl_filename_prefix}_{iteration_quantifier}.pkl"
         full.parent.mkdir(parents=True, exist_ok=True)
         with full.open("wb") as file:
             strip_data_away(test_pipeline.subjects[0])
@@ -130,9 +187,6 @@ def generic_analyze(
         log_filename = "times_log.csv"
         log_filepath = write_directory / log_filename
         if not log_filepath.exists() or is_empty(log_filepath):
-            log("iteration_quantifier,duration(s)", log_filepath)
-        log(f"{iteration_quantifier},{tk.accumulated_duration}", log_filepath)
+            log("iteration_quantifier,pre-training(s),cv_on_withheld_using_pretrained(s),cv_on_withheld_without_pretrained(s)", log_filepath)
+        log(f"{iteration_quantifier},{tk_pre.accumulated_duration},{tk_post.accumulated_duration},{tk_control.accumulated_duration}", log_filepath)
         
-            
-        print(f"{EEGTrial.get_accuracy(trials=test_trials) = }")
-        print(f"{EEGTrial.get_per_label_accuracy(trials=test_trials) = }")
