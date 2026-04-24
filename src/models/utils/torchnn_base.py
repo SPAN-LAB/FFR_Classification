@@ -21,6 +21,7 @@ from ...time import TimeKeeper
 from ...printing.printing import Line
 from random import shuffle
 from numbers import Number
+from typing import Any
 
 
 class TorchNNBase(ModelInterface):
@@ -61,8 +62,20 @@ class TorchNNBase(ModelInterface):
         self._best_weights = {}
         for k, v in best.state_dict().items():
             self._best_weights[k] = v.cpu().clone()
+    
+    def _get_best(self) -> any:
+        return self._best_weights
 
-    def _restore_best(self):
+    def _restore_best(self, best: Any | None = None):
+        """
+        Default to using argument if one is provided.
+        """
+        if self.model is None:
+            self.build()
+        if best is not None:
+            self.model.load_state_dict(best)
+            self.model.to(self.device)
+            return
         if self._best_weights is None:
             raise ValueError("self._best_weights = None unexpectedly")
         self.model.load_state_dict(self._best_weights)
@@ -150,17 +163,20 @@ class TorchNNBase(ModelInterface):
     def _core_train(self, *, 
         trials: list[EEGTrial], 
         validation_trials: list[EEGTrial] | float | None = None,
+        rebuild: bool,
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
         weight_decay: float,
         min_delta: float,
-        patience: int
+        patience: int,
+        lr_patience: int
     ) -> nn.Module:
         
         # Set up 
         
-        self.build()
+        if rebuild:
+            self.build()
         self.model.to(self.device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.AdamW(
@@ -172,7 +188,7 @@ class TorchNNBase(ModelInterface):
             optimizer,
             mode="min",
             factor=0.25,
-            patience=max(1, patience // 2)
+            patience=max(1, lr_patience)
         )
         
         must_validate = validation_trials is not None and validation_trials != 0

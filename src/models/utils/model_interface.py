@@ -7,7 +7,7 @@ Description: An interface that all ML models must conform to for compatability w
     AnalysisPipeline.
 """
 
-
+from typing import Any
 from copy import deepcopy
 from pathlib import Path
 import pickle
@@ -40,13 +40,16 @@ class ModelInterface:
     def set_training_options(self, training_options: dict[str, any]):
         self.training_options = training_options
     
-    def reset_seed(self):
+    def reset_seed(self) -> any:
         raise NotImplementedError("This needs to be implemented!")
         
     def _store_best(self, best):
         raise NotImplementedError("This needs to be implemented!")
     
-    def _restore_best(self):
+    def _get_best(self) -> any: 
+        raise NotImplementedError("This needs to be implemented!")
+    
+    def _restore_best(self, best: Any | None = None):
         raise NotImplementedError("This needs to be implemented!")
     
     def _record_loss(self, loss: float, model):
@@ -128,12 +131,14 @@ class ModelInterface:
     def _core_train(self, *, 
         trials: list[EEGTrial], 
         validation_trials: list[EEGTrial],
+        rebuild: bool,
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
         weight_decay: float,
         min_delta: float,
-        patience: int
+        patience: int,
+        lr_patience: int
     ):
         raise NotImplementedError("This method need to be implemented.")
 
@@ -159,6 +164,7 @@ class ModelInterface:
     def train(self, *, 
         trials: list[EEGTrial] = [], 
         validation_trials: list[EEGTrial] | float | None = None,
+        rebuild: bool = True,
         pickle_to: str | Path | None = None,
         overwrite: bool = True
     ):
@@ -180,12 +186,14 @@ class ModelInterface:
         self._core_train(
             trials=trials,
             validation_trials=validation_trials,
+            rebuild=rebuild,
             num_epochs=self.get_num_epochs(),
             batch_size=self.get_batch_size(),
             learning_rate=self.get_learning_rate(),
             weight_decay=self.get_weight_decay(),
             min_delta=self.get_min_delta(),
-            patience=self.get_patience()
+            patience=self.get_patience(),
+            lr_patience=self.get_lr_patience()
         )
         
         # Save to disk if path is specified
@@ -200,12 +208,14 @@ class ModelInterface:
     
     def _cross_validate(self, *,
         folded_trials: list[list[EEGTrial]],
+        base_state: Any | None,
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
         weight_decay: float,
         min_delta: float,
-        patience: int
+        patience: int,
+        lr_patience: int
     ) -> list[list[dict[int, float]]]:
         
         num_folds = len(folded_trials)
@@ -226,16 +236,20 @@ class ModelInterface:
                 else:
                     train_trials += trial_list
             
+            if base_state is not None: 
+                self._restore_best(base_state) 
             self.reset_seed()
             self._core_train(
                 trials=train_trials,
                 validation_trials=self.get_validation_ratio(),
+                rebuild=False if base_state is not None else True,
                 num_epochs=num_epochs,
                 batch_size=batch_size,
                 learning_rate=learning_rate,
                 weight_decay=weight_decay,
                 min_delta=min_delta,
-                patience=patience
+                patience=patience,
+                lr_patience=lr_patience
             )
             unlock()
             
@@ -252,7 +266,8 @@ class ModelInterface:
         return folded_trial_prediction_distributions
     
     def evaluate(self, *, 
-        folded_trials: list[list[EEGTrial]] = []
+        folded_trials: list[list[EEGTrial]] = [],
+        base_state: Any | None = None
     ) -> float:
         
         if len(folded_trials) == 0:
@@ -262,12 +277,14 @@ class ModelInterface:
         
         folded_prediction_distributions = self._cross_validate(
             folded_trials=folded_trials,
+            base_state=base_state,
             num_epochs=self.get_num_epochs(),
             batch_size=self.get_batch_size(),
             learning_rate=self.get_learning_rate(),
             weight_decay=self.get_weight_decay(),
             min_delta=self.get_min_delta(),
-            patience=self.get_patience()
+            patience=self.get_patience(),
+            lr_patience=self.get_lr_patience()
         )
         
         for i in range(len(folded_trials)):
