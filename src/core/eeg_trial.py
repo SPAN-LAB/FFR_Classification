@@ -154,7 +154,7 @@ class EEGTrial:
         
         if len(trials) == 0:
             print("Warning: No trials supplied.")
-            return 0
+            return {}
         
         num_correct_dict = {}
         total_dict = {}
