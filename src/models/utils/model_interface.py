@@ -18,7 +18,7 @@ from ...time import TimeKeeper
 
 from ...printing import print, printl, unlock
 
-from ...constants.defaults import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY
+from ...constants.defaults import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY, MIN_DELTA, PATIENCE, VALIDATION_RATIO
 
 
 class ModelInterface:
@@ -32,8 +32,10 @@ class ModelInterface:
         self.subject = None
         self.all_subjects = None
         self.training_options = training_options
+        self._num_stagnant_epochs = 0
+        self._lowest_loss = float("inf")
     
-    # MARK: Setters
+    # MARK: Setters and Miscellaneous
     
     def set_subject(self, subject: EEGSubject):
         self.subject = subject
@@ -41,7 +43,7 @@ class ModelInterface:
     def set_all_subjects(self, subjects: list):
         """
         Provides the full subject list to models that require it (e.g. Autoencoder LOSO pretraining).
-        Default implementation stores the list — only models with needs_all_subjects = True use this.
+        Only models with needs_all_subjects = True use this.
         """
         self.all_subjects = subjects
     
@@ -50,6 +52,30 @@ class ModelInterface:
     
     def reset_seed(self):
         raise NotImplementedError("This needs to be implemented!")
+        
+    def _store_best(self, best):
+        raise NotImplementedError("This needs to be implemented!")
+    
+    def _restore_best(self):
+        raise NotImplementedError("This needs to be implemented!")
+    
+    def _record_loss(self, loss: float, model):
+        # print(f"{loss = } {self._lowest_loss = } {self.get_min_delta()}")
+        if loss < self._lowest_loss - self.get_min_delta():
+            # print(f"Lowering lowest_loss to {loss}")
+            self._lowest_loss = loss
+            self._num_stagnant_epochs = 0
+            self._store_best(model)
+        else:
+            self._num_stagnant_epochs += 1
+    
+    def _should_continue(self) -> bool:
+        # print(f"{self._num_stagnant_epochs = }")
+        return self._num_stagnant_epochs < self.get_patience()
+        
+    def _reset_loss_trackers(self):
+        self._num_stagnant_epochs = 0
+        self._lowest_loss = float("inf")
 
     # MARK: Training parameter getters
 
@@ -72,6 +98,21 @@ class ModelInterface:
         if not isinstance(self.training_options, dict):
             return WEIGHT_DECAY
         return self.training_options.get("weight_decay", WEIGHT_DECAY)
+    
+    def get_min_delta(self) -> float:
+        if not isinstance(self.training_options, dict):
+            return MIN_DELTA
+        return self.training_options.get("min_delta", MIN_DELTA)
+    
+    def get_patience(self) -> int:
+        if not isinstance(self.training_options, dict):
+            return PATIENCE
+        return self.training_options.get("patience", PATIENCE)
+    
+    def get_validation_ratio(self) -> float:
+        if not isinstance(self.training_options, dict):
+            return VALIDATION_RATIO
+        return self.training_options.get("validation_ratio", VALIDATION_RATIO)
         
     # MARK: Printing
     
@@ -80,6 +121,12 @@ class ModelInterface:
     
     # MARK: Core functions
     
+    def _core_avg_val_loss(self, *, 
+        trials: list[EEGTrial],
+        batch_size: int
+    ) -> float:
+        raise NotImplementedError("This method need to be implemented.")
+    
     def _core_infer(self, *,
         trials: list[EEGTrial],
         batch_Size: int
@@ -87,11 +134,14 @@ class ModelInterface:
         raise NotImplementedError("This method need to be implemented.")
     
     def _core_train(self, *, 
-        trials: list[EEGTrial],
+        trials: list[EEGTrial], 
+        validation_trials: list[EEGTrial],
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
-        weight_decay: float
+        weight_decay: float,
+        min_delta: float,
+        patience: int
     ):
         raise NotImplementedError("This method need to be implemented.")
 
@@ -116,6 +166,7 @@ class ModelInterface:
     
     def train(self, *, 
         trials: list[EEGTrial] = [], 
+        validation_trials: list[EEGTrial] | float | None = None,
         pickle_to: str | Path | None = None,
         overwrite: bool = True
     ):
@@ -136,10 +187,13 @@ class ModelInterface:
         self.reset_seed()
         self._core_train(
             trials=trials,
+            validation_trials=validation_trials,
             num_epochs=self.get_num_epochs(),
             batch_size=self.get_batch_size(),
             learning_rate=self.get_learning_rate(),
-            weight_decay=self.get_weight_decay()
+            weight_decay=self.get_weight_decay(),
+            min_delta=self.get_min_delta(),
+            patience=self.get_patience()
         )
         unlock()
         
@@ -158,7 +212,9 @@ class ModelInterface:
         num_epochs: int,
         batch_size: int,
         learning_rate: float,
-        weight_decay: float
+        weight_decay: float,
+        min_delta: float,
+        patience: int
     ) -> list[list[dict[int, float]]]:
         
         num_folds = len(folded_trials)
@@ -182,10 +238,13 @@ class ModelInterface:
             self.reset_seed()
             self._core_train(
                 trials=train_trials,
+                validation_trials=self.get_validation_ratio(),
                 num_epochs=num_epochs,
                 batch_size=batch_size,
                 learning_rate=learning_rate,
-                weight_decay=weight_decay
+                weight_decay=weight_decay,
+                min_delta=min_delta,
+                patience=patience
             )
             unlock()
             
@@ -215,7 +274,9 @@ class ModelInterface:
             num_epochs=self.get_num_epochs(),
             batch_size=self.get_batch_size(),
             learning_rate=self.get_learning_rate(),
-            weight_decay=self.get_weight_decay()
+            weight_decay=self.get_weight_decay(),
+            min_delta=self.get_min_delta(),
+            patience=self.get_patience()
         )
         
         for i in range(len(folded_trials)):
