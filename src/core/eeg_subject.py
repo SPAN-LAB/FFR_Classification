@@ -19,6 +19,7 @@ from .eeg_trial import EEGTrial
 import os
 import sys
 from copy import deepcopy
+from ..printing.logging import log, is_empty
 
 # from .utils import silence_stderr
 
@@ -166,6 +167,8 @@ class EEGSubject:
         for _, trial_group in grouped_trials.items():
             # shuffle(trial_group)
             if len(trial_group) < num_folds:
+                for _label, _trial_group in grouped_trials.items():
+                    print(f"label: {_label}, len(trial_group): {len(_trial_group)}")
                 raise ValueError("""Fewer trials in one category than num_folds.
 This causes some folds to have 0 trials from this category.""")
             for i, trial in enumerate(trial_group):
@@ -274,3 +277,20 @@ This causes some folds to have 0 trials from this category.""")
                 )
                 
         return mins
+    
+    def save_predictions_to_csv(self, csv_filepath: Path | str):
+        if isinstance(csv_filepath, str):
+            csv_filepath = Path(csv_filepath)
+        if not csv_filepath.exists() or is_empty(csv_filepath):
+            header_content = "trial_index,label,is_correct,prediction,tone1p,tone2p,tone3p,tone4p"
+            log(header_content, csv_filepath)
+        for trial in self.trials:
+            line_content = f"{trial.trial_index}"
+            line_content += f",{trial.label}"
+            line_content += f",{trial.prediction}"
+            line_content += f",{'O' if trial.prediction == trial.label else 'X'}"
+            line_content += f",{trial.prediction_distribution.get('1', -1)}"
+            line_content += f",{trial.prediction_distribution.get('2', -1)}"
+            line_content += f",{trial.prediction_distribution.get('3', -1)}"
+            line_content += f",{trial.prediction_distribution.get('4', -1)}"
+            log(line_content, csv_filepath)

@@ -1,3 +1,4 @@
+from enum import StrEnum
 from src.analysis import accuracy_against_data_amount
 from src.analysis.utils import strip_data_away
 from src.core import AnalysisPipeline, EEGSubject, EEGTrial
@@ -10,7 +11,6 @@ from math import ceil
 from copy import deepcopy
 from pathlib import Path
 import pickle
-
 
 def analyze(model_name: str, subject_filepath: str, output_dirpath: str):
 
@@ -190,3 +190,170 @@ def generic_analyze(
             log("iteration_quantifier,pre-training(s),cv_on_withheld_using_pretrained(s),cv_on_withheld_without_pretrained(s)", log_filepath)
         log(f"{iteration_quantifier},{tk_pre.accumulated_duration},{tk_post.accumulated_duration},{tk_control.accumulated_duration}", log_filepath)
         
+
+class AnalysisType(StrEnum):
+    DATA_AMOUNT = "data_amount"
+    SUBAVERAGE_SIZE = "subaverage_size"
+
+def analyze2(*,
+    analysis_type: AnalysisType | str,
+    is_generic: str,
+    model_name: str,
+    subaverage_sizes: list[int],
+    data_amounts: list[int],
+    subject_filepath: str,
+    all_subject_filepaths: list[str] | None,
+    output_root_dirpath: str
+):
+    """
+    analysis_type         "data_amount" or "subaverage_size"
+    is_generic            Whether to create and test generic models (requires `all_subject_filepaths` to be not None)
+    subaverage_sizes      The subaverage sizes to use
+    data_amounts          The data amounts to use. If empty, no sampling is performed
+    subject_filepath      The path to the file containing main subject data
+    all_subject_filepaths The paths to all the subjects' data. Ignored if not generic
+    output_root_dirpath   Where outputs are written to
+    """
+
+    # Validate input
+    if analysis_type == AnalysisType.DATA_AMOUNT and len(data_amounts) == 0:
+        raise ValueError("data_amount parameter shouldn't be empty")
+    if len(data_amounts) == 0:
+        data_amounts = [-1]
+    if analysis_type == AnalysisType.SUBAVERAGE_SIZE and len(subaverage_sizes) == 1:
+        print("Warning: Only 1 subaverage size was provided")
+    if is_generic and (all_subject_filepaths is None or len(all_subject_filepaths) == 1):
+        raise ValueError("all_subject_filepaths parameter is invalid")
+    if is_generic and subject_filepath not in all_subject_filepaths:
+        raise ValueError("subject_filepath not found in all_subject_filepaths")
+
+    # Create the directory where outputs are written to
+    base_dirpath = Path(output_root_dirpath)
+    base_dirpath.mkdir(parents=True, exist_ok=True)
+    full_dirpath = (
+        base_dirpath
+        / analysis_type
+        / ("generic" if is_generic else "specific")
+        / model_name
+        / Path(subject_filepath).stem
+    )
+
+    # Load subjects
+    base_subject_pipelines: dict[str, AnalysisPipeline] = {}
+    if not is_generic:
+        all_subject_filepaths = [subject_filepath]
+    for filepath in all_subject_filepaths:
+        pipeline = AnalysisPipeline().load_subjects(filepath)
+        pipeline.trim_by_timestamp(start_time=defaults.TRIM_START_TIME, end_time=defaults.TRIM_END_TIME)
+        base_subject_pipelines[filepath] = pipeline
+
+    for data_amount in data_amounts:
+        for subaverage_size in subaverage_sizes:
+
+            if analysis_type == AnalysisType.DATA_AMOUNT:
+                iteration_quantifier = data_amount
+            else:
+                iteration_quantifier = subaverage_size
+
+            subject_pipelines = deepcopy(base_subject_pipelines)
+
+            subject_pipeline_of_focus = subject_pipelines[subject_filepath]
+
+            # Filter `data_amount` number of trials from the appropriate subjects
+            if data_amount != -1:
+                print("data amounting")
+                if is_generic:
+                    for filepath, pipeline in subject_pipelines.items():
+                        if filepath != subject_filepath:
+                            pipeline.subjects[0].trials = sds2(
+                                pipeline.subjects[0].trials,
+                                data_amount
+                            )
+                else: # specific model
+                    subject_pipeline_of_focus.subjects[0].trials = sds2(
+                        subject_pipeline_of_focus.subjects[0].trials,
+                        data_amount
+                    )
+            
+            for pipeline in subject_pipelines.values():
+                pipeline.subaverage(subaverage_size)
+
+            if is_generic:
+                train_trials = []
+                validation_trials = []
+                subject_of_focus_on_generic_model = deepcopy(subject_pipeline_of_focus.subjects[0])
+                subject_of_focus_using_pre_trained = deepcopy(subject_pipeline_of_focus.subjects[0])
+                subject_of_focus_using_pre_trained.fold(defaults.NUM_FOLDS)
+                
+                for filepath, pipeline in subject_pipelines.items():
+                    if filepath == subject_filepath:
+                        continue
+                    num_validation_trials = ceil(len(pipeline.subjects[0].trials) * defaults.VALIDATION_RATIO)
+                    subject_validation_trials = sds2(
+                        pipeline.subjects[0].trials,
+                        num_validation_trials
+                    )
+                    validation_trials += subject_validation_trials
+                    train_trials += [
+                        trial for trial in pipeline.subjects[0].trials if trial not in subject_validation_trials
+                    ]
+
+                # Training
+
+                # Initial training on all but focused subject
+                generic_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
+                generic_model.set_subject(subject_of_focus_on_generic_model)
+                generic_model.train(
+                    trials=train_trials,
+                    validation_trials=validation_trials
+                )
+
+                # Testing on the withheld subject
+                acc = generic_model.infer() # Infer on subject_of_focus_on_generic_model
+                print(f"Accuracy: {(acc * 100):.1f}%")
+
+                # Save the predictions of the not-pretrain subject
+                not_pretrain_save_dirpath = full_dirpath / "not_pretrain"
+                not_pretrain_save_dirpath.mkdir(parents=True, exist_ok=True)
+                not_pretrain_save_filepath = not_pretrain_save_dirpath / f"{iteration_quantifier}.pkl"
+                not_pretrain_csv_filepath = not_pretrain_save_dirpath / f"{iteration_quantifier}.csv"
+                subject_of_focus_on_generic_model.save_predictions_to_csv(not_pretrain_csv_filepath)
+                with open(not_pretrain_save_filepath, "wb") as file:
+                    strip_data_away(subject_of_focus_on_generic_model)
+                    pickle.dump(subject_of_focus_on_generic_model, file)
+
+                # Cross validation on the withheld subject
+                weights = generic_model._get_best()
+                fine_tuned_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
+                fine_tuned_model.set_subject(subject_of_focus_using_pre_trained)
+                acc = fine_tuned_model.evaluate(base_state=weights)
+                print(f"Accuracy: {(acc * 100):.1f}%")
+
+                # Save the predictions of the use-pretrain subject
+                use_pretrain_save_dirpath = full_dirpath / "use_pretrain"
+                use_pretrain_save_dirpath.mkdir(parents=True, exist_ok=True)
+                use_pretrain_save_filepath = use_pretrain_save_dirpath / f"{iteration_quantifier}.pkl"
+                use_pretrain_csv_filepath = use_pretrain_save_dirpath / f"{iteration_quantifier}.csv"
+                subject_of_focus_using_pre_trained.save_predictions_to_csv(use_pretrain_csv_filepath)
+                with open(use_pretrain_save_filepath, "wb") as file:
+                    strip_data_away(subject_of_focus_using_pre_trained)
+                    pickle.dump(subject_of_focus_using_pre_trained, file)
+
+            specific_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
+            specific_model.set_subject(subject_pipeline_of_focus.subjects[0])
+            subject_pipeline_of_focus.subjects[0].fold(defaults.NUM_FOLDS)
+            acc = specific_model.evaluate()
+            print(f"Accuracy: {(acc * 100):.1f}%")
+
+            # Save the predictions of the use-pretrain subject
+            if is_generic:
+                control_save_dirpath = full_dirpath / "control"
+            else:
+                control_save_dirpath = full_dirpath
+            control_save_dirpath.mkdir(parents=True, exist_ok=True)
+            control_save_filepath = control_save_dirpath / f"{iteration_quantifier}.pkl"
+            control_csv_filepath = control_save_dirpath / f"{iteration_quantifier}.csv"
+            subject_pipeline_of_focus.subjects[0].save_predictions_to_csv(control_csv_filepath)
+            with open(control_save_filepath, "wb") as file:
+                strip_data_away(subject_pipeline_of_focus.subjects[0])
+                pickle.dump(subject_pipeline_of_focus.subjects[0], file)
