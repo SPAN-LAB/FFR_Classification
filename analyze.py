@@ -7,8 +7,9 @@ Description: TODO
 """
 
 
-from src.analysis import subaverage_size, data_amount
 import argparse
+from src.analysis.data_amount import analyze2, AnalysisType
+from local.constants import ALL_D_PATHS
 
 
 # Parse arguments
@@ -23,39 +24,37 @@ analysis_type  = args.analysis_type
 model_name     = args.model_name
 data_filepath  = args.data_filepath
 output_dirpath = args.output_dirpath
-generic        = args.generic
+generic        = args.generic == "true"
 
-# Decide which type of analysis to run
-if generic == "true":
-    from local.constants import ALL_D_PATHS
-    if analysis_type == "data_amount":
-        data_amount.generic_analyze(
-            model_name=model_name,
-            subject_filepath=data_filepath,
-            all_subject_filepaths=ALL_D_PATHS,
-            output_dirpath=output_dirpath
-        )
-    elif analysis_type == "subaverage_size":
-        subaverage_size.generic_analyze(
-            model_name=model_name,
-            subject_filepath=data_filepath,
-            all_subject_filepaths=ALL_D_PATHS,
-            output_dirpath=output_dirpath
-        )
-    else:
-        raise ValueError(f"Unknown analysis_type: {analysis_type}")
+if analysis_type == AnalysisType.DATA_AMOUNT:
+    data_amounts = list(range(
+        200,      # Smallest data amount
+        3800 + 1, # Largest data amount
+        100       # Stride
+    ))
+    subaverage_sizes = [5]
+elif analysis_type == AnalysisType.SUBAVERAGE_SIZE:
+    data_amounts = []
+    subaverage_sizes = [
+          1,   5,  10,  15,  20,
+         25,  30,  35,  40,  45,
+         50,  55,  60,  65,  70,
+         75,  80,  85,  90,  95,
+        100, 105, 110, 115, 120
+    ]
+
+if generic:
+    all_subject_filepaths = ALL_D_PATHS
 else:
-    if analysis_type == "subaverage_size":
-        subaverage_size.analyze(
-            model_name=model_name,
-            subject_filepath=data_filepath,
-            output_dirpath=output_dirpath
-        )
-    elif analysis_type == "data_amount":
-        data_amount.analyze(
-            model_name=model_name,
-            subject_filepath=data_filepath,
-            output_dirpath=output_dirpath
-        )
-    else:
-        raise ValueError(f"Unknown analysis_type: {analysis_type}")
+    all_subject_filepaths = []
+
+analyze2(
+    analysis_type=analysis_type,
+    is_generic=generic,
+    model_name=model_name,
+    subaverage_sizes=subaverage_sizes,
+    data_amounts=[3000],
+    subject_filepath=data_filepath,
+    all_subject_filepaths=all_subject_filepaths,
+    output_root_dirpath=output_dirpath
+)
