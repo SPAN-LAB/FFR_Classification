@@ -20,17 +20,17 @@ class FeatureExtractor:
             trial.data = self._get_features(trial.data)
         
 class FeatureGenerator(FeatureExtractor):
-    def _extract_features(self, trial_data: list[npt.ArrayLike]):
+    def _generate_features(self, trial_data: list[npt.ArrayLike]):
         """
         Creates features using a list of EEGTrial instances
         """
         raise NotImplementedError("This method needs to be implemented.")
     
-    def extract_features(self, trials: list[EEGTrial] | EEGSubject):
+    def generate_features(self, trials: list[EEGTrial] | EEGSubject):
         if isinstance(trials, EEGSubject):
             trials = trials.trials
         trial_data = [trial.data for trial in trials]
-        self._extract_features(trial_data)
+        self._generate_features(trial_data)
 
 class ExampleFeatureExtractor(FeatureExtractor):
     def _get_features(self, data: npt.ArrayLike) -> npt.ArrayLike:
@@ -47,7 +47,7 @@ class ExampleFeatureGenerator(FeatureGenerator):
             data[i] = data[i] + self.shifter
         return data
     
-    def _extract_features(self, trial_data: list[npt.ArrayLike]):
+    def _generate_features(self, trial_data: list[npt.ArrayLike]):
         if len(trial_data) % 2 == 0:
             self.shifter = 1
         else:
