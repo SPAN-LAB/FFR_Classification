@@ -27,7 +27,16 @@ class ModelInterface:
     """
 
     needs_all_subjects: bool = False
-    
+
+    # Declare which inputs the model needs. "raw" is always available (trial.data).
+    # Any other name must be a key in src.features.FEATURE_REGISTRY and will be
+    # auto-extracted by AnalysisPipeline.evaluate_model before training.
+    # Examples:
+    #   required_inputs = ["raw"]                  # raw waveform only (default)
+    #   required_inputs = ["pitchtrack"]            # pitch track only
+    #   required_inputs = ["raw", "pitchtrack"]     # both (multi-branch model)
+    required_inputs: list[str] = ["raw"]
+
     def __init__(self, training_options: dict[str, any]):
         self.subject = None
         self.all_subjects = None
@@ -103,7 +112,7 @@ class ModelInterface:
         if not isinstance(self.training_options, dict):
             return MIN_DELTA
         return self.training_options.get("min_delta", MIN_DELTA)
-    
+
     def get_patience(self) -> int:
         if not isinstance(self.training_options, dict):
             return PATIENCE

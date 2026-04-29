@@ -50,6 +50,8 @@ class _CNN1D(nn.Module):
 
 
 class CNNModel(TorchNNBase):
+    required_inputs = ["raw"]
+
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
         self.build()

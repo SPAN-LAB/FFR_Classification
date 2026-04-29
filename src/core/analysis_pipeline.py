@@ -238,6 +238,34 @@ class AnalysisPipeline:
         print("fold : done")
         return self
 
+    def extract_features(self, feature_names: list[str]) -> AnalysisPipeline:
+        """
+        Pre-computes the requested features for every trial across all subjects
+        and stores the results in trial.features[name].
+
+        Call this after trim_by_timestamp / subaverage, before fold.
+
+        Parameters
+        ----------
+        feature_names : list[str]
+            Names of features to compute, e.g. ["pitchtrack"].
+            Each name must be a key in src.features.FEATURE_REGISTRY.
+        """
+        from ..features import FEATURE_REGISTRY, compute_fs
+
+        for name in feature_names:
+            if name not in FEATURE_REGISTRY:
+                raise ValueError(f"Unknown feature '{name}'. Available: {list(FEATURE_REGISTRY.keys())}")
+
+        for subject in self.subjects:
+            fs = compute_fs(subject.trials[0].timestamps)
+            for trial in subject.trials:
+                for name in feature_names:
+                    trial.features[name] = FEATURE_REGISTRY[name](trial.data, fs)
+
+        print(f"extract_features {feature_names} : done")
+        return self
+
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
@@ -247,6 +275,20 @@ class AnalysisPipeline:
         """
         self.models = []
         concrete_model = find_model(model_name)
+
+        # Auto-extract any non-raw features the model declares it needs
+        features_needed = [f for f in concrete_model.required_inputs if f != "raw"]
+        if features_needed:
+            # Only compute features that haven't been computed yet
+            already_computed = all(
+                f in trial.features
+                for subject in self.subjects
+                for trial in subject.trials
+                for f in features_needed
+            ) if self.subjects else True
+            if not already_computed:
+                self.extract_features(features_needed)
+
         for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)

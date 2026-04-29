@@ -36,6 +36,10 @@ class EEGTrial:
         self.prediction = prediction
         self.prediction_distribution = prediction_distribution
 
+        # Computed features stored here after AnalysisPipeline.extract_features()
+        # Keys are feature names (e.g. "pitchtrack"), values are 1-D np.ndarray
+        self.features: dict[str, np.ndarray] = {}
+
         # Use default label-grabbing behavior
         self._label_preference = None
 
