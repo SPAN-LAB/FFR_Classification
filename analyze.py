@@ -53,7 +53,7 @@ analyze2(
     is_generic=generic,
     model_name=model_name,
     subaverage_sizes=subaverage_sizes,
-    data_amounts=[3000],
+    data_amounts=data_amounts,
     subject_filepath=data_filepath,
     all_subject_filepaths=all_subject_filepaths,
     output_root_dirpath=output_dirpath
