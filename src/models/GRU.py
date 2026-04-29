@@ -72,3 +72,4 @@ class RNN_model(TorchNNBase):
             dropout=dropout,
             downsample=downsample,
         ).to(self.device)
+

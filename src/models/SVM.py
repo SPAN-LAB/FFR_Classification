@@ -13,11 +13,18 @@ class SVM(ModelInterface):
     # -------------------------------
     # Grid Search Parameters (default)
     # -------------------------------
-    # Note: This is based on the implementation by Jivesh
+    # Note: This is based on the implementation by Jivesh, and this test with more combinations as example.
+    '''PARAM_GRID = {
+        'C': [0.01, 0.1, 1, 10, 100, 1000],
+        'gamma': ['scale', 'auto'],
+        'kernel': ['rbf', 'linear', 'poly', 'sigmoid']
+    }'''
+    # This combination is the one to speed up testing,(the best fit one for now), but feel free to use above combinations for a more thorough grid search.
+    
     PARAM_GRID = {
-        'C': [0.1, 1, 10],
-        'gamma': ['scale', 0.01, 0.1],
-        'kernel': ['rbf', 'linear']
+        'C': [1,10],               
+        'gamma': ['scale'],     
+        'kernel': ['rbf']       
     }
 
     # -------------------------------
@@ -70,10 +77,10 @@ class SVM(ModelInterface):
                 n_jobs=-1
             )
 
-    def train(self):
+    def train(self, pickle_to=None):
 
         X_train = np.array([t.data for t in self.subject.trials])
-        y_train = np.array([t.raw_label for t in self.subject.trials])
+        y_train = np.array([t.label for t in self.subject.trials])
 
         self.scaler = StandardScaler()
         X_train_scaled = self.scaler.fit_transform(X_train)
@@ -88,6 +95,15 @@ class SVM(ModelInterface):
         self.best_params = search.best_params_
 
         print(f"[SVM] Best hyperparameters: {self.best_params}")
+
+        if pickle_to is not None:
+            import pickle
+            from pathlib import Path
+            if isinstance(pickle_to, str):
+                pickle_to = Path(pickle_to)
+            pickle_to.parent.mkdir(parents=True, exist_ok=True)
+            with open(pickle_to, 'wb') as f:
+                pickle.dump(self, f)
 
 
     def infer(self, trials):
@@ -112,13 +128,16 @@ class SVM(ModelInterface):
 
         folds = self.subject.folds
 
-        for fold in folds:
+        for i, fold in enumerate(folds):
 
             test_trials = fold
-            train_trials = [t for t in self.subject.trials if t not in test_trials]
+            train_trials = []
+            for j, other_fold in enumerate(folds):
+                if i != j:
+                    train_trials.extend(other_fold)
 
             X_train = np.array([t.data for t in train_trials])
-            y_train = np.array([t.raw_label for t in train_trials])
+            y_train = np.array([t.label for t in train_trials])
 
             self.scaler = StandardScaler()
             X_train_scaled = self.scaler.fit_transform(X_train)
@@ -127,11 +146,13 @@ class SVM(ModelInterface):
             cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
             search = self._build_search(base_svc, cv)
+            print(f"[SVM] Parameter grid/distribution for this fold: {search.param_grid if hasattr(search, 'param_grid') else search.param_distributions}")
             search.fit(X_train_scaled, y_train)
 
             self.model = search.best_estimator_
             self.best_params = search.best_params_
 
+            print(f"[SVM] Best choice for this fold: {self.best_params}")
             self.infer(test_trials)
 
         return get_accuracy(self.subject.trials)

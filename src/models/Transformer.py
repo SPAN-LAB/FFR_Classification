@@ -141,3 +141,4 @@ class ConvTransformerModel(TorchNNBase):
             patch_size=patch_size,
             p_drop=p_drop,
         ).to(self.device)
+

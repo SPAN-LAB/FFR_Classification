@@ -113,24 +113,6 @@ class EEGTrial:
         self.timestamps = self.timestamps[start_index : end_index + 1]
 
     def trim_by_timestamp(self, start_time: float, end_time: float):
-        # Ensure timestamps is a NumPy array
-        if not isinstance(self.timestamps, np.ndarray):
-            self.timestamps = np.array(self.timestamps)
-        
-        # Validate inputs
-        if start_time > end_time:
-            raise ValueError(f"start_time ({start_time}) must be <= end_time ({end_time})")
-        
-        if len(self.timestamps) == 0:
-            return
-        
-        # Check timestamp range
-        min_ts = float(np.min(self.timestamps))
-        max_ts = float(np.max(self.timestamps))
-        
-        if start_time > max_ts or end_time < min_ts:
-            print(f"Warning: trim_by_timestamp range [{start_time}, {end_time}] is outside data range [{min_ts}, {max_ts}]. Data will be empty.")
-        
         start = int(np.searchsorted(self.timestamps, start_time, side="left"))
         end = int(np.searchsorted(self.timestamps, end_time, side="right"))
         self.timestamps = self.timestamps[start:end]
@@ -172,33 +154,30 @@ class EEGTrial:
         
         if len(trials) == 0:
             print("Warning: No trials supplied.")
-            return 0
+            return {}
         
-        num_correct_dict = 0
-        total_dict = 0
+        num_correct_dict = {}
+        total_dict = {}
+        
+        def parse_trials(trials: list[EEGTrial]):
+            for trial in trials:
+                if trial.label not in num_correct_dict:
+                    num_correct_dict[trial.label] = 0
+                if trial.label not in total_dict:
+                    total_dict[trial.label] = 0
+                total_dict[trial.label] += 1
+                if trial.prediction == trial.label:
+                    num_correct_dict[trial.label] += 1
+                
+                
         
         # list[EEGTrial]
         if isinstance(trials[0], EEGTrial):
-            total = len(trials)
-            for trial in trials:
-                
-                new_total = total_dict.get(trial.label, 0) + 1
-                total_dict[trial.label] = new_total
-                
-                if trial.prediction == trial.label:
-                    new_correct = num_correct_dict.get(trial.label, 0) + 1
-                    num_correct_dict[trial.label] = new_correct
+            parse_trials(trials)
         # list[list[EEGTrial]]
         else:
             for trial_list in trials:
-                for trial in trial_list:
-                    
-                    new_total = total_dict.get(trial.label, 0) + 1
-                    total_dict[trial.label] = new_total
-                    
-                    if trial.prediction == trial.label:
-                        new_correct = num_correct_dict.get(trial.label, 0) + 1
-                        num_correct_dict[trial.label] = new_correct
+                parse_trials(trial_list)
 
         accuracies = {}
         for key in num_correct_dict.keys():

@@ -30,6 +30,13 @@ class AnalysisPipeline:
     def __init__(self):
         """
         Initialize the pipeline container with an empty subject list.
+        
+        The `subjects` and `models` attributes arrays equal in length. 
+        The i-th element of `subjects` "corresponds" to the i-th element of 
+        `models`. The word "corresponds" can mean different things in different 
+        contexts. When training models on individual subject, `models[i]` 
+        is trained on `subjects[i]`; when training generic models, 
+        `models[i]` is trained on all subjects except `subjects[i]`. 
         """
         self.subjects: list[EEGSubject] = []
         self.models: list[ModelInterface] = []
@@ -72,7 +79,7 @@ class AnalysisPipeline:
     # MARK: IO
 
     @gui_private()
-    def load_subjects(self, path: str | list[str], *, combine: bool = False) -> AnalysisPipeline:
+    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
         """
         Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
         instances and adds them to this object's subjects list. 
@@ -93,13 +100,8 @@ class AnalysisPipeline:
                 raise ValueError(f"File does not end with .mat: {filepath}")
             subject = EEGSubject.init_from_filepath(filepath)
             print(f"load_subjects : Subject loaded from {filepath}")
-            if not combine: 
-                self.subjects.append(subject)
-            else:
-                if len(self.subjects) == 0:
-                    self.subjects.append(subject)
-                else:
-                    self.subjects[0].trials += deepcopy(subject).trials
+            self.subjects.append(subject)
+            
 
         if type(path) is str:
 
@@ -123,9 +125,6 @@ class AnalysisPipeline:
                 load_subjects_helper(filepath)
         else:
             raise ValueError("Unrecognized input: path must be a string or list of strings")
-        
-        if combine and len(self.subjects) != 0:
-            self.subjects[0].reindex_trials()
 
         return self
 
@@ -242,12 +241,14 @@ class AnalysisPipeline:
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
-    def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
+    def evaluate_model(self, training_options: dict[str, any], model_name: str = "LDA") -> AnalysisPipeline:
         """
         TODO @Kevin
         """
+        self.models = []
         concrete_model = find_model(model_name)
-        for subject in self.subjects:
+        print(f"Evaluating on : {model_name}")
+        for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)
             model.set_subject(subject)
@@ -256,7 +257,7 @@ class AnalysisPipeline:
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
 
-            # # Evaluate it
+            # Evaluate it
             # try:
             #     accuracy = model.evaluate()
             #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
@@ -266,7 +267,6 @@ class AnalysisPipeline:
         
         return self
 
-    @detail(details.train_model_detail)
     def train_model(
         self,
         model_name: str,
@@ -298,10 +298,8 @@ class AnalysisPipeline:
 
             self.models.append(model)
 
-        print("train_model : done")
         return self
     
-    @detail(details.load_model_detail)
     def load_model(
         self,
         model_pickle_filepath: str | Path | list[str] | list[Path]
@@ -336,7 +334,6 @@ class AnalysisPipeline:
         
         return self
 
-    @detail(details.infer_on_model_detail)
     def infer_on_model(self, training_options: dict[str, any]) -> AnalysisPipeline:
         """
         TODO
@@ -348,11 +345,11 @@ class AnalysisPipeline:
             print(f"Inference accuracy on {subject.name}: {accuracy}")
         
         return self
-            
-            
+
 
 # Type alias for ``AnalysisPipeline`` for more expressive use.
 # When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
 BlankPipeline = AnalysisPipeline
+

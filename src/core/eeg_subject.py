@@ -18,6 +18,7 @@ from pathlib import Path
 from .eeg_trial import EEGTrial
 import os
 import sys
+from copy import deepcopy
 
 # from .utils import silence_stderr
 
@@ -33,6 +34,7 @@ class EEGSubject:
         self.source_filepath = source_filepath
         self.folds: list[list[EEGTrial]] | None = None
         self.labels_map = {}
+        self.setup_labels_map()
 
     # MARK: Computed properties
 
@@ -163,6 +165,9 @@ class EEGSubject:
 
         for _, trial_group in grouped_trials.items():
             # shuffle(trial_group)
+            if len(trial_group) < num_folds:
+                raise ValueError("""Fewer trials in one category than num_folds.
+This causes some folds to have 0 trials from this category.""")
             for i, trial in enumerate(trial_group):
                 folds[i % num_folds].append(trial)
         self.folds = folds
@@ -239,3 +244,33 @@ class EEGSubject:
     def reindex_trials(self):
         for i, trial in enumerate(self.trials):
             trial.trial_index = i
+            
+    @staticmethod
+    def create_merged(*, subjects: list[EEGSubject]) -> EEGSubject:
+        
+        if len(subjects) == 0:
+            return
+        
+        # Gather all trials
+        all_trials = []
+        for subject in subjects:
+            for trial in subject.trials:
+                all_trials.append(deepcopy(trial))
+        
+        merged_subject = EEGSubject(all_trials, source_filepath="DNE")
+        return merged_subject
+        
+    @staticmethod
+    def min_trials_per_label(*, subjects: list[EEGSubject]) -> dict[any, int]:
+        """
+        Returns the minimum number of trials for each tone across all subjects.
+        """
+        mins = {}
+        for subject in subjects:
+            for label, trials in subject.grouped_trials().items():
+                mins[label] = min(
+                    mins.get(label, float("inf")),
+                    len(trials)
+                )
+                
+        return mins

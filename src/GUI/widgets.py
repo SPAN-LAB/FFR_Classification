@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 
 from .manager import Manager
 from ..core.utils.function_detail import ArgumentDetail, FunctionDetail, Selection
+from ..models.utils import find_model, find_models
 
 
 def _is_dict_type(typ) -> bool:
@@ -292,19 +293,136 @@ class ParameterEditorWidget(QWidget):
         self.setLayout(layout)
         self.hide()
 
-    def display(self, detail: FunctionDetail, current_params: dict):
+    def display(self, detail: FunctionDetail, current_params: dict, function_name: str = ""):
         self._clear()
-        # Get parameter names from current_params dict
-        param_names = list(current_params.keys())
+        self._current_function_name = function_name
+        self._current_detail = detail
+        self._current_params_val = current_params # Keep reference to initial params
         
-        for i, ad in enumerate(detail.argument_details):
-            # Get parameter name by position
-            param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
-            current_val = current_params.get(param_name, ad.default_value)
-            widget = self._build_editor(ad, current_val)
-            self._editors.append((param_name, widget, ad))
-            self._form_layout.addRow(f"{ad.label}:", widget)
+        # Special handling for evaluate_model: add model_name dropdown
+        if function_name == "evaluate_model":
+            model_combo = QComboBox()
+            model_combo.setStyleSheet(self._COMBO_STYLE)
+            model_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            model_combo.setMinimumWidth(120)
+            
+            try:
+                models = find_models()
+                for m_name in sorted(models.keys()):
+                    model_combo.addItem(m_name)
+            except Exception:
+                pass
+            
+            current_model = current_params.get("model_name", "")
+            if isinstance(current_model, str) and current_model:
+                idx = model_combo.findText(current_model)
+                if idx >= 0:
+                    model_combo.setCurrentIndex(idx)
+            
+            self._editors.append(("model_name", model_combo, None))
+            self._form_layout.addRow("Select Model:", model_combo)
+            
+            # Connect change signal
+            model_combo.currentTextChanged.connect(self._on_model_changed)
+            
+            # Trigger initial build of training options
+            self._refresh_training_options(model_combo.currentText(), current_params.get("training_options", {}))
+        else:
+            # Standard positional matching for other functions
+            for i, ad in enumerate(detail.argument_details):
+                param_names = list(current_params.keys())
+                param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
+                current_val = current_params.get(param_name, ad.default_value)
+                widget = self._build_editor(ad, current_val)
+                self._editors.append((param_name, widget, ad))
+                self._form_layout.addRow(f"{ad.label}:", widget)
+                
         self.show()
+
+    def _on_model_changed(self, model_name: str):
+        # We need to rebuild the training_options part of the form
+        # First, find and remove existing training_options editors
+        to_remove = []
+        for i, (name, widget, ad) in enumerate(self._editors):
+            if name == "training_options" or name.startswith("to_"):
+                to_remove.append(i)
+        
+        for i in reversed(to_remove):
+            name, widget, ad = self._editors.pop(i)
+            # Find the row in the form layout
+            for row in range(self._form_layout.rowCount()):
+                f_item = self._form_layout.itemAt(row, QFormLayout.FieldRole)
+                if f_item and f_item.widget() == widget:
+                    self._form_layout.removeRow(row)
+                    break
+        
+        # Now add new ones
+        self._refresh_training_options(model_name, {})
+
+    def _refresh_training_options(self, model_name: str, current_val: dict):
+        # Hardcoded model parameters since they are not in the model classes anymore
+        model_name_lower = model_name.lower()
+        
+        if model_name_lower == "jason_cnn":
+            ads = [
+                ArgumentDetail("num_epochs", int, 15, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("val_split", float, 0.10, "Validation split ratio"),
+                ArgumentDetail("l2", float, 1e-5, "L2 regularization penalty"),
+                ArgumentDetail("sdrop", float, 0.10, "Spatial dropout rate"),
+                ArgumentDetail("head_drop", float, 0.30, "Head dropout rate"),
+                ArgumentDetail("n_classes", int, 4, "Number of output classes"),
+            ]
+        elif model_name_lower == "cnn":
+            ads = [
+                ArgumentDetail("num_epochs", int, 20, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
+                ArgumentDetail("n_classes", int, 4, "Number of output classes"),
+                ArgumentDetail("p_drop", float, 0.1, "Dropout probability"),
+            ]
+        elif model_name_lower == "svm":
+            ads = [
+                ArgumentDetail("search_type", str, "grid", "Search type: 'grid' or 'random'"),
+                ArgumentDetail("n_iter", int, 20, "Number of iterations for random search"),
+            ]
+        elif model_name_lower == "lda":
+            ads = [
+                ArgumentDetail("solver", str, "lsqr", "Solver: 'svd', 'lsqr', or 'eigen'"),
+                ArgumentDetail("shrinkage", str, "auto", "Shrinkage: 'auto' or float value"),
+            ]
+        elif model_name_lower in ["lstm", "rnn", "gru", "ffnn", "transformer"]:
+            ads = [
+                ArgumentDetail("num_epochs", int, 20, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
+            ]
+        else:
+            # Fallback to default generic dict
+            ads = [ArgumentDetail("training_options", dict, {}, "Training options")]
+        
+        # If it's a list of ads, we want to create a sub-form or a specialized dict editor
+        # The user wants "what parameters can be edit" to change.
+        # Let's create individual fields for each AD in the list, but they will all
+        # be collected into the 'training_options' dict.
+        
+        # We'll use a special container or just add them to the main form with a prefix
+        for ad in ads:
+            val = current_val.get(ad.label if ad.label else "", ad.default_value)
+            # If the label is used as key
+            key = ad.label # Usually the label is the key in these specialized ads
+            
+            widget = self._build_editor(ad, current_val.get(key, ad.default_value))
+            
+            if model_name_lower == "lda" and key in ["solver", "shrinkage"]:
+                widget.setEnabled(False)
+                
+            # We'll tag these as 'training_options_part' so we can collect them later
+            self._editors.append((f"to_{key}", widget, ad))
+            self._form_layout.addRow(f"{key}:", widget)
 
     _EDITOR_STYLE = (
         "border: 1px solid #ccc; border-radius: 4px;"
@@ -415,26 +533,40 @@ class ParameterEditorWidget(QWidget):
 
     def _collect(self) -> dict:
         result: dict[str, Any] = {}
+        training_options = {}
+        
         for name, widget, _ad in self._editors:
+            val = None
             if isinstance(widget, QSpinBox):
-                result[name] = widget.value()
+                val = widget.value()
             elif isinstance(widget, QDoubleSpinBox):
-                result[name] = widget.value()
+                val = widget.value()
             elif isinstance(widget, QLineEdit):
-                result[name] = widget.text()
+                val = widget.text()
             elif isinstance(widget, QPlainTextEdit):
                 text = widget.toPlainText().strip()
                 if not text:
-                    result[name] = {}
+                    val = {}
                 else:
                     try:
-                        result[name] = json.loads(text)
+                        val = json.loads(text)
                     except json.JSONDecodeError as exc:
                         raise ValueError(f"Invalid JSON: {exc}") from exc
             elif isinstance(widget, DictEditorWidget):
-                result[name] = widget.get_value()
+                val = widget.get_value()
             elif isinstance(widget, QComboBox):
-                result[name] = widget.currentText()
+                val = widget.currentText()
+            
+            if name.startswith("to_"):
+                # Re-assemble training_options
+                key = name[3:]
+                training_options[key] = val
+            else:
+                result[name] = val
+        
+        if self._current_function_name == "evaluate_model" and training_options:
+            result["training_options"] = training_options
+            
         return result
 
     def _clear(self):

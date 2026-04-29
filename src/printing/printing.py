@@ -9,7 +9,30 @@ Description: Defines functions that make it to make "stationary" prints.
 """
 
 
-import sys
+from sys import stdout
+
+class Line:
+    def __init__(self):
+        self._has_placed = False
+    
+    def place(self, printable_content):
+        # ANSI Codes:
+        # \033[F - Move cursor to the beginning of the previous line
+        # \033[K - Clear from cursor to end of line
+        
+        content_str = str(printable_content)
+        
+        if self._has_placed:
+            # Move up 1 line, clear it, write new content, then go back to the next line
+            # We add \n at the end so the cursor always sits on a fresh line for other prints
+            stdout.write(f"\033[F\033[K{content_str}\n")
+        else:
+            # First time: just write and go to the next line
+            stdout.write(f"{content_str}\n")
+            self._has_placed = True
+            
+        stdout.flush()
+    
 
 class StationaryPrinter:
     is_locked: bool = False
@@ -33,9 +56,9 @@ class StationaryPrinter:
         StationaryPrinter.lock()
 
         # Clear previous text fully
-        sys.stdout.write("\r" + " " * StationaryPrinter.last_length)
-        sys.stdout.write("\r" + text)
-        sys.stdout.flush()
+        stdout.write("\r" + " " * StationaryPrinter.last_length)
+        stdout.write("\r" + text)
+        stdout.flush()
 
         StationaryPrinter.last_length = len(text)
     

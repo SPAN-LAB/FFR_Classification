@@ -8,13 +8,28 @@ get_accuracy = EEGTrial.get_accuracy
 class LDA(ModelInterface): 
     def __init__(self, training_options: dict[str, any]):
         super().__init__(training_options)
-        self.model = LinearDiscriminantAnalysis()
+        
+        # SVD solver will complain if variables are collinear. 
+        # Using lsqr + auto shrinkage usually fixes this and is better for EEG data.
+        solver = self.training_options.get("solver", "lsqr")
+        shrinkage = self.training_options.get("shrinkage", "auto")
+        
+        self.model = LinearDiscriminantAnalysis(solver=solver, shrinkage=shrinkage)
 
-    def train(self):
+    def train(self, pickle_to=None):
         #Get all trials for this subject
         X_train = np.array([t.data for t in self.subject.trials])
-        y_train = np.array([t.raw_label for t in self.subject.trials])
+        y_train = np.array([t.label for t in self.subject.trials])
         self.model.fit(X_train, y_train)
+
+        if pickle_to is not None:
+            import pickle
+            from pathlib import Path
+            if isinstance(pickle_to, str):
+                pickle_to = Path(pickle_to)
+            pickle_to.parent.mkdir(parents=True, exist_ok=True)
+            with open(pickle_to, 'wb') as f:
+                pickle.dump(self, f)
 
     def infer(self, trials):
         #Predict probabilities for given trials
@@ -34,13 +49,16 @@ class LDA(ModelInterface):
         folds = self.subject.folds
         all_trials = []
 
-        for fold in folds:
+        for i, fold in enumerate(folds):
             test_trials = fold
-            train_trials = [t for t in self.subject.trials if t not in test_trials]
+            train_trials = []
+            for j, other_fold in enumerate(folds):
+                if i != j:
+                    train_trials.extend(other_fold)
 
             # Train
             X_train = np.array([t.data for t in train_trials])
-            y_train = np.array([t.raw_label for t in train_trials])
+            y_train = np.array([t.label for t in train_trials])
             self.model.fit(X_train, y_train)
 
             #Infer on test trials

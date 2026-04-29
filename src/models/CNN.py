@@ -59,8 +59,8 @@ class CNNModel(TorchNNBase):
         p_drop = float(self.training_options.get("p_drop", 0.1))
         self.model = _CNN1D(n_classes=n_classes, p_drop=p_drop).to(self.device)
 
-    def train(self, output_path: str) -> None:
-        return None  # NOTE: Placeholder, to be implemented later
+    # def train(self, output_path: str) -> None:
+    #     return None  # NOTE: Placeholder, to be implemented later
 
-    def infer(self, trials: list[EEGTrial]):
-        return None  # NOTE: Placeholder, to be implemented later
+    # def infer(self, trials: list[EEGTrial]):
+    #     return None  # NOTE: Placeholder, to be implemented later

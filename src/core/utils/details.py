@@ -7,13 +7,14 @@ Description: Decorators for the methods of AnalysisPipeline that provide additio
     on a function for a GUI to represent it accurately. 
 """
 
+"""THIS IS UNMAINTAINED"""
 
 from .function_detail import FunctionDetail as FD
 from .function_detail import ArgumentDetail as AD
 from .function_detail import FunctionKind
 from .function_detail import Selection
 
-from ...models.utils import find_models
+# from ...models.utils import find_models
 
 def detail(detail: FD):
     def decorator(func):
@@ -113,12 +114,13 @@ fold_detail = FD(
 evaluate_model_detail = FD(
     label="Evaluate Model",
     argument_details=[
-        AD(
-            label="Select Model",
-            type=Selection,
-            default_value=Selection(map=find_models),
-            description="Select your model here."
-        ),
+        # AD(
+        #     label="Select Model",
+        #     type=Selection,
+        #     default_value=Selection(map=find_models),
+        #     description="Select your model here."
+        # ),
+        
         AD(
             label="Training Options",
             type=dict[str, any],
@@ -132,60 +134,16 @@ evaluate_model_detail = FD(
     ]
 )
 
+# TODO
 train_model_detail = FD(
     label="Train Model",
-    argument_details=[
-        AD(
-            label="Select Model",
-            type=Selection,
-            default_value=Selection(map=find_models),
-            description="Select the model architecture to train."
-        ),
-        AD(
-            label="Hyperparameters",
-            type=dict[str, any],
-            default_value={
-                "num_epochs": 20,
-                "batch_size": 32,
-                "learning_rate": 0.001,
-                "weight_decay": 0.1
-            },
-            description="Hyperparameters for model training."
-        ),
-        AD(
-            label="Output Directory (Optional)",
-            type=str,
-            default_value="",
-            description="Directory to save trained models. Leave empty to skip saving."
-        )
-    ],
-    description="Trains a selected model on all subjects."
+    argument_details=[],
+    description="This function is NOT YET implemented."
 )
 
+# TODO
 infer_on_model_detail = FD(
     label="Infer on Model",
-    argument_details=[
-        AD(
-            label="Training Options",
-            type=dict[str, any],
-            default_value={
-                "batch_size": 32
-            },
-            description="Options for inference/evaluation."
-        )
-    ],
-    description="Runs inference on trained models for all subjects."
-)
-
-load_model_detail = FD(
-    label="Load Model",
-    argument_details=[
-        AD(
-            label="Model File Path(s)",
-            type=str,
-            default_value="",
-            description="Path to a model pickle file or JSON list of paths."
-        )
-    ],
-    description="Loads previously trained models from disk."
+    argument_details=[],
+    description="This function is NOT YET implemented."
 )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import io
+import json
 import os
 import sys
 import threading
@@ -45,105 +46,66 @@ def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
 
 
 class _FdCapture:
-    """Tee fd 1 (stdout) and fd 2 (stderr) to both the real terminal and
-    an in-memory buffer. Captures C-level output too (torch, tqdm, etc.)."""
+    """Tee sys.stdout and sys.stderr to both the real terminal and
+    an in-memory buffer. Safer on Windows than fd-level redirection."""
 
     def __init__(
         self, on_chunk: Optional[Callable[[str], None]] = None
     ) -> None:
-        self._buf = io.BytesIO()
+        self._buf = io.StringIO()
         self._lock = threading.Lock()
         self._on_chunk = on_chunk
-        self._saved_out_fd: Optional[int] = None
-        self._saved_err_fd: Optional[int] = None
-        self._pipe_r: Optional[int] = None
-        self._pipe_w: Optional[int] = None
-        self._reader: Optional[threading.Thread] = None
-        self._old_sys_stdout = None
-        self._old_sys_stderr = None
+        self._old_stdout: Optional[io.TextIOWrapper] = None
+        self._old_stderr: Optional[io.TextIOWrapper] = None
 
-    def start(self) -> None:
-        try:
-            sys.stdout.flush()
-            sys.stderr.flush()
-        except Exception:
-            pass
-        self._saved_out_fd = os.dup(1)
-        self._saved_err_fd = os.dup(2)
-        self._pipe_r, self._pipe_w = os.pipe()
-        os.dup2(self._pipe_w, 1)
-        os.dup2(self._pipe_w, 2)
-        
-        self._old_sys_stdout = sys.stdout
-        self._old_sys_stderr = sys.stderr
-        
-        # In python, print uses sys.stdout which is wrapped around the original fd 1. 
-        # When fd 1 is duplicated to a pipe, Windows console IO fails. Thus, replace sys.stdout.
-        sys.stdout = io.TextIOWrapper(open(1, "wb", closefd=False), encoding="utf-8", line_buffering=True)
-        sys.stderr = io.TextIOWrapper(open(2, "wb", closefd=False), encoding="utf-8", line_buffering=True)
+    class _Tee:
+        def __init__(self, primary, secondary, lock, on_chunk):
+            self.primary = primary
+            self.secondary = secondary
+            self.lock = lock
+            self.on_chunk = on_chunk
 
-        self._reader = threading.Thread(target=self._read_loop, daemon=True)
-        self._reader.start()
-
-    def _read_loop(self) -> None:
-        assert self._pipe_r is not None and self._saved_out_fd is not None
-        while True:
+        def write(self, data):
+            if not data:
+                return
             try:
-                chunk = os.read(self._pipe_r, 4096)
-            except OSError:
-                break
-            if not chunk:
-                break
-            with self._lock:
-                self._buf.write(chunk)
-            try:
-                os.write(self._saved_out_fd, chunk)
-            except OSError:
+                self.primary.write(data)
+            except Exception:
                 pass
-            if self._on_chunk is not None:
+            with self.lock:
+                self.secondary.write(data)
+            if self.on_chunk:
                 try:
-                    self._on_chunk(chunk.decode("utf-8", errors="replace"))
+                    self.on_chunk(data)
                 except Exception:
                     pass
 
-    def stop(self) -> str:
-        try:
-            sys.stdout.flush()
-            sys.stderr.flush()
-        except Exception:
-            pass
-            
-        if self._old_sys_stdout is not None:
-            sys.stdout = self._old_sys_stdout
-            self._old_sys_stdout = None
-            
-        if self._old_sys_stderr is not None:
-            sys.stderr = self._old_sys_stderr
-            self._old_sys_stderr = None
-            
-        if self._saved_out_fd is not None:
-            os.dup2(self._saved_out_fd, 1)
-        if self._saved_err_fd is not None:
-            os.dup2(self._saved_err_fd, 2)
-        if self._pipe_w is not None:
-            os.close(self._pipe_w)
-            self._pipe_w = None
-        if self._reader is not None:
-            self._reader.join(timeout=2.0)
-        if self._pipe_r is not None:
+        def flush(self):
             try:
-                os.close(self._pipe_r)
-            except OSError:
+                self.primary.flush()
+            except Exception:
                 pass
-            self._pipe_r = None
-        if self._saved_out_fd is not None:
-            os.close(self._saved_out_fd)
-            self._saved_out_fd = None
-        if self._saved_err_fd is not None:
-            os.close(self._saved_err_fd)
-            self._saved_err_fd = None
+            with self.lock:
+                self.secondary.flush()
+        
+        def isatty(self):
+            return getattr(self.primary, "isatty", lambda: False)()
+
+    def start(self) -> None:
+        self._old_stdout = sys.stdout
+        self._old_stderr = sys.stderr
+        sys.stdout = self._Tee(self._old_stdout, self._buf, self._lock, self._on_chunk)
+        sys.stderr = self._Tee(self._old_stderr, self._buf, self._lock, self._on_chunk)
+
+    def stop(self) -> str:
+        if self._old_stdout is not None:
+            sys.stdout = self._old_stdout
+            self._old_stdout = None
+        if self._old_stderr is not None:
+            sys.stderr = self._old_stderr
+            self._old_stderr = None
         with self._lock:
-            return self._buf.getvalue().decode("utf-8", errors="replace")
+            return self._buf.getvalue()
 
 
 class _FunctionWorker(QObject):
@@ -273,10 +235,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(logo_label)
         layout.addStretch()
 
-        load_pipe_btn = QPushButton("+  Load Pipeline")
-        load_pipe_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
-        load_pipe_btn.setFixedHeight(34)
-        layout.addWidget(load_pipe_btn)
+        self._load_pipe_btn = QPushButton("+  Load Pipeline")
+        self._load_pipe_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        self._load_pipe_btn.setFixedHeight(34)
+        self._load_pipe_btn.clicked.connect(self._load_pipeline)
+        layout.addWidget(self._load_pipe_btn)
+
+        self._save_pipe_btn = QPushButton("+  Save Pipeline")
+        self._save_pipe_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        self._save_pipe_btn.setFixedHeight(34)
+        self._save_pipe_btn.clicked.connect(self._save_pipeline)
+        layout.addWidget(self._save_pipe_btn)
 
         self._load_subject_file_btn = QPushButton("+  Load Subject File")
         self._load_subject_file_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
@@ -629,7 +598,7 @@ class MainWindow(QMainWindow):
                 w.set_selected(w._index == index)
 
         if entry["detail"]:
-            self._param_editor.display(entry["detail"], entry["params"])
+            self._param_editor.display(entry["detail"], entry["params"], entry["name"])
 
     def _on_apply_params(self, params: dict) -> None:
         if self._selected_index is None:
@@ -678,6 +647,77 @@ class MainWindow(QMainWindow):
         self._subject_list.clear()
         for subj in self.manager.state.subjects:
             self._subject_list.addItem(subj.name)
+
+    # ── pipeline saving / loading ────────────────────────────────────────────
+
+    def _save_pipeline(self) -> None:
+        if not self._pipeline_functions:
+            QMessageBox.information(
+                self, "Empty Pipeline", "No functions to save."
+            )
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Pipeline", str(Path.cwd()), "JSON files (*.json)"
+        )
+        if not file_path:
+            return
+
+        pipeline_data = []
+        for func in self._pipeline_functions:
+            # We don't save the 'detail' object because it might not be JSON serializable
+            # We'll re-fetch it when loading
+            pipeline_data.append({
+                "name": func["name"],
+                "label": func["label"],
+                "params": func["params"]
+            })
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(pipeline_data, f, indent=4)
+            QMessageBox.information(self, "Success", "Pipeline saved successfully.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Could not save pipeline:\n{exc}")
+
+    def _load_pipeline(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Pipeline", str(Path.cwd()), "JSON files (*.json)"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                pipeline_data = json.load(f)
+
+            if not isinstance(pipeline_data, list):
+                raise ValueError("Invalid pipeline format (expected a list).")
+
+            self._refresh_function_map()
+
+            new_functions = []
+            for item in pipeline_data:
+                name = item.get("name")
+                if not name:
+                    continue
+                func = self.function_map.get(name)
+                # Even if func is missing (maybe changed version), we load it
+                detail = _function_detail(func) if func else None
+                new_functions.append({
+                    "name": name,
+                    "label": item.get("label", name),
+                    "params": item.get("params", {}),
+                    "detail": detail
+                })
+
+            self._pipeline_functions = new_functions
+            self._selected_index = None
+            self._param_editor.clear_and_hide()
+            self._rebuild_cards()
+
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", f"Could not load pipeline:\n{exc}")
 
     # ── pipeline execution ───────────────────────────────────────────────────
 
@@ -732,6 +772,13 @@ class MainWindow(QMainWindow):
             subject_suffix = f" on {len(subjects)} subjects"
         self._status_label.setText(f"Evaluating {display_name}{subject_suffix}")
         self._append_log(f"--- {display_name}{subject_suffix} ---\n")
+
+        # Ensure folding if evaluating model and no folds exist
+        if name == "evaluate_model":
+            for s in subjects:
+                if s.folds is None:
+                    self._append_log(f"Auto-folding subject {s.name} (5 folds)...\n")
+                    s.fold(5)
 
         self._set_running(True)
         thread = QThread(self)
