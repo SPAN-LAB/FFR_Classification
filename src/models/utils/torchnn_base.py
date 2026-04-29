@@ -22,6 +22,7 @@ from ...printing.printing import Line
 from random import shuffle
 from numbers import Number
 from typing import Any
+from math import ceil
 
 
 class TorchNNBase(ModelInterface):
@@ -195,7 +196,7 @@ class TorchNNBase(ModelInterface):
         if must_validate and isinstance(validation_trials, float):
             # Sample the validation trials from `trials` if a ratio is provided
             # and remove those from `trials`
-            num_validation_trials = int(len(trials) * validation_trials)
+            num_validation_trials = ceil(len(trials) * validation_trials)
             if num_validation_trials <= 0 or len(trials) - num_validation_trials <= 0:
                 raise ValueError("The splitting of trials results in some group being empty")
             validation_trials = sds2(trials=trials, num_trials=num_validation_trials)
