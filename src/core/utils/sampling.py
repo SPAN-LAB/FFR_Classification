@@ -51,8 +51,8 @@ def sds2(trials: list[EEGTrial], num_trials: int) -> list[EEGTrial]:
         num_trials_to_take = num_trials_per_label[label][1]
         sampled_trials += grouped_trials[label][:num_trials_to_take]
     
-    # Reassign indices to the trials 
-    for i, trial in enumerate(sampled_trials):
-        trial.trial_index = i
+    # # Reassign indices to the trials 
+    # for i, trial in enumerate(sampled_trials):
+    #     trial.trial_index = i
     
     return sampled_trials
