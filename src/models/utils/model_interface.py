@@ -16,7 +16,7 @@ from ...core import EEGSubject
 from ...core import EEGTrial
 from ...time import TimeKeeper
 
-from ...printing import print, printl, unlock
+from ...printing import printl, unlock
 
 from ...constants.defaults import BATCH_SIZE, NUM_EPOCHS, LEARNING_RATE, WEIGHT_DECAY, MIN_DELTA, PATIENCE, VALIDATION_RATIO, LR_PATIENCE
 
@@ -144,7 +144,7 @@ class ModelInterface:
 
     # MARK: Orchestration functions
     
-    def infer(self, *, trials: list[EEGTrial]) -> float:
+    def infer(self, *, trials: list[EEGTrial] = []) -> float:
         
         if len(trials) == 0:
             trials = self.subject.trials
