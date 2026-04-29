@@ -33,7 +33,15 @@ from PyQt5.QtWidgets import (
     QSplitter,
     QVBoxLayout,
     QWidget,
+    QComboBox,
+    QFormLayout,
+    QLineEdit,
 )
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from .manager import Manager
 from .widgets import FunctionCardWidget, ParameterEditorWidget
@@ -181,11 +189,14 @@ class MainWindow(QMainWindow):
 
         self.manager = Manager()
         self.function_map: dict[str, Callable] = {}
-        self._pipeline_functions: list[dict[str, Any]] = []
-        self._selected_index: Optional[int] = None
+        self._pipeline_functions: list[dict] = []
+        self._selected_index: int | None = None
+        self._pending_queue: list[tuple[str, dict]] = []
+        self._plot_layouts: list[QVBoxLayout] = []
+        self._confusion_layout: QVBoxLayout | None = None
+        self._roc_layout: QVBoxLayout | None = None
         self._thread: Optional[QThread] = None
         self._worker: Optional[_FunctionWorker] = None
-        self._pending_queue: list[tuple[str, dict]] = []
 
         self._build_ui()
         self._refresh_function_map()
@@ -355,7 +366,8 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
-        panel.layout().addWidget(lbl, stretch=1)
+        self._confusion_layout = panel.layout()
+        self._confusion_layout.addWidget(lbl, stretch=1)
         return panel
 
     def _build_roc_panel(self) -> QWidget:
@@ -365,7 +377,8 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
-        panel.layout().addWidget(lbl, stretch=1)
+        self._roc_layout = panel.layout()
+        self._roc_layout.addWidget(lbl, stretch=1)
         return panel
 
     def _build_subjects_panel(self) -> QWidget:
@@ -384,6 +397,7 @@ class MainWindow(QMainWindow):
             " QListWidget::item { padding: 3px 8px; }"
             " QListWidget::item:hover { background: #f0f4ff; }"
         )
+        self._subject_list.itemClicked.connect(self._on_subject_clicked)
         layout.addWidget(self._subject_list)
         return panel
 
@@ -411,6 +425,7 @@ class MainWindow(QMainWindow):
                     " background: transparent;"
                 )
                 fl.addWidget(lbl, stretch=1)
+                self._plot_layouts.append(fl)
                 frame.setLayout(fl)
                 grid.addWidget(frame, r, c)
 
@@ -657,6 +672,123 @@ class MainWindow(QMainWindow):
         self._subject_list.clear()
         for subj in self.manager.state.subjects:
             self._subject_list.addItem(subj.name)
+
+    def _on_subject_clicked(self, item: QListWidgetItem) -> None:
+        subj_name = item.text()
+        subject = next((s for s in self.manager.state.subjects if s.name == subj_name), None)
+        if not subject:
+            return
+            
+        # Import plots module locally to avoid circular dependencies
+        from ..core import plots
+        from ..core import EEGSubject
+        
+        # Clear existing plots
+        for layout in self._plot_layouts:
+            while layout.count():
+                child = layout.takeAt(0)
+                if child.widget():
+                    child.widget().deleteLater()
+                    
+        # Generate new plots using Agg backend
+        plt.close('all')
+        
+        # Group trials by label
+        grouped = subject.grouped_trials()
+        
+        try:
+            keys = sorted(list(grouped.keys()))
+        except Exception:
+            keys = list(grouped.keys())
+            
+        # Plot up to 4 labels in the 4 slots
+        import warnings
+        import seaborn as sns
+        
+        # Reset seaborn palette to prevent plot_roc_curve's "husl" palette from turning signal plots red
+        sns.set_palette("deep")
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            for i, group_key in enumerate(keys):
+                if i >= 4:
+                    break
+                    
+                trials = grouped[group_key]
+                if not trials:
+                    self._plot_layouts[i].addWidget(QLabel(f"No data for Label {group_key}"))
+                    continue
+                    
+                # Create a pseudo-subject with just these trials to average them
+                pseudo_subject = EEGSubject(trials=trials)
+                pseudo_subject.subaverage(size=len(trials))
+                
+                if pseudo_subject.trials:
+                    avg_trial = pseudo_subject.trials[0]
+                    # Inject metadata so plot_single_trial creates a nice title
+                    avg_trial.trial_index = "Avg"
+                    avg_trial.mapped_label = f"Label {group_key}"
+                    
+                    try:
+                        plots.plot_single_trial(avg_trial)
+                        fig = plt.gcf()
+                        canvas = FigureCanvas(fig)
+                        self._plot_layouts[i].addWidget(canvas)
+                        plt.close(fig)
+                    except Exception as e:
+                        self._plot_layouts[i].addWidget(QLabel(f"Failed to plot Label {group_key}:\n{e}"))
+                else:
+                    self._plot_layouts[i].addWidget(QLabel(f"Could not average Label {group_key}"))
+                
+        # Fill any remaining empty slots
+        for i in range(len(keys), 4):
+            self._plot_layouts[i].addWidget(QLabel("Empty"))
+            
+        # Plot Confusion Matrix and ROC Curve
+        for layout in (self._confusion_layout, self._roc_layout):
+            if layout:
+                # Keep the title label at index 0, remove the rest
+                while layout.count() > 1:
+                    child = layout.takeAt(1)
+                    if child.widget():
+                        child.widget().deleteLater()
+                        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            
+            # Temporarily disable plt.close so we can capture the figures before plots.py destroys them
+            original_close = plt.close
+            plt.close = lambda *args, **kwargs: None
+            
+            try:
+                # Confusion Matrix
+                try:
+                    plots.plot_confusion_matrix(subject=subject, show_popup=False)
+                    fig_cm = plt.gcf()
+                    if not fig_cm.axes:
+                        self._confusion_layout.addWidget(QLabel("No valid predictions yet."))
+                    else:
+                        canvas_cm = FigureCanvas(fig_cm)
+                        self._confusion_layout.addWidget(canvas_cm)
+                    original_close(fig_cm)
+                except Exception as e:
+                    self._confusion_layout.addWidget(QLabel(f"No Confusion Matrix available.\n{e}"))
+                    
+                # ROC Curve
+                try:
+                    plots.plot_roc_curve(subject=subject, show_popup=False)
+                    fig_roc = plt.gcf()
+                    if not fig_roc.axes:
+                        self._roc_layout.addWidget(QLabel("No valid predictions yet."))
+                    else:
+                        canvas_roc = FigureCanvas(fig_roc)
+                        self._roc_layout.addWidget(canvas_roc)
+                    original_close(fig_roc)
+                except Exception as e:
+                    self._roc_layout.addWidget(QLabel(f"No ROC Curve available.\n{e}"))
+            finally:
+                # Restore plt.close
+                plt.close = original_close
 
     # ── pipeline saving / loading ────────────────────────────────────────────
 
