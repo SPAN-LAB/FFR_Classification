@@ -504,10 +504,20 @@ class MainWindow(QMainWindow):
             return
 
         dialog = QDialog(self)
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         dialog.setWindowTitle("Add Function")
         dialog.setMinimumWidth(320)
         dlayout = QVBoxLayout()
-        dlayout.addWidget(QLabel("Select a function to add:"))
+        
+        header_layout = QHBoxLayout()
+        header_layout.addWidget(QLabel("Select a function to add:"))
+        header_layout.addStretch()
+        
+        help_link = QLabel("<a href='https://github.com/SPAN-LAB/FFR_Classification'>Help (?)</a>")
+        help_link.setOpenExternalLinks(True)
+        header_layout.addWidget(help_link)
+        
+        dlayout.addLayout(header_layout)
 
         already_added = {f["name"] for f in self._pipeline_functions}
         lw = QListWidget()

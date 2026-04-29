@@ -53,13 +53,13 @@ trim_by_timestamp_detail = FD(
         AD(
             label="Start Time (ms)",
             type=float,
-            default_value=0,
+            default_value=50,
             description="The lower bound for the timestamps."
         ),
         AD(
             label="End Time (ms)",
             type=float,
-            default_value=100,
+            default_value=200,
             description="The upper bound for the timestamps."
         )
     ],
@@ -114,13 +114,12 @@ fold_detail = FD(
 evaluate_model_detail = FD(
     label="Evaluate Model",
     argument_details=[
-        # AD(
-        #     label="Select Model",
-        #     type=Selection,
-        #     default_value=Selection(map=find_models),
-        #     description="Select your model here."
-        # ),
-        
+        AD(
+            label="Model Name",
+            type=str,
+            default_value="CNN",
+            description="The name of the model to evaluate."
+        ),
         AD(
             label="Training Options",
             type=dict[str, any],
@@ -134,16 +133,58 @@ evaluate_model_detail = FD(
     ]
 )
 
-# TODO
 train_model_detail = FD(
     label="Train Model",
-    argument_details=[],
-    description="This function is NOT YET implemented."
+    argument_details=[
+        AD(
+            label="Model Name",
+            type=str,
+            default_value="CNN",
+            description="The name of the model to train."
+        ),
+        AD(
+            label="Hyperparameters",
+            type=dict[str, any],
+            default_value={
+                "num_epochs": 20,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+                "weight_decay": 0.1
+            }
+        ),
+        AD(
+            label="Output Directory",
+            type=str,
+            default_value="",
+            description="Path to save the trained model (.pkl)."
+        )
+    ],
+    description="Trains a model and optionally saves it."
 )
 
-# TODO
 infer_on_model_detail = FD(
     label="Infer on Model",
-    argument_details=[],
-    description="This function is NOT YET implemented."
+    argument_details=[
+        AD(
+            label="Training Options",
+            type=dict[str, any],
+            default_value={
+                "batch_size": 32
+            }
+        )
+    ],
+    description="Runs inference using the currently loaded model."
+)
+
+load_model_detail = FD(
+    label="Load Model",
+    argument_details=[
+        AD(
+            label="Model Filepath",
+            type=str,
+            default_value="",
+            description="Path to the saved model (.pkl) file or a list of paths (as JSON list)."
+        )
+    ],
+    description="Loads a previously trained model from disk."
 )

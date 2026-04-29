@@ -241,7 +241,7 @@ class AnalysisPipeline:
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
-    def evaluate_model(self, training_options: dict[str, any], model_name: str = "LDA") -> AnalysisPipeline:
+    def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
         """
         TODO @Kevin
         """
@@ -267,6 +267,7 @@ class AnalysisPipeline:
         
         return self
 
+    @detail(details.train_model_detail)
     def train_model(
         self,
         model_name: str,
@@ -300,6 +301,7 @@ class AnalysisPipeline:
 
         return self
     
+    @detail(details.load_model_detail)
     def load_model(
         self,
         model_pickle_filepath: str | Path | list[str] | list[Path]
@@ -334,6 +336,7 @@ class AnalysisPipeline:
         
         return self
 
+    @detail(details.infer_on_model_detail)
     def infer_on_model(self, training_options: dict[str, any]) -> AnalysisPipeline:
         """
         TODO
@@ -345,11 +348,11 @@ class AnalysisPipeline:
             print(f"Inference accuracy on {subject.name}: {accuracy}")
         
         return self
-
+            
+            
 
 # Type alias for ``AnalysisPipeline`` for more expressive use.
 # When the ``AnalysisPipeline`` is isolated in the middle, it makes semantic sense for it to be
 # called a ``PipelineState``
 PipelineState = AnalysisPipeline
 BlankPipeline = AnalysisPipeline
-

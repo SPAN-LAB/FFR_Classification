@@ -299,8 +299,8 @@ class ParameterEditorWidget(QWidget):
         self._current_detail = detail
         self._current_params_val = current_params # Keep reference to initial params
         
-        # Special handling for evaluate_model: add model_name dropdown
-        if function_name == "evaluate_model":
+        # Special handling for evaluate_model and train_model: add model_name dropdown
+        if function_name in ["evaluate_model", "train_model"]:
             model_combo = QComboBox()
             model_combo.setStyleSheet(self._COMBO_STYLE)
             model_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
@@ -313,7 +313,7 @@ class ParameterEditorWidget(QWidget):
             except Exception:
                 pass
             
-            current_model = current_params.get("model_name", "")
+            current_model = current_params.get("model_name", "LDA")
             if isinstance(current_model, str) and current_model:
                 idx = model_combo.findText(current_model)
                 if idx >= 0:
@@ -322,11 +322,65 @@ class ParameterEditorWidget(QWidget):
             self._editors.append(("model_name", model_combo, None))
             self._form_layout.addRow("Select Model:", model_combo)
             
+            if function_name == "train_model":
+                dir_container = QWidget()
+                dir_layout = QHBoxLayout()
+                dir_layout.setContentsMargins(0, 0, 0, 0)
+                
+                dir_edit = QLineEdit()
+                dir_edit.setStyleSheet(self._EDITOR_STYLE)
+                dir_edit.setText(current_params.get("output_dirpath", ""))
+                
+                browse_btn = QPushButton("Browse")
+                browse_btn.setStyleSheet(
+                    "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+                    " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
+                    " QPushButton:hover { background: #d0d0d0; }"
+                )
+                browse_btn.clicked.connect(lambda _, le=dir_edit: self._browse_dir(le))
+                
+                dir_layout.addWidget(dir_edit)
+                dir_layout.addWidget(browse_btn)
+                dir_container.setLayout(dir_layout)
+                
+                self._editors.append(("output_dirpath", dir_edit, None))
+                self._form_layout.addRow("Output Directory:", dir_container)
+            
             # Connect change signal
             model_combo.currentTextChanged.connect(self._on_model_changed)
             
             # Trigger initial build of training options
-            self._refresh_training_options(model_combo.currentText(), current_params.get("training_options", {}))
+            initial_opts = current_params.get("training_options", {})
+            if function_name == "train_model":
+                initial_opts = current_params.get("hyperparameters", {})
+            self._refresh_training_options(model_combo.currentText(), initial_opts)
+        elif function_name == "load_model":
+            param_name = "model_pickle_filepath"
+            current_val = current_params.get(param_name, "")
+            
+            container = QWidget()
+            layout = QHBoxLayout()
+            layout.setContentsMargins(0, 0, 0, 0)
+            
+            line_edit = QLineEdit()
+            line_edit.setStyleSheet(self._EDITOR_STYLE)
+            if current_val:
+                line_edit.setText(str(current_val))
+                
+            browse_btn = QPushButton("Browse")
+            browse_btn.setStyleSheet(
+                "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+                " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
+                " QPushButton:hover { background: #d0d0d0; }"
+            )
+            browse_btn.clicked.connect(lambda _, le=line_edit: self._browse_file(le))
+            
+            layout.addWidget(line_edit)
+            layout.addWidget(browse_btn)
+            container.setLayout(layout)
+            
+            self._editors.append((param_name, line_edit, detail.argument_details[0]))
+            self._form_layout.addRow("Model Filepath:", container)
         else:
             # Standard positional matching for other functions
             for i, ad in enumerate(detail.argument_details):
@@ -338,6 +392,22 @@ class ParameterEditorWidget(QWidget):
                 self._form_layout.addRow(f"{ad.label}:", widget)
                 
         self.show()
+
+    def _browse_file(self, line_edit):
+        from PyQt5.QtWidgets import QFileDialog
+        import json
+        paths, _ = QFileDialog.getOpenFileNames(self, "Select Model File(s)", "", "Pickle Files (*.pkl);;All Files (*)")
+        if paths:
+            if len(paths) == 1:
+                line_edit.setText(paths[0])
+            else:
+                line_edit.setText(json.dumps(paths))
+                
+    def _browse_dir(self, line_edit):
+        from PyQt5.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if path:
+            line_edit.setText(path)
 
     def _on_model_changed(self, model_name: str):
         # We need to rebuild the training_options part of the form
@@ -543,6 +613,11 @@ class ParameterEditorWidget(QWidget):
                 val = widget.value()
             elif isinstance(widget, QLineEdit):
                 val = widget.text()
+                if val.strip().startswith("[") and val.strip().endswith("]"):
+                    try:
+                        val = json.loads(val.strip())
+                    except Exception:
+                        pass
             elif isinstance(widget, QPlainTextEdit):
                 text = widget.toPlainText().strip()
                 if not text:
@@ -566,6 +641,8 @@ class ParameterEditorWidget(QWidget):
         
         if self._current_function_name == "evaluate_model" and training_options:
             result["training_options"] = training_options
+        elif self._current_function_name == "train_model" and training_options:
+            result["hyperparameters"] = training_options
             
         return result
 
