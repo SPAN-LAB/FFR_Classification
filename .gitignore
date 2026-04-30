@@ -15,8 +15,10 @@
 !demo.py
 !analysis.py
 !analyze.py
+/*.png
+!spanlab_logo_final.png
 
-*.png
+
 *.jpg
 *.jpeg
 *.svg
