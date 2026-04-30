@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap, QTextCursor
+from PyQt5.QtGui import QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
@@ -186,6 +186,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("FFR Pipeline Tool")
         self.resize(1400, 900)
+        
+        # Set window icon to the logo
+        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
+        if logo_path.exists():
+            self.setWindowIcon(QIcon(str(logo_path)))
 
         self.manager = Manager()
         self.function_map: dict[str, Callable] = {}
