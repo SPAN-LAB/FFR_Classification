@@ -303,10 +303,12 @@ def analyze2(*,
                 # Initial training on all but focused subject
                 generic_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
                 generic_model.set_subject(subject_of_focus_on_generic_model)
+                not_pretrain_tk = TimeKeeper(); not_pretrain_tk.start()
                 generic_model.train(
                     trials=train_trials,
                     validation_trials=validation_trials
                 )
+                not_pretrain_tk.stop()
 
                 # Testing on the withheld subject
                 acc = generic_model.infer() # Infer on subject_of_focus_on_generic_model
@@ -322,11 +324,27 @@ def analyze2(*,
                     strip_data_away(subject_of_focus_on_generic_model)
                     pickle.dump(subject_of_focus_on_generic_model, file)
 
+                # Store the time taken for training the above model
+                not_pretrain_times_log_filepath = not_pretrain_save_dirpath / "times_log.csv"
+                should_create_header = (
+                    not not_pretrain_times_log_filepath.exists() 
+                    or is_empty(not_pretrain_times_log_filepath)
+                )
+                if should_create_header:
+                    log("data_amount,subaverage_size,duration(seconds)", not_pretrain_times_log_filepath)
+                log(
+                    f"{data_amount},{subaverage_size},{not_pretrain_tk.accumulated_duration}",
+                    not_pretrain_times_log_filepath
+                )
+                
+
                 # Cross validation on the withheld subject
                 weights = generic_model._get_best()
                 fine_tuned_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
                 fine_tuned_model.set_subject(subject_of_focus_using_pre_trained)
+                use_pretrain_tk = TimeKeeper(); use_pretrain_tk.start()
                 acc = fine_tuned_model.evaluate(base_state=weights)
+                use_pretrain_tk.stop()
                 print(f"Accuracy: {(acc * 100):.1f}%")
 
                 # Save the predictions of the use-pretrain subject
@@ -339,10 +357,25 @@ def analyze2(*,
                     strip_data_away(subject_of_focus_using_pre_trained)
                     pickle.dump(subject_of_focus_using_pre_trained, file)
 
+                # Store the time taken for training the above model
+                use_pretrain_times_log_filepath = use_pretrain_save_dirpath / "times_log.csv"
+                should_create_header = (
+                    not use_pretrain_times_log_filepath.exists() 
+                    or is_empty(use_pretrain_times_log_filepath)
+                )
+                if should_create_header:
+                    log("data_amount,subaverage_size,duration(seconds)", use_pretrain_times_log_filepath)
+                log(
+                    f"{data_amount},{subaverage_size},{use_pretrain_tk.accumulated_duration}",
+                    use_pretrain_times_log_filepath
+                )
+
             specific_model = find_model(model_name)(training_options=defaults.TRAINING_OPTIONS)
             specific_model.set_subject(subject_pipeline_of_focus.subjects[0])
             subject_pipeline_of_focus.subjects[0].fold(defaults.NUM_FOLDS)
+            single_subject_tk = TimeKeeper(); single_subject_tk.start()
             acc = specific_model.evaluate()
+            single_subject_tk.stop()
             print(f"Accuracy: {(acc * 100):.1f}%")
 
             # Save the predictions of the use-pretrain subject
@@ -357,3 +390,16 @@ def analyze2(*,
             with open(control_save_filepath, "wb") as file:
                 strip_data_away(subject_pipeline_of_focus.subjects[0])
                 pickle.dump(subject_pipeline_of_focus.subjects[0], file)
+
+            # Store the time taken for training the above model
+            control_times_log_filepath = control_save_dirpath / "times_log.csv"
+            should_create_header = (
+                not control_times_log_filepath.exists() 
+                or is_empty(control_times_log_filepath)
+            )
+            if should_create_header:
+                log("data_amount,subaverage_size,duration(seconds)", control_times_log_filepath)
+            log(
+                f"{data_amount},{subaverage_size},{single_subject_tk.accumulated_duration}",
+                control_times_log_filepath
+            )
