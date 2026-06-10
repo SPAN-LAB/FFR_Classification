@@ -84,7 +84,7 @@ class TorchNNBase(ModelInterface):
         criterion = nn.CrossEntropyLoss()
         
         validation_loader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
             batch_size=batch_size,
             shuffle=False
         )
@@ -118,7 +118,7 @@ class TorchNNBase(ModelInterface):
     ) -> list[dict[int, float]]:
         
         dataloader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
             batch_size=batch_size,
             shuffle=False
         )
@@ -182,7 +182,7 @@ class TorchNNBase(ModelInterface):
         # Now, type of validation_trials is strictly either None or list[EEGTrial]
         
         train_loader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
             batch_size=batch_size,
             shuffle=True
         )

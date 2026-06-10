@@ -33,6 +33,7 @@ class EEGTrial:
         self.timestamps = timestamps
         self.raw_label = raw_label
         self.mapped_label = mapped_label
+        self.features: dict[str, np.ndarray] = {}
         self.prediction = prediction
         self.prediction_distribution = prediction_distribution
 

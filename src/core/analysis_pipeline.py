@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
+import numpy as np
 
 from ..printing import print, printl
 
@@ -217,6 +218,72 @@ class AnalysisPipeline:
             print(f"subaverage ({size}) : done")
         return self
 
+
+    def extract_features(self, feature_names: list[str], concatenate: bool = False) -> AnalysisPipeline:
+        """
+        Pre-computes the requested features for every trial across all subjects.
+
+        Parameters
+        ----------
+        feature_names : list[str]
+            Names of features to compute e.g. ["pitchtrack", "autocorr"].
+            Each name must be a key in src.features.FEATURE_REGISTRY.
+        concatenate : bool
+            If True, appends computed features directly to trial.data so any
+            model works without changes. trial_size auto-updates.
+            If False, stores features in trial.features[name] separately.
+        """
+        from ..features import FEATURE_REGISTRY, compute_fs
+        import numpy as np
+
+        for name in feature_names:
+            if name not in FEATURE_REGISTRY:
+                raise ValueError(f"Unknown feature '{name}'. Available: {list(FEATURE_REGISTRY.keys())}")
+
+        # For trainable extractors, call fit() on all signals first
+        for name in feature_names:
+            extractor = FEATURE_REGISTRY[name]
+            if hasattr(extractor, "fit"):
+                all_signals = [
+                    trial.data
+                    for subject in self.subjects
+                    for trial in subject.trials
+                ]
+                print(f"extract_features | fitting '{name}' on {len(all_signals)} trials...")
+                extractor.fit(all_signals)
+
+        for subject in self.subjects:
+            fs = compute_fs(subject.trials[0].timestamps)
+            for trial in subject.trials:
+                trial.features["raw"] = np.array(trial.data, dtype=np.float32)
+                computed = {}
+                for name in feature_names:
+                    computed[name] = FEATURE_REGISTRY[name](trial.data, fs)
+
+                if concatenate:
+                    raw_len = len(trial.data)
+                    parts = [np.array(trial.data, dtype=np.float32)]
+                    for name in feature_names:
+                        feat = np.array(computed[name], dtype=np.float32)
+                        if len(feat) < raw_len:
+                            feat = np.pad(feat, (0, raw_len - len(feat)))
+                        elif len(feat) > raw_len:
+                            feat = feat[:raw_len]
+                        parts.append(feat)
+                    trial.data = np.concatenate(parts)
+                    trial.timestamps = np.arange(len(trial.data), dtype=np.float32)
+                else:
+                    # Store in trial.features, padded to raw length for multi-channel use
+                    raw_len = len(trial.data)
+                    for name, feat in computed.items():
+                        feat = np.array(feat, dtype=np.float32)
+                        if len(feat) < raw_len:
+                            feat = np.pad(feat, (0, raw_len - len(feat)))
+                        trial.features[name] = feat
+
+        print(f"extract_features {feature_names} (concatenate={concatenate}) : done")
+        return self
+    
     @detail(details.fold_detail)
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
         """
@@ -247,12 +314,30 @@ class AnalysisPipeline:
         """
         self.models = []
         concrete_model = find_model(model_name)
+
+        if "raw" in concrete_model.required_inputs:
+            for subject in self.subjects:
+                for trial in subject.trials:
+                    if "raw" not in trial.features:
+                        trial.features["raw"] = np.array(trial.data, dtype=np.float32)
+
+    # Auto-extract any non-raw features the model declares it needs
+        features_needed = [f for f in concrete_model.required_inputs if f != "raw"]
+        if features_needed:
+            already_computed = all(
+                f in trial.features
+                for subject in self.subjects
+                for trial in subject.trials
+                for f in features_needed
+            ) if self.subjects else True
+            if not already_computed:
+                self.extract_features(features_needed)
+
         for i, subject in enumerate(self.subjects):
-            # Construct the model
             model = concrete_model(training_options)
             model.set_subject(subject)
 
-            # If the model requires all subjects (e.g. Autoencoder LOSO pretraining), pass them in
+            # If the model requires all subjects (e.g. Autoencoder LOSO pretraining)
             if model.needs_all_subjects:
                 model.set_all_subjects(self.subjects)
 
@@ -260,14 +345,6 @@ class AnalysisPipeline:
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
 
-            # Evaluate it
-            # try:
-            #     accuracy = model.evaluate()
-            #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-            #     self.models.append(model)
-            # except Exception as e:
-            #     print(f"Error evaluating {subject.name}: {e}")
-        
         return self
 
     @detail(details.train_model_detail)

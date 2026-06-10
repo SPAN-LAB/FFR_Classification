@@ -6,17 +6,23 @@ Author(s): Kevin Chen
 Description: Example code for using the AnalysisPipeline APIs.
 """
 
-
 from src.core import AnalysisPipeline, BlankPipeline
 
-# Replace this with a string variable representing the path to the directory containing the data. 
-# Example:
-# 
-#     PATH = "area51/martian_subject_42/eeg_data"
-#
-# Swap this variable into the ``load_subjects`` method on line 18 below.
+BASE_PATH = "/Volumes/gurindapalli/projects/trial_classification/4tone_cell/"
 
-SUBJECT_FILEPATHS = ["4T1002.mat", "4T1004.mat","4T1005.mat","4T1006.mat","4T1007.mat","4T1008.mat","4T1009.mat","4T1010.mat","4T1012.mat","4T1014.mat","4T1015.mat"]
+SUBJECT_FILEPATHS = [
+    BASE_PATH + "4T1002.mat",
+    BASE_PATH + "4T1004.mat",
+    BASE_PATH + "4T1005.mat",
+    BASE_PATH + "4T1006.mat",
+    BASE_PATH + "4T1007.mat",
+    BASE_PATH + "4T1008.mat",
+    BASE_PATH + "4T1009.mat",
+    BASE_PATH + "4T1010.mat",
+    BASE_PATH + "4T1012.mat",
+    BASE_PATH + "4T1014.mat",
+    BASE_PATH + "4T1015.mat",
+]
 
 loading_result = BlankPipeline()
 trimming_result = BlankPipeline()
@@ -25,19 +31,25 @@ subaverage_and_fold_result = BlankPipeline()
 p = (
     AnalysisPipeline()
     .load_subjects(SUBJECT_FILEPATHS)
-    .save(to=loading_result)
-    .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
-    .save(to=trimming_result)
+    .trim_by_timestamp(start_time=50, end_time=250)
     .subaverage(5)
+    .extract_features(["pitchtrack", "autocorr"], concatenate=False)
     .fold(5)
-    .save(to=subaverage_and_fold_result)
     .evaluate_model(
-        model_name="CNN",
+        model_name="TransformerMulti",
         training_options={
             "num_epochs": 50,
-            "batch_size": 64,
-            "learning_rate": 0.001,
-            "weight_decay": 0.1
-        }    
+            "batch_size": 32,
+            "learning_rate": 0.0001,
+            "weight_decay": 0.1,
+            "patience": 20,
+            "min_delta": 0.001,
+            "patch_size": 8,
+            "d_model": 128,
+            "n_heads": 4,
+            "num_layers": 3,
+            "dim_feedforward": 512,
+            "max_tokens": 2048,
+        }
     )
 )
