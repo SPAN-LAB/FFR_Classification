@@ -1,13 +1,3 @@
-"""
-SPAN Lab - FFR Classification
-
-Filename: MultiBranchFFNN.py
-Author(s): Cj
-Description: Multi-branch FFNN where each feature gets its own dedicated
-             branch at its natural size — no padding needed.
-             Branches compress to a fixed embedding, then concat → classify.
-"""
-
 from math import floor
 import numpy as np
 import torch

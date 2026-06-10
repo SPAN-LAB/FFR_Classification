@@ -1,8 +1,4 @@
 """
-SPAN Lab - FFR Classification
-
-Filename: MultiInputTransformer.py
-Author(s): Cj
 Description: Multi-input Patch Transformer for FFR classification.
              Each feature gets its own patch embedder and modality embedding.
              All tokens are concatenated and processed by a shared Transformer.
