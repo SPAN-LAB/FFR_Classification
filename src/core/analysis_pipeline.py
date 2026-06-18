@@ -219,69 +219,55 @@ class AnalysisPipeline:
         return self
 
 
-    def extract_features(self, feature_names: list[str], concatenate: bool = False) -> AnalysisPipeline:
+    def extract_features(self, feature_names: list[str]) -> AnalysisPipeline:
         """
-        Pre-computes the requested features for every trial across all subjects.
+        Pre-computes the requested features for every trial across all subjects
+        and stores results in trial.features[name].
+
+        For stateless features (pitch, autocorr): computed per trial independently.
+        For trainable features (autoencoder_latent): fit() is called per subject
+        first (subject-specific), then each trial is encoded.
 
         Parameters
         ----------
         feature_names : list[str]
-            Names of features to compute e.g. ["pitchtrack", "autocorr"].
+            Names of features to compute e.g. ["pitchtrack", "autoencoder_latent"].
             Each name must be a key in src.features.FEATURE_REGISTRY.
-        concatenate : bool
-            If True, appends computed features directly to trial.data so any
-            model works without changes. trial_size auto-updates.
-            If False, stores features in trial.features[name] separately.
         """
         from ..features import FEATURE_REGISTRY, compute_fs
         import numpy as np
 
         for name in feature_names:
             if name not in FEATURE_REGISTRY:
-                raise ValueError(f"Unknown feature '{name}'. Available: {list(FEATURE_REGISTRY.keys())}")
-
-        # For trainable extractors, call fit() on all signals first
-        for name in feature_names:
-            extractor = FEATURE_REGISTRY[name]
-            if hasattr(extractor, "fit"):
-                all_signals = [
-                    trial.data
-                    for subject in self.subjects
-                    for trial in subject.trials
-                ]
-                print(f"extract_features | fitting '{name}' on {len(all_signals)} trials...")
-                extractor.fit(all_signals)
+                raise ValueError(
+                    f"Unknown feature '{name}'. "
+                    f"Available: {list(FEATURE_REGISTRY.keys())}"
+                )
 
         for subject in self.subjects:
             fs = compute_fs(subject.trials[0].timestamps)
+
+            # For trainable extractors, fit per subject first
+            for name in feature_names:
+                extractor = FEATURE_REGISTRY[name]
+                if hasattr(extractor, "fit"):
+                    subject_signals = [trial.data for trial in subject.trials]
+                    print(
+                        f"extract_features | fitting '{name}' on "
+                        f"{subject.name} ({len(subject_signals)} trials)..."
+                    )
+                    extractor.fit(subject_signals)
+
+            # Extract features per trial at their natural size — no padding
             for trial in subject.trials:
                 trial.features["raw"] = np.array(trial.data, dtype=np.float32)
-                computed = {}
                 for name in feature_names:
-                    computed[name] = FEATURE_REGISTRY[name](trial.data, fs)
+                    trial.features[name] = np.array(
+                        FEATURE_REGISTRY[name](trial.data, fs),
+                        dtype=np.float32
+                    )
 
-                if concatenate:
-                    raw_len = len(trial.data)
-                    parts = [np.array(trial.data, dtype=np.float32)]
-                    for name in feature_names:
-                        feat = np.array(computed[name], dtype=np.float32)
-                        if len(feat) < raw_len:
-                            feat = np.pad(feat, (0, raw_len - len(feat)))
-                        elif len(feat) > raw_len:
-                            feat = feat[:raw_len]
-                        parts.append(feat)
-                    trial.data = np.concatenate(parts)
-                    trial.timestamps = np.arange(len(trial.data), dtype=np.float32)
-                else:
-                    # Store in trial.features, padded to raw length for multi-channel use
-                    raw_len = len(trial.data)
-                    for name, feat in computed.items():
-                        feat = np.array(feat, dtype=np.float32)
-                        if len(feat) < raw_len:
-                            feat = np.pad(feat, (0, raw_len - len(feat)))
-                        trial.features[name] = feat
-
-        print(f"extract_features {feature_names} (concatenate={concatenate}) : done")
+        print(f"extract_features {feature_names} : done")
         return self
     
     @detail(details.fold_detail)

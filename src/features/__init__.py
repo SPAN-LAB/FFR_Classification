@@ -9,10 +9,12 @@ Feature registry. To add a new feature:
 import numpy as np
 from .pitch_track import pitch_track
 from .autocorr import autocorr
+from .autoencoder_latent import autoencoder_latent
 
 FEATURE_REGISTRY: dict[str, callable] = {
     "pitchtrack": pitch_track,
     "autocorr":   autocorr,
+    "autoencoder_latent": autoencoder_latent, 
 }
 
 
