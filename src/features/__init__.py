@@ -9,10 +9,12 @@ Feature registry. To add a new feature:
 import numpy as np
 from .pitch_track import pitch_track
 from .autocorr import autocorr
+from .zero_crossings import zero_crossing_freq
 
 FEATURE_REGISTRY: dict[str, callable] = {
-    "pitchtrack": pitch_track,
-    "autocorr":   autocorr,
+    "pitchtrack":  pitch_track,
+    "autocorr":    autocorr,
+    "zerocrossing": zero_crossing_freq,
 }
 
 

@@ -39,6 +39,10 @@ def _iter_model_classes():
             if not issubclass(cls, ModelInterface) or cls is ModelInterface:
                 continue
 
+            # Skip classes imported from other modules (e.g. TorchNNBase)
+            if cls.__module__ != f"{package_name}.{module_name}":
+                continue
+
             yield module_name, cls
 
 def find_model(name: str) -> type[ModelInterface]:
