@@ -33,7 +33,6 @@ p = (
     .load_subjects(SUBJECT_FILEPATHS)
     .trim_by_timestamp(50, 250)
     .subaverage(5)
-    .extract_features(["autoencoder_latent"])
     .fold(5)
     .evaluate_model("FFNN", training_options={
         "num_epochs": 100,

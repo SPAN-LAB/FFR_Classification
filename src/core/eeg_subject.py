@@ -26,10 +26,12 @@ class EEGSubject:
     
     # MARK: Initializer and stored properties
     
-    def __init__(self, *, trials=[], source_filepath=None):
+    def __init__(self, *, trials=None, source_filepath=None):
         """
         Provide argument for either `trials` or `source_filepath` but not both.
         """
+        if trials is None:
+            trials = []
         self.trials: list[EEGTrial] = trials
         self.source_filepath = source_filepath
         self.folds: list[list[EEGTrial]] | None = None
@@ -73,18 +75,7 @@ class EEGSubject:
         # Get the raw data from the .mat file
         # raw = None
         # def do(): 
-        raw = None
-        with open(os.devnull, 'w') as null:
-            # Save original stderr
-            old_stderr = os.dup(sys.stderr.fileno())
-            # Replace stderr with null
-            os.dup2(null.fileno(), sys.stderr.fileno())
-            try:
-                raw = read_mat(filepath)
-            finally:
-                # Restore original stderr
-                os.dup2(old_stderr, sys.stderr.fileno())
-                os.close(old_stderr)
+        raw = read_mat(filepath)
         # raw = read_mat(filepath)
         # silence_stderr(do)
 
@@ -100,6 +91,8 @@ class EEGSubject:
         # Create the EEGTrial instances
         subject = EEGSubject()
         trials = []
+        print(f"DEBUG raw_data shape: {raw_data.shape}")
+        print(f"DEBUG labels len: {len(labels)}, labels type: {type(labels)}, first: {labels[0] if len(labels) > 0 else 'empty'}")
         for i, trial in enumerate(raw_data):
             trials.append(
                 EEGTrial(

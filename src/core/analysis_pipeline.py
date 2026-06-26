@@ -218,8 +218,11 @@ class AnalysisPipeline:
             print(f"subaverage ({size}) : done")
         return self
 
-
-    def extract_features(self, feature_names: list[str]) -> AnalysisPipeline:
+    
+    @detail(details.extract_features_detail)
+    def extract_features(self, feature_names: list[str] | str) -> AnalysisPipeline:
+        if isinstance(feature_names, str):
+            feature_names = [f.strip() for f in feature_names.split(",") if f.strip()]
         """
         Pre-computes the requested features for every trial across all subjects
         and stores results in trial.features[name].

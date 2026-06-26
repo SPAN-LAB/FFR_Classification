@@ -98,6 +98,19 @@ subaverage_detail = FD(
     description="Combines trials through subaveraging. This can help reduce noise in your data."
 )
 
+extract_features_detail = FD(
+    label="Extract Features",
+    argument_details=[
+        AD(
+            label="Feature Names",
+            type=str,
+            default_value="pitchtrack,autocorr,autoencoder_latent",
+            description="Comma-separated list of features to extract. Available: pitchtrack, autocorr, autoencoder_latent"
+        )
+    ],
+    description="Extracts features from raw EEG trials. Features are stored in trial.features[name]."
+)
+
 fold_detail = FD(
     label="Split into Folds",
     argument_details=[
