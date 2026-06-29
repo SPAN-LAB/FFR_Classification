@@ -31,9 +31,9 @@ def spectrogram(signal: npt.ArrayLike, fs: float) -> npt.ArrayLike:
     fs     = int(round(fs))
 
     low_f    = 80
-    high_f   = 1000
+    high_f   = 300
     wind_dur = 40
-    taper    = 10
+    taper    = 5
 
     win_len  = round((wind_dur / 1000) * fs)
     ramp_len = round(fs * (wind_dur / 1000) * (2 * taper / 100))

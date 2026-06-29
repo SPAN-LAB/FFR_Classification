@@ -63,13 +63,31 @@ class EEGSubject:
         def default_extract(raw_mat_file: dict[str, Any]) -> dict[str, any]:
             """
             Default method of extracting the data from the raw .mat file.
-
             :returns: a dictionary with keys "data", "timestamps", and "labels".
             """
             output = {}
-            output["data"] = raw_mat_file["ffr_nodss"].T
+            import numpy as np
+            data = raw_mat_file["ffr_nodss"]
+            # pymatreader may return (timepoints, trials) or (trials, timepoints)
+            # ensure shape is (trials, timepoints) where trials matches labels count
+            if data.shape[0] > data.shape[1]:
+                data = data.T  # transpose only if needed
+            output["data"] = data
             output["timestamps"] = raw_mat_file["time"]
-            output["labels"] = raw_mat_file["labels"]
+            labels = raw_mat_file["labels"]
+            # If labels came back as uint32 array (MATLAB object references),
+            # re-read using scipy which handles this correctly
+            import numpy as np
+            if isinstance(labels, np.ndarray) and labels.dtype == np.uint32:
+                import h5py
+                with h5py.File(filepath, 'r') as f:
+                    mcos = f['#subsystem#']['MCOS']
+                    # MCOS[3] contains per-trial labels as uint8 (1,2,3,4)
+                    trial_labels = f[mcos[0][3]][0]  # shape (3837,)
+                    labels = [str(l) for l in trial_labels]
+            elif not isinstance(labels, list):
+                labels = list(labels)
+            output["labels"] = labels
             return output
 
         # Get the raw data from the .mat file
@@ -91,8 +109,6 @@ class EEGSubject:
         # Create the EEGTrial instances
         subject = EEGSubject()
         trials = []
-        print(f"DEBUG raw_data shape: {raw_data.shape}")
-        print(f"DEBUG labels len: {len(labels)}, labels type: {type(labels)}, first: {labels[0] if len(labels) > 0 else 'empty'}")
         for i, trial in enumerate(raw_data):
             trials.append(
                 EEGTrial(

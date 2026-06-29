@@ -394,13 +394,13 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         panel.setLayout(layout)
-
         self._subject_list = QListWidget()
         self._subject_list.setStyleSheet(
             "QListWidget { border: none; font-size: 12px;"
-            " background: white; }"
-            " QListWidget::item { padding: 3px 8px; }"
-            " QListWidget::item:hover { background: #f0f4ff; }"
+            " background: white; color: #333333; }"
+            " QListWidget::item { padding: 3px 8px; color: #333333; }"
+            " QListWidget::item:hover { background: #f0f4ff; color: #333333; }"
+            " QListWidget::item:selected { background: #4285f4; color: white; }"
         )
         self._subject_list.itemClicked.connect(self._on_subject_clicked)
         layout.addWidget(self._subject_list)
@@ -736,9 +736,12 @@ class MainWindow(QMainWindow):
                     continue
                     
                 # Create a pseudo-subject with just these trials to average them
+                print(f"DEBUG: group_key={group_key}, n_trials={len(trials)}, label={trials[0].label}")
                 pseudo_subject = EEGSubject(trials=trials)
+                print(f"DEBUG: before subaverage, n_trials={len(pseudo_subject.trials)}")
                 pseudo_subject.subaverage(size=5)
-                
+                print(f"DEBUG: after subaverage, n_trials={len(pseudo_subject.trials)}")
+                                
                 if pseudo_subject.trials:
                     avg_trial = pseudo_subject.trials[0]
                     # Inject metadata so plot_single_trial creates a nice title
