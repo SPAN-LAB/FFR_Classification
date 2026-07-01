@@ -889,6 +889,8 @@ class MainWindow(QMainWindow):
     # ── pipeline execution ───────────────────────────────────────────────────
 
     def _run_pipeline(self) -> None:
+        self.manager.reset_to_initial()
+        self._refresh_function_map()
         if not self._pipeline_functions:
             QMessageBox.information(
                 self, "Empty Pipeline", "Add functions to the pipeline first."
@@ -1009,7 +1011,7 @@ class MainWindow(QMainWindow):
         text.setPlainText(self._log_text)
         text.setStyleSheet(
             "QPlainTextEdit { font-family: monospace; font-size: 12px;"
-            " background: white; border: 1px solid #ccc; border-radius: 4px;"
+            " background: white; color: #222; border: 1px solid #ccc; border-radius: 4px;"
             " padding: 8px; }"
         )
         text.moveCursor(QTextCursor.End)

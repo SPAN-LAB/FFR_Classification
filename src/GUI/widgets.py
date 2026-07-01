@@ -36,70 +36,81 @@ class DictEditorWidget(QWidget):
     def __init__(self, initial_dict: dict = None, parent=None):
         super().__init__(parent)
         self.rows = []
-        
+
         self.layout = QVBoxLayout()
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(4)
-        
+
         self.rows_layout = QVBoxLayout()
         self.rows_layout.setContentsMargins(0, 0, 0, 0)
         self.rows_layout.setSpacing(4)
         self.layout.addLayout(self.rows_layout)
-        
+
         self.add_btn = QPushButton("+ Add Parameter")
         self.add_btn.setStyleSheet(
-            "QPushButton { background: #e0e0e0; border: 1px solid #ccc; border-radius: 4px; padding: 2px 6px; font-size: 11px; }"
+            "QPushButton { background: #e0e0e0; color: #333333; border: 1px solid #ccc;"
+            " border-radius: 4px; padding: 2px 6px; font-size: 11px; }"
             "QPushButton:hover { background: #d0d0d0; }"
         )
         self.add_btn.clicked.connect(lambda: self.add_row("", ""))
-        
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         btn_layout.addWidget(self.add_btn)
         self.layout.addLayout(btn_layout)
-        
+
         self.setLayout(self.layout)
-        
+
         if initial_dict:
             for k, v in initial_dict.items():
                 self.add_row(str(k), self._val_to_str(v))
-                
+
     def _val_to_str(self, val):
         if isinstance(val, (dict, list)):
             return json.dumps(val)
         return str(val)
-        
+
     def add_row(self, key: str, val: str):
         row_widget = QWidget()
         row_layout = QHBoxLayout()
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(4)
-        
+
         key_edit = QLineEdit(key)
         key_edit.setPlaceholderText("Key")
-        key_edit.setStyleSheet("border: 1px solid #ccc; border-radius: 4px; padding: 2px 4px; background: white;")
-        
+        key_edit.setStyleSheet(
+            "border: 1px solid #ccc; border-radius: 4px;"
+            " padding: 2px 4px; background: white; color: #333333;"
+        )
+
         val_edit = QLineEdit(val)
         val_edit.setPlaceholderText("Value")
-        val_edit.setStyleSheet("border: 1px solid #ccc; border-radius: 4px; padding: 2px 4px; background: white;")
-        
+        val_edit.setStyleSheet(
+            "border: 1px solid #ccc; border-radius: 4px;"
+            " padding: 2px 4px; background: white; color: #333333;"
+        )
+
+        colon_lbl = QLabel(":")
+        colon_lbl.setStyleSheet("color: #333333;")
+
         del_btn = QPushButton("X")
         del_btn.setFixedSize(20, 20)
         del_btn.setStyleSheet(
-            "QPushButton { background: #ffcdd2; color: #c62828; border: 1px solid #ef9a9a; border-radius: 4px; font-weight: bold; }"
+            "QPushButton { background: #ffcdd2; color: #c62828; border: 1px solid #ef9a9a;"
+            " border-radius: 4px; font-weight: bold; }"
             "QPushButton:hover { background: #ef9a9a; }"
         )
         del_btn.clicked.connect(lambda: self.remove_row(row_widget))
-        
+
         row_layout.addWidget(key_edit)
-        row_layout.addWidget(QLabel(":"))
+        row_layout.addWidget(colon_lbl)
         row_layout.addWidget(val_edit)
         row_layout.addWidget(del_btn)
-        
+
         row_widget.setLayout(row_layout)
         self.rows_layout.addWidget(row_widget)
         self.rows.append((row_widget, key_edit, val_edit))
-        
+
     def remove_row(self, row_widget):
         for i, (rw, k, v) in enumerate(self.rows):
             if rw == row_widget:
@@ -115,15 +126,12 @@ class DictEditorWidget(QWidget):
             if not key:
                 continue
             val_str = v_edit.text().strip()
-            
-            # Auto parse
             try:
                 if "." in val_str:
                     val = float(val_str)
                 else:
                     val = int(val_str)
             except ValueError:
-                # Try json parse (for booleans, lists, dicts)
                 try:
                     val = json.loads(val_str)
                 except json.JSONDecodeError:
@@ -167,13 +175,14 @@ class FunctionCardWidget(QFrame):
 
         header = QHBoxLayout()
         self._title = QLabel(f"<b>{label}</b>")
+        self._title.setStyleSheet("color: #333333;")
         header.addWidget(self._title)
         header.addStretch()
 
         edit_btn = QPushButton("Edit")
         edit_btn.setFixedSize(50, 24)
         edit_btn.setStyleSheet(
-            "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+            "QPushButton { background: #e0e0e0; color: #333333; border: 1px solid #ccc;"
             " border-radius: 4px; font-size: 11px; }"
             " QPushButton:hover { background: #d0d0d0; }"
         )
@@ -192,7 +201,7 @@ class FunctionCardWidget(QFrame):
         layout.addLayout(header)
 
         self._summary_label = QLabel(self._make_summary())
-        self._summary_label.setStyleSheet("color: #555; font-size: 11px;")
+        self._summary_label.setStyleSheet("color: #555555; font-size: 11px;")
         self._summary_label.setWordWrap(True)
         layout.addWidget(self._summary_label)
 
@@ -203,9 +212,8 @@ class FunctionCardWidget(QFrame):
             return ""
         parts = []
         param_names = list(self._params.keys())
-        
+
         for i, ad in enumerate(self._detail.argument_details):
-            # Get parameter name by position from params dict
             param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
             val = self._params.get(param_name, ad.default_value)
             if isinstance(val, Selection):
@@ -229,12 +237,14 @@ class FunctionCardWidget(QFrame):
                 "FunctionCardWidget { background: #cfe0fc;"
                 " border: 2px solid #4285f4; border-radius: 6px;"
                 " padding: 6px; margin: 2px 4px; }"
+                " QLabel { color: #333333; }"
             )
         else:
             self.setStyleSheet(
                 "FunctionCardWidget { background: white;"
                 " border: 1px solid #ccc; border-radius: 6px;"
                 " padding: 8px; margin: 2px 4px; }"
+                " QLabel { color: #333333; }"
             )
 
     def enterEvent(self, event):
@@ -261,14 +271,45 @@ class ParameterEditorWidget(QWidget):
         self._manager = manager
         self._editors: list[tuple[str, QWidget, ArgumentDetail]] = []
 
-        self.setStyleSheet("background: transparent;")
+        # Global stylesheet — fixes all white-on-white text issues
+        self.setStyleSheet("""
+            QWidget { color: #333333; }
+            QLabel { color: #333333; background: transparent; }
+            QSpinBox {
+                color: #333333; background: white;
+                border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px;
+            }
+            QDoubleSpinBox {
+                color: #333333; background: white;
+                border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px;
+            }
+            QLineEdit {
+                color: #333333; background: white;
+                border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px;
+            }
+            QComboBox {
+                color: #333333; background: white;
+                border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px;
+            }
+            QComboBox QAbstractItemView {
+                color: #333333; background: white;
+                selection-background-color: #4285f4;
+                selection-color: white;
+                outline: none;
+            }
+            QPushButton { color: #333333; }
+            QPlainTextEdit {
+                color: #333333; background: white;
+                border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px;
+            }
+        """)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
 
         self._title = QLabel("<b>Edit Function Parameters</b>")
         self._title.setStyleSheet(
-            "background: transparent; border: none;"
+            "color: #333333; background: transparent; border: none;"
             " border-bottom: 1px solid #ccc; padding-bottom: 6px;"
         )
         layout.addWidget(self._title)
@@ -282,7 +323,7 @@ class ParameterEditorWidget(QWidget):
 
         self._apply_btn = QPushButton("Apply Changes")
         self._apply_btn.setStyleSheet(
-            "QPushButton { background: white; color: #333; border: 1px solid #ccc;"
+            "QPushButton { background: white; color: #333333; border: 1px solid #ccc;"
             " border-radius: 6px; padding: 8px 18px;"
             " font-size: 13px; font-weight: bold; }"
             " QPushButton:hover { background: #f5f5f5; border-color: #aaa; }"
@@ -297,92 +338,90 @@ class ParameterEditorWidget(QWidget):
         self._clear()
         self._current_function_name = function_name
         self._current_detail = detail
-        self._current_params_val = current_params # Keep reference to initial params
-        
-        # Special handling for evaluate_model and train_model: add model_name dropdown
+        self._current_params_val = current_params
+
         if function_name in ["evaluate_model", "train_model"]:
             model_combo = QComboBox()
             model_combo.setStyleSheet(self._COMBO_STYLE)
             model_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             model_combo.setMinimumWidth(120)
-            
+
             try:
                 models = find_models()
                 for m_name in sorted(models.keys()):
                     model_combo.addItem(m_name)
             except Exception:
                 pass
-            
+
             current_model = current_params.get("model_name", "LDA")
             if isinstance(current_model, str) and current_model:
                 idx = model_combo.findText(current_model)
                 if idx >= 0:
                     model_combo.setCurrentIndex(idx)
-            
+
             self._editors.append(("model_name", model_combo, None))
             self._form_layout.addRow("Select Model:", model_combo)
-            
+
             if function_name == "train_model":
                 dir_container = QWidget()
                 dir_layout = QHBoxLayout()
                 dir_layout.setContentsMargins(0, 0, 0, 0)
-                
+
                 dir_edit = QLineEdit()
                 dir_edit.setStyleSheet(self._EDITOR_STYLE)
                 dir_edit.setText(current_params.get("output_dirpath", ""))
-                
+
                 browse_btn = QPushButton("Browse")
                 browse_btn.setStyleSheet(
-                    "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+                    "QPushButton { background: #e0e0e0; color: #333333; border: 1px solid #ccc;"
                     " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
                     " QPushButton:hover { background: #d0d0d0; }"
                 )
                 browse_btn.clicked.connect(lambda _, le=dir_edit: self._browse_dir(le))
-                
+
                 dir_layout.addWidget(dir_edit)
                 dir_layout.addWidget(browse_btn)
                 dir_container.setLayout(dir_layout)
-                
+
                 self._editors.append(("output_dirpath", dir_edit, None))
                 self._form_layout.addRow("Output Directory:", dir_container)
-            
-            # Connect change signal
+
             model_combo.currentTextChanged.connect(self._on_model_changed)
-            
-            # Trigger initial build of training options
+
             initial_opts = current_params.get("training_options", {})
             if function_name == "train_model":
                 initial_opts = current_params.get("hyperparameters", {})
             self._refresh_training_options(model_combo.currentText(), initial_opts)
+
         elif function_name == "load_model":
             param_name = "model_pickle_filepath"
             current_val = current_params.get(param_name, "")
-            
+
             container = QWidget()
             layout = QHBoxLayout()
             layout.setContentsMargins(0, 0, 0, 0)
-            
+
             line_edit = QLineEdit()
             line_edit.setStyleSheet(self._EDITOR_STYLE)
             if current_val:
                 line_edit.setText(str(current_val))
-                
+
             browse_btn = QPushButton("Browse")
             browse_btn.setStyleSheet(
-                "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+                "QPushButton { background: #e0e0e0; color: #333333; border: 1px solid #ccc;"
                 " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
                 " QPushButton:hover { background: #d0d0d0; }"
             )
             browse_btn.clicked.connect(lambda _, le=line_edit: self._browse_file(le))
-            
+
             layout.addWidget(line_edit)
             layout.addWidget(browse_btn)
             container.setLayout(layout)
-            
+
             self._editors.append((param_name, line_edit, detail.argument_details[0]))
             self._form_layout.addRow("Model Filepath:", container)
+
         else:
-            # Standard positional matching for other functions
             for i, ad in enumerate(detail.argument_details):
                 param_names = list(current_params.keys())
                 param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
@@ -390,19 +429,20 @@ class ParameterEditorWidget(QWidget):
                 widget = self._build_editor(ad, current_val)
                 self._editors.append((param_name, widget, ad))
                 self._form_layout.addRow(f"{ad.label}:", widget)
-                
+
         self.show()
 
     def _browse_file(self, line_edit):
         from PyQt5.QtWidgets import QFileDialog
-        import json
-        paths, _ = QFileDialog.getOpenFileNames(self, "Select Model File(s)", "", "Pickle Files (*.pkl);;All Files (*)")
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Model File(s)", "", "Pickle Files (*.pkl);;All Files (*)"
+        )
         if paths:
             if len(paths) == 1:
                 line_edit.setText(paths[0])
             else:
                 line_edit.setText(json.dumps(paths))
-                
+
     def _browse_dir(self, line_edit):
         from PyQt5.QtWidgets import QFileDialog
         path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
@@ -410,29 +450,24 @@ class ParameterEditorWidget(QWidget):
             line_edit.setText(path)
 
     def _on_model_changed(self, model_name: str):
-        # We need to rebuild the training_options part of the form
-        # First, find and remove existing training_options editors
         to_remove = []
         for i, (name, widget, ad) in enumerate(self._editors):
             if name == "training_options" or name.startswith("to_"):
                 to_remove.append(i)
-        
+
         for i in reversed(to_remove):
             name, widget, ad = self._editors.pop(i)
-            # Find the row in the form layout
             for row in range(self._form_layout.rowCount()):
                 f_item = self._form_layout.itemAt(row, QFormLayout.FieldRole)
                 if f_item and f_item.widget() == widget:
                     self._form_layout.removeRow(row)
                     break
-        
-        # Now add new ones
+
         self._refresh_training_options(model_name, {})
 
     def _refresh_training_options(self, model_name: str, current_val: dict):
-        # Hardcoded model parameters since they are not in the model classes anymore
         model_name_lower = model_name.lower()
-        
+
         if model_name_lower == "jason_cnn":
             ads = [
                 ArgumentDetail("num_epochs", int, 15, "Number of training epochs"),
@@ -470,8 +505,8 @@ class ParameterEditorWidget(QWidget):
                 ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
                 ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
             ]
-
-        elif model_name_lower in ["dynamicffnn", "dynamiccnn", "dynamictransformer", "dynamicrnn"]:
+        elif model_name_lower in ["dynamicffnn", "dynamiccnn", "dynamictransformer",
+                                   "dynamicrnn", "dynamiccrnn", "crnn"]:
             ads = [
                 ArgumentDetail("num_epochs", int, 50, "Number of training epochs"),
                 ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
@@ -487,39 +522,28 @@ class ParameterEditorWidget(QWidget):
                 ArgumentDetail("num_epochs", int, 100, "Number of training epochs"),
                 ArgumentDetail("batch_size", int, 64, "Batch size"),
                 ArgumentDetail("learning_rate", float, 1e-3, "Learning rate"),
-        ]
+            ]
         else:
-            # Fallback to default generic dict
             ads = [ArgumentDetail("training_options", dict, {}, "Training options")]
-        
-        # If it's a list of ads, we want to create a sub-form or a specialized dict editor
-        # The user wants "what parameters can be edit" to change.
-        # Let's create individual fields for each AD in the list, but they will all
-        # be collected into the 'training_options' dict.
-        
-        # We'll use a special container or just add them to the main form with a prefix
+
         for ad in ads:
-            val = current_val.get(ad.label if ad.label else "", ad.default_value)
-            # If the label is used as key
-            key = ad.label # Usually the label is the key in these specialized ads
-            
+            key = ad.label
             widget = self._build_editor(ad, current_val.get(key, ad.default_value))
-            
+
             if model_name_lower == "lda" and key in ["solver", "shrinkage"]:
                 widget.setEnabled(False)
-                
-            # We'll tag these as 'training_options_part' so we can collect them later
+
             self._editors.append((f"to_{key}", widget, ad))
             self._form_layout.addRow(f"{key}:", widget)
 
     _EDITOR_STYLE = (
         "border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white;"
+        " padding: 4px 6px; background: white; color: #333333;"
     )
 
     _TEXTEDIT_STYLE = (
         "QPlainTextEdit { border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white; }"
+        " padding: 4px 6px; background: white; color: #333333; }"
         " QPlainTextEdit QScrollBar:vertical {"
         "   background: #f0f0f0; width: 8px; border-radius: 4px;"
         " }"
@@ -537,9 +561,9 @@ class ParameterEditorWidget(QWidget):
 
     _COMBO_STYLE = (
         "QComboBox { border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white; }"
+        " padding: 4px 6px; background: white; color: #333333; }"
         " QComboBox QAbstractItemView {"
-        "   background: white; color: #333;"
+        "   background: white; color: #333333;"
         "   selection-background-color: #4285f4;"
         "   selection-color: white;"
         "   outline: none;"
@@ -596,8 +620,7 @@ class ParameterEditorWidget(QWidget):
                         idx = combo.findText(current_value)
                         if idx >= 0:
                             combo.setCurrentIndex(idx)
-                except Exception as e:
-                    # If loading options fails (e.g., PyTorch error), provide text input instead
+                except Exception:
                     text_input = QLineEdit()
                     text_input.setStyleSheet(self._EDITOR_STYLE)
                     text_input.setPlaceholderText("(Unable to load options - enter model name manually)")
@@ -622,7 +645,7 @@ class ParameterEditorWidget(QWidget):
     def _collect(self) -> dict:
         result: dict[str, Any] = {}
         training_options = {}
-        
+
         for name, widget, _ad in self._editors:
             val = None
             if isinstance(widget, QSpinBox):
@@ -649,19 +672,18 @@ class ParameterEditorWidget(QWidget):
                 val = widget.get_value()
             elif isinstance(widget, QComboBox):
                 val = widget.currentText()
-            
+
             if name.startswith("to_"):
-                # Re-assemble training_options
                 key = name[3:]
                 training_options[key] = val
             else:
                 result[name] = val
-        
+
         if self._current_function_name == "evaluate_model" and training_options:
             result["training_options"] = training_options
         elif self._current_function_name == "train_model" and training_options:
             result["hyperparameters"] = training_options
-            
+
         return result
 
     def _clear(self):

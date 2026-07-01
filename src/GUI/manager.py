@@ -55,5 +55,9 @@ class Manager:
     
     def run_all_functions(self):
         for (function_name, parameters) in self.functions:
-            self.run_function(function_name, **parameters)        
+            self.run_function(function_name, **parameters) 
+
+    def reset_to_initial(self):
+        """Restore subjects to their state right after loading."""
+        self.initial_subjects_state.save(to=self.state)       
         
