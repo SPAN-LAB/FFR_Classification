@@ -241,28 +241,6 @@ python my_analysis.py
 
 See the Mac/Linux scripting section above for example code — it works the same way on Windows.
 
----
-
-## Available Models
-
-| Model Name | Type | Notes |
-|---|---|---|
-| `LDA` | Linear Discriminant Analysis | Fast, good baseline |
-| `SVM` | Support Vector Machine | Good for small datasets |
-| `FFNN` | Feed-Forward Neural Network | Standard neural net |
-| `CNN` | Convolutional Neural Network | Good for raw signals |
-| `LSTM` | Long Short-Term Memory | Captures temporal patterns |
-| `DynamicFFNN` | Multi-branch FFNN | Uses multiple features |
-| `DynamicCNN` | Multi-branch CNN | Best overall performance |
-
-## Available Features
-
-| Feature Name | Description |
-|---|---|
-| `pitchtrack` | Tracks the fundamental frequency over time |
-| `autocorr` | Measures the periodicity of the signal |
-| `autoencoder_latent` | 128-dim learned representation from a trained autoencoder |
-| `spectrogram` | Sliding-window STFT magnitude spectrogram |
 
 ## Troubleshooting
 
