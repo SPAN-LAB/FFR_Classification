@@ -178,11 +178,6 @@ python your_script.py
 - Go to [https://git-scm.com/download/win](https://git-scm.com/download/win)
 - Download and run the installer, keeping all the default settings
 
-**3. Visual Studio Code (optional but recommended)**
-
-- Go to [https://code.visualstudio.com](https://code.visualstudio.com)
-- Download and install it — this gives you a nice editor and a built-in terminal
-
 ---
 
 ### Step 2 — Download the code
