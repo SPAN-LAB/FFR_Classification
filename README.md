@@ -50,13 +50,11 @@ cd FFR_Classification
 git checkout cj_dev
 ```
 
-This downloads the code onto your computer and puts you in the right folder.
 
 ---
 
 ### Step 3 — Set up the environment
 
-Think of this as creating a clean workspace just for this project so it doesn't interfere with anything else on your computer.
 
 ```bash
 python3.11 -m venv .venv
@@ -244,5 +242,3 @@ See the Mac/Linux scripting section above for example code — it works the same
 **"index out of bounds" error when loading a .mat file** — Make sure your `.mat` file contains the fields `ffr_nodss`, `labels`, and `time`. Files from other datasets may have a different structure.
 
 **The GUI runs but shows no subjects** — Make sure you clicked **+ Load Subject File** or **+ Load Subject Folder** before running the pipeline.
-
-**Pipeline gives wrong results on second run** — This is fixed in `cj_dev`. Make sure you are on the right branch: `git checkout cj_dev`.
