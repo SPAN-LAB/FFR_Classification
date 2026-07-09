@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QDialog,
     QDialogButtonBox,
@@ -188,7 +189,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
         
         # Set window icon to the logo
-        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
+        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_new.png"
         if logo_path.exists():
             self.setWindowIcon(QIcon(str(logo_path)))
 
@@ -225,7 +226,7 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         header = QWidget()
-        header.setFixedHeight(70)
+        header.setFixedHeight(90)
         header.setStyleSheet(
             "background: white; border-bottom: 1px solid #d0d0d0;"
         )
@@ -236,12 +237,12 @@ class MainWindow(QMainWindow):
 
         logo_label = QLabel()
         logo_path = (
-            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
+            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_new.png"
         )
         if logo_path.exists():
             pix = QPixmap(str(logo_path))
             logo_label.setPixmap(
-                pix.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pix.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
             logo_label.setText("SPANLAB")
@@ -757,14 +758,9 @@ class MainWindow(QMainWindow):
                 if not trials:
                     self._plot_layouts[i].addWidget(QLabel(f"No data for Label {group_key}"))
                     continue
-                    
-                # Create a pseudo-subject with just these trials to average them
-                print(f"DEBUG: group_key={group_key}, n_trials={len(trials)}, label={trials[0].label}")
                 pseudo_subject = EEGSubject(trials=trials)
-                print(f"DEBUG: before subaverage, n_trials={len(pseudo_subject.trials)}")
                 pseudo_subject.subaverage(size=5)
-                print(f"DEBUG: after subaverage, n_trials={len(pseudo_subject.trials)}")
-                                
+                                               
                 if pseudo_subject.trials:
                     avg_trial = pseudo_subject.trials[0]
                     # Inject metadata so plot_single_trial creates a nice title
