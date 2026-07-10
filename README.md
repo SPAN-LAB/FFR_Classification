@@ -1,6 +1,6 @@
 # FFR Classification Toolbox
 
-A Python toolbox for analyzing, classifying, and visualizing frequency-following response (FFR) EEG data using machine learning. Built at the [Speech Processing and Auditory Neuroscience (SPAN) Lab](https://span.waisman.wisc.edu) at the University of Wisconsin–Madison.
+A Python toolbox for analyzing, classifying, and visualizing frequency-following response (FFR) EEG data using machine learning. Built at the [Speech Processing and Auditory Neuroscience (SPAN) Lab](https://spanlab.csd.wisc.edu/) at the University of Wisconsin–Madison.
 
 ---
 
@@ -244,6 +244,7 @@ pipeline = (
 | `train_model(model_name, hyperparameters, output_dirpath)` | Train a model and save it to disk |
 | `infer_on_model` | Run a pre-trained model |
 | `map_labels(rule_csv)` | Remap tone labels using a CSV rule file |
+
 
 ---
 
