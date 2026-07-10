@@ -301,4 +301,4 @@ Windows does not support Apple MPS. The toolbox will automatically fall back to 
 
 ## Lab
 
-Developed at the [Speech Processing and Auditory Neuroscience (SPAN) Lab](https://span.waisman.wisc.edu), University of Wisconsin–Madison.
+Developed at the [Speech Processing and Auditory Neuroscience (SPAN) Lab](https://spanlab.csd.wisc.edu/), University of Wisconsin–Madison.
