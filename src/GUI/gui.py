@@ -394,13 +394,13 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         panel.setLayout(layout)
-
         self._subject_list = QListWidget()
         self._subject_list.setStyleSheet(
             "QListWidget { border: none; font-size: 12px;"
-            " background: white; }"
-            " QListWidget::item { padding: 3px 8px; }"
-            " QListWidget::item:hover { background: #f0f4ff; }"
+            " background: white; color: #333333; }"
+            " QListWidget::item { padding: 3px 8px; color: #333333; }"
+            " QListWidget::item:hover { background: #f0f4ff; color: #333333; }"
+            " QListWidget::item:selected { background: #4285f4; color: white; }"
         )
         self._subject_list.itemClicked.connect(self._on_subject_clicked)
         layout.addWidget(self._subject_list)
@@ -667,6 +667,8 @@ class MainWindow(QMainWindow):
         try:
             self.manager.load_subjects(file_path)
         except Exception as exc:
+            traceback.print_exc(file=sys.__stderr__)
+            sys.__stderr__.flush()
             QMessageBox.critical(self, "Load Error", str(exc))
             return
 
@@ -678,7 +680,16 @@ class MainWindow(QMainWindow):
         for subj in self.manager.state.subjects:
             self._subject_list.addItem(subj.name)
 
+    # ── subject clicked: wrapper catches and prints real traceback ────────────
+
     def _on_subject_clicked(self, item: QListWidgetItem) -> None:
+        try:
+            self._on_subject_clicked_impl(item)
+        except Exception:
+            traceback.print_exc(file=sys.__stderr__)
+            sys.__stderr__.flush()
+
+    def _on_subject_clicked_impl(self, item: QListWidgetItem) -> None:
         subj_name = item.text()
         subject = next((s for s in self.manager.state.subjects if s.name == subj_name), None)
         if not subject:
@@ -725,9 +736,12 @@ class MainWindow(QMainWindow):
                     continue
                     
                 # Create a pseudo-subject with just these trials to average them
+                print(f"DEBUG: group_key={group_key}, n_trials={len(trials)}, label={trials[0].label}")
                 pseudo_subject = EEGSubject(trials=trials)
-                pseudo_subject.subaverage(size=len(trials))
-                
+                print(f"DEBUG: before subaverage, n_trials={len(pseudo_subject.trials)}")
+                pseudo_subject.subaverage(size=5)
+                print(f"DEBUG: after subaverage, n_trials={len(pseudo_subject.trials)}")
+                                
                 if pseudo_subject.trials:
                     avg_trial = pseudo_subject.trials[0]
                     # Inject metadata so plot_single_trial creates a nice title
@@ -741,6 +755,8 @@ class MainWindow(QMainWindow):
                         self._plot_layouts[i].addWidget(canvas)
                         plt.close(fig)
                     except Exception as e:
+                        traceback.print_exc(file=sys.__stderr__)
+                        sys.__stderr__.flush()
                         self._plot_layouts[i].addWidget(QLabel(f"Failed to plot Label {group_key}:\n{e}"))
                 else:
                     self._plot_layouts[i].addWidget(QLabel(f"Could not average Label {group_key}"))
@@ -777,6 +793,8 @@ class MainWindow(QMainWindow):
                         self._confusion_layout.addWidget(canvas_cm)
                     original_close(fig_cm)
                 except Exception as e:
+                    traceback.print_exc(file=sys.__stderr__)
+                    sys.__stderr__.flush()
                     self._confusion_layout.addWidget(QLabel(f"No Confusion Matrix available.\n{e}"))
                     
                 # ROC Curve
@@ -790,6 +808,8 @@ class MainWindow(QMainWindow):
                         self._roc_layout.addWidget(canvas_roc)
                     original_close(fig_roc)
                 except Exception as e:
+                    traceback.print_exc(file=sys.__stderr__)
+                    sys.__stderr__.flush()
                     self._roc_layout.addWidget(QLabel(f"No ROC Curve available.\n{e}"))
             finally:
                 # Restore plt.close
@@ -869,6 +889,8 @@ class MainWindow(QMainWindow):
     # ── pipeline execution ───────────────────────────────────────────────────
 
     def _run_pipeline(self) -> None:
+        self.manager.reset_to_initial()
+        self._refresh_function_map()
         if not self._pipeline_functions:
             QMessageBox.information(
                 self, "Empty Pipeline", "Add functions to the pipeline first."
@@ -989,7 +1011,7 @@ class MainWindow(QMainWindow):
         text.setPlainText(self._log_text)
         text.setStyleSheet(
             "QPlainTextEdit { font-family: monospace; font-size: 12px;"
-            " background: white; border: 1px solid #ccc; border-radius: 4px;"
+            " background: white; color: #222; border: 1px solid #ccc; border-radius: 4px;"
             " padding: 8px; }"
         )
         text.moveCursor(QTextCursor.End)
