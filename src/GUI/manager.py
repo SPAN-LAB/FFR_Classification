@@ -14,11 +14,11 @@ class Manager:
         # List of tuples, each containing the name of the function and its parameters
         self.functions: list[tuple[str, dict]] = []
 
-    def load_subjects(self, folder_path: str):
-        # Reset the stored states
-        self.state = PipelineState()
-        self.initial_subjects_state = PipelineState()
-
+    def load_subjects(self, folder_path: str, reset: bool = True):
+        # Only reset on first file load
+        if reset:
+            self.state = PipelineState()
+            self.initial_subjects_state = PipelineState()
         self.state.load_subjects(path=folder_path)
         self.state.save(to=self.initial_subjects_state)
 

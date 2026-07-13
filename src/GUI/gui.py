@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QDialog,
     QDialogButtonBox,
@@ -188,7 +189,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
         
         # Set window icon to the logo
-        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
+        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_new.png"
         if logo_path.exists():
             self.setWindowIcon(QIcon(str(logo_path)))
 
@@ -225,7 +226,7 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         header = QWidget()
-        header.setFixedHeight(70)
+        header.setFixedHeight(90)
         header.setStyleSheet(
             "background: white; border-bottom: 1px solid #d0d0d0;"
         )
@@ -236,12 +237,12 @@ class MainWindow(QMainWindow):
 
         logo_label = QLabel()
         logo_path = (
-            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
+            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_new.png"
         )
         if logo_path.exists():
             pix = QPixmap(str(logo_path))
             logo_label.setPixmap(
-                pix.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pix.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
             logo_label.setText("SPANLAB")
@@ -371,7 +372,14 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
+        self._accuracy_label = QLabel("")
+        self._accuracy_label.setAlignment(Qt.AlignCenter)
+        self._accuracy_label.setStyleSheet(
+            "color: #1a73e8; font-size: 14px; font-weight: bold;"
+            " border: none; background: transparent; padding: 4px;"
+        )
         self._confusion_layout = panel.layout()
+        self._confusion_layout.addWidget(self._accuracy_label)
         self._confusion_layout.addWidget(lbl, stretch=1)
         return panel
 
@@ -382,7 +390,14 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
+        self._auc_label = QLabel("")
+        self._auc_label.setAlignment(Qt.AlignCenter)
+        self._auc_label.setStyleSheet(
+            "color: #1a73e8; font-size: 13px;"
+            " border: none; background: transparent; padding: 4px;"
+        )
         self._roc_layout = panel.layout()
+        self._roc_layout.addWidget(self._auc_label)
         self._roc_layout.addWidget(lbl, stretch=1)
         return panel
 
@@ -407,35 +422,38 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_signals_panel(self) -> QWidget:
-        panel = QWidget()
-        panel.setStyleSheet(_PANEL_STYLE)
-        grid = QGridLayout()
-        grid.setSpacing(6)
-        grid.setContentsMargins(8, 8, 8, 8)
+        self._signals_panel = QWidget()
+        self._signals_panel.setStyleSheet(_PANEL_STYLE)
+        self._signals_grid = QGridLayout()
+        self._signals_grid.setSpacing(6)
+        self._signals_grid.setContentsMargins(8, 8, 8, 8)
+        self._signals_panel.setLayout(self._signals_grid)
+        self._plot_layouts = []
+        self._rebuild_signal_slots(4)  # default 4 slots
+        return self._signals_panel
 
-        for r in range(2):
-            for c in range(2):
-                frame = QFrame()
-                frame.setFrameShape(QFrame.StyledPanel)
-                frame.setStyleSheet(
-                    "QFrame { border: 1px solid #ddd; border-radius: 4px;"
-                    " background: #fafafa; }"
-                )
-                fl = QVBoxLayout()
-                fl.setContentsMargins(4, 4, 4, 4)
-                lbl = QLabel(f"Signal Plot {r * 2 + c + 1}")
-                lbl.setAlignment(Qt.AlignCenter)
-                lbl.setStyleSheet(
-                    "color: #aaa; font-size: 12px; border: none;"
-                    " background: transparent;"
-                )
-                fl.addWidget(lbl, stretch=1)
-                self._plot_layouts.append(fl)
-                frame.setLayout(fl)
-                grid.addWidget(frame, r, c)
-
-        panel.setLayout(grid)
-        return panel
+    def _rebuild_signal_slots(self, n: int) -> None:
+        # Clear existing
+        while self._signals_grid.count():
+            item = self._signals_grid.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+        self._plot_layouts = []
+        cols = 2
+        rows = max(1, (n + cols - 1) // cols)
+        for idx in range(n):
+            r, c = divmod(idx, cols)
+            frame = QFrame()
+            frame.setFrameShape(QFrame.StyledPanel)
+            frame.setStyleSheet(
+                "QFrame { border: 1px solid #ddd; border-radius: 4px;"
+                " background: #fafafa; }"
+            )
+            fl = QVBoxLayout()
+            fl.setContentsMargins(4, 4, 4, 4)
+            self._plot_layouts.append(fl)
+            frame.setLayout(fl)
+            self._signals_grid.addWidget(frame, r, c)
 
     # ── bottom bar ───────────────────────────────────────────────────────────
 
@@ -659,19 +677,17 @@ class MainWindow(QMainWindow):
         self._refresh_function_map()
 
     def _choose_subject_file(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Subject File", str(Path.cwd()), "MAT files (*.mat)"
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Subject File(s)", str(Path.cwd()), "MAT files (*.mat)"
         )
-        if not file_path:
+        if not file_paths:
             return
         try:
-            self.manager.load_subjects(file_path)
+            for i, file_path in enumerate(file_paths):
+                self.manager.load_subjects(file_path, reset=(i == 0))
         except Exception as exc:
-            traceback.print_exc(file=sys.__stderr__)
-            sys.__stderr__.flush()
             QMessageBox.critical(self, "Load Error", str(exc))
             return
-
         self._update_subjects()
         self._refresh_function_map()
 
@@ -698,14 +714,16 @@ class MainWindow(QMainWindow):
         # Import plots module locally to avoid circular dependencies
         from ..core import plots
         from ..core import EEGSubject
+        import matplotlib as mpl
+        mpl.rcParams.update({
+            'font.size': 7,
+            'axes.titlesize': 8,
+            'axes.labelsize': 7,
+            'xtick.labelsize': 6,
+            'ytick.labelsize': 6,
+            'legend.fontsize': 6,
+        })
         
-        # Clear existing plots
-        for layout in self._plot_layouts:
-            while layout.count():
-                child = layout.takeAt(0)
-                if child.widget():
-                    child.widget().deleteLater()
-                    
         # Generate new plots using Agg backend
         plt.close('all')
         
@@ -716,32 +734,25 @@ class MainWindow(QMainWindow):
             keys = sorted(list(grouped.keys()))
         except Exception:
             keys = list(grouped.keys())
-            
-        # Plot up to 4 labels in the 4 slots
+                   
         import warnings
         import seaborn as sns
         
         # Reset seaborn palette to prevent plot_roc_curve's "husl" palette from turning signal plots red
         sns.set_palette("deep")
         
+        self._rebuild_signal_slots(len(keys))
+        
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            for i, group_key in enumerate(keys):
-                if i >= 4:
-                    break
-                    
+            for i, group_key in enumerate(keys):    
                 trials = grouped[group_key]
                 if not trials:
                     self._plot_layouts[i].addWidget(QLabel(f"No data for Label {group_key}"))
                     continue
-                    
-                # Create a pseudo-subject with just these trials to average them
-                print(f"DEBUG: group_key={group_key}, n_trials={len(trials)}, label={trials[0].label}")
                 pseudo_subject = EEGSubject(trials=trials)
-                print(f"DEBUG: before subaverage, n_trials={len(pseudo_subject.trials)}")
                 pseudo_subject.subaverage(size=5)
-                print(f"DEBUG: after subaverage, n_trials={len(pseudo_subject.trials)}")
-                                
+                                               
                 if pseudo_subject.trials:
                     avg_trial = pseudo_subject.trials[0]
                     # Inject metadata so plot_single_trial creates a nice title
@@ -749,10 +760,20 @@ class MainWindow(QMainWindow):
                     avg_trial.mapped_label = f"Label {group_key}"
                     
                     try:
+                        print(f"DEBUG plot: data range {avg_trial.data.min():.4f} to {avg_trial.data.max():.4f}, timestamps {avg_trial.timestamps[0]:.2f} to {avg_trial.timestamps[-1]:.2f}")
                         plots.plot_single_trial(avg_trial)
                         fig = plt.gcf()
+                        fig.set_size_inches(4, 3)
+                        fig.set_tight_layout(True)
                         canvas = FigureCanvas(fig)
-                        self._plot_layouts[i].addWidget(canvas)
+                        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                        canvas.updateGeometry()
+                        def on_sig_resize(event, f=fig, c=canvas):
+                            f.tight_layout()
+                            c.draw_idle()
+                        canvas.mpl_connect('resize_event', on_sig_resize)
+                        self._plot_layouts[i].addWidget(canvas, stretch=1)
+                        canvas.draw()
                         plt.close(fig)
                     except Exception as e:
                         traceback.print_exc(file=sys.__stderr__)
@@ -760,17 +781,13 @@ class MainWindow(QMainWindow):
                         self._plot_layouts[i].addWidget(QLabel(f"Failed to plot Label {group_key}:\n{e}"))
                 else:
                     self._plot_layouts[i].addWidget(QLabel(f"Could not average Label {group_key}"))
-                
-        # Fill any remaining empty slots
-        for i in range(len(keys), 4):
-            self._plot_layouts[i].addWidget(QLabel("Empty"))
             
         # Plot Confusion Matrix and ROC Curve
         for layout in (self._confusion_layout, self._roc_layout):
             if layout:
-                # Keep the title label at index 0, remove the rest
-                while layout.count() > 1:
-                    child = layout.takeAt(1)
+                # Keep title (index 0) and accuracy/auc label (index 1), remove the rest
+                while layout.count() > 2:
+                    child = layout.takeAt(2)
                     if child.widget():
                         child.widget().deleteLater()
                         
@@ -783,29 +800,76 @@ class MainWindow(QMainWindow):
             
             try:
                 # Confusion Matrix
+                from ..core.eeg_trial import EEGTrial
+                try:
+                    acc = EEGTrial.get_accuracy(subject.trials)
+                    self._accuracy_label.setText(f"Accuracy: {acc:.2%}")
+                except Exception:
+                    self._accuracy_label.setText("")
                 try:
                     plots.plot_confusion_matrix(subject=subject, show_popup=False)
                     fig_cm = plt.gcf()
+                    fig_cm.set_size_inches(4, 4)  
+                    fig_cm.tight_layout()
                     if not fig_cm.axes:
                         self._confusion_layout.addWidget(QLabel("No valid predictions yet."))
                     else:
+                        fig_cm.set_size_inches(1, 1)
+                        fig_cm.set_tight_layout(True)
                         canvas_cm = FigureCanvas(fig_cm)
-                        self._confusion_layout.addWidget(canvas_cm)
+                        canvas_cm.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                        canvas_cm.updateGeometry()
+                        def on_cm_resize(event, f=fig_cm, c=canvas_cm):
+                            f.tight_layout()
+                            c.draw_idle()
+                        canvas_cm.mpl_connect('resize_event', on_cm_resize)
+                        self._confusion_layout.addWidget(canvas_cm, stretch=1)
                     original_close(fig_cm)
                 except Exception as e:
                     traceback.print_exc(file=sys.__stderr__)
                     sys.__stderr__.flush()
                     self._confusion_layout.addWidget(QLabel(f"No Confusion Matrix available.\n{e}"))
-                    
+
+                # AUC Score
+                try:
+                    from sklearn.metrics import roc_auc_score
+                    import numpy as np
+                    y_true = []
+                    y_scores = []
+                    classes = sorted(set(t.label for t in subject.trials if t.prediction_distribution))
+                    for trial in subject.trials:
+                        if trial.prediction_distribution:
+                            y_true.append(trial.label)
+                            y_scores.append([trial.prediction_distribution.get(c, 0) for c in classes])
+                    if y_true:
+                        y_true_bin = [[1 if t == c else 0 for c in classes] for t in y_true]
+                        auc_scores = roc_auc_score(y_true_bin, y_scores, average=None)
+                        auc_text = "  ".join([f"T{c}: {a:.3f}" for c, a in zip(classes, auc_scores)])
+                        self._auc_label.setText(f"AUC — {auc_text}")
+                except Exception:
+                    self._auc_label.setText("")
+
+
+
                 # ROC Curve
                 try:
                     plots.plot_roc_curve(subject=subject, show_popup=False)
                     fig_roc = plt.gcf()
+                    fig_roc.set_size_inches(5, 4)
+                    fig_roc.tight_layout()
                     if not fig_roc.axes:
                         self._roc_layout.addWidget(QLabel("No valid predictions yet."))
                     else:
+                        fig_roc.set_size_inches(1, 1)
+                        fig_roc.set_tight_layout(True)
                         canvas_roc = FigureCanvas(fig_roc)
-                        self._roc_layout.addWidget(canvas_roc)
+                        canvas_roc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                        canvas_roc.updateGeometry()
+                        def on_roc_resize(event, f=fig_roc, c=canvas_roc):
+                            f.tight_layout()
+                            c.draw_idle()
+                        canvas_roc.mpl_connect('resize_event', on_roc_resize)
+                        self._roc_layout.addWidget(canvas_roc, stretch=1)
                     original_close(fig_roc)
                 except Exception as e:
                     traceback.print_exc(file=sys.__stderr__)
@@ -909,6 +973,7 @@ class MainWindow(QMainWindow):
         self._progress_bar.setFormat(f"0/{self._total_steps}")
         self._progress_bar.show()
         self._status_label.show()
+        self._show_log()
         self._start_next_queued()
 
     def _start_next_queued(self) -> None:

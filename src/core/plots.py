@@ -25,7 +25,7 @@ from ..analysis.utils import get_results
 def plot_single_trial(trial: EEGTrial):
     # Create a simple line plot of timestamps (x) vs data (y)
     fig, ax = plt.subplots()
-    sns.lineplot(x=trial.timestamps, y=trial.data, ax=ax)
+    ax.plot(trial.timestamps, trial.data, linewidth=0.8, color='steelblue')
     ax.set_xlabel("Time")
     ax.set_ylabel("Signal")
     title_label = f"{trial.mapped_label}" if getattr(trial, "mapped_label", None) is not None else ""

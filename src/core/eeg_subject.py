@@ -68,6 +68,15 @@ class EEGSubject:
             output = {}
             import numpy as np
             data = raw_mat_file["ffr_nodss"]
+            if isinstance(data, dict):
+                data = list(data.values())[0]
+            import numpy as np
+            data = np.array(data)
+            if isinstance(data, dict):
+                # Some .mat versions wrap arrays in a dict — extract the array
+                data = list(data.values())[0]
+            import numpy as np
+            data = np.array(data)
             # pymatreader may return (timepoints, trials) or (trials, timepoints)
             # ensure shape is (trials, timepoints) where trials matches labels count
             if data.shape[0] > data.shape[1]:
@@ -184,30 +193,52 @@ This causes some folds to have 0 trials from this category.""")
 
     def map_trial_labels(self, rule_filepath: str) -> Self:
         # Create a dictionary that maps from raw label to mapped label
-        labels_map: dict[int, int] = {}
+        labels_map: dict = {}
 
         with open(rule_filepath, "r") as file:
             for line in file:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue  # Skip empty lines or comments
-
                 values = line.split(",")
-                mapped_label = int(values[0].strip())  # First value is mapped label
+                raw_mapped = values[0].strip()  # Try int, then float, then str
+                try:
+                    mapped_label = int(raw_mapped)
+                except ValueError:
+                    try:
+                        mapped_label = float(raw_mapped)
+                    except ValueError:
+                        mapped_label = raw_mapped
                 for raw_label in values[1:]:
                     raw_label = raw_label.strip()
                     if raw_label:
-                        labels_map[int(raw_label)] = (
-                            mapped_label  # Convert raw labels to int
-                        )
+                        try:
+                            key = int(raw_label)
+                        except ValueError:
+                            try:
+                                key = float(raw_label)
+                            except ValueError:
+                                key = raw_label
+                        labels_map[key] = mapped_label
 
         # Assign mapped labels to each trial
         for trial in self.trials:
-            raw = int(trial.raw_label)  # Ensure raw_label is int
+            raw = trial.raw_label  # Ensure raw_label is int
             if raw not in labels_map:
-                raise ValueError(f"Raw label {raw} not found in mapping.")
+                try:
+                    raw = int(raw)
+                except (ValueError, TypeError):
+                    pass
+            if raw not in labels_map:
+                try:
+                    raw = float(raw)
+                except (ValueError, TypeError):
+                    pass
+            if raw not in labels_map:
+                raw = str(raw)
+            if raw not in labels_map:
+                raise ValueError(f"Raw label {trial.raw_label} not found in mapping.")
             trial.mapped_label = labels_map[raw]
-
         return self
 
     # MARK: Label management
