@@ -12,6 +12,8 @@ Usage:
 """
 
 import argparse
+from pathlib import Path
+
 from src.core import AnalysisPipeline
 
 
@@ -60,20 +62,45 @@ def main():
         "--model", required=True, help="Model name, e.g. FFNN, CNN, GRU"
     )
     parser.add_argument("--subject", required=True, help="Path to subject .mat file")
+    parser.add_argument(
+        "--generic",
+        action="store_true",
+        help="Train a subject-independent model (LOSO): hold out --subject, "
+             "train on every other subject in --data-dir, test on --subject.",
+    )
+    parser.add_argument(
+        "--data-dir",
+        default=".",
+        help="Directory of .mat files to pool for --generic training. Default: cwd.",
+    )
     args = parser.parse_args()
-
-    print(f"[run_eval] model={args.model} | subject={args.subject}")
 
     opts = TRAINING_OPTIONS.get(args.model, DEFAULT_TRAINING_OPTIONS)
 
-    (
-        AnalysisPipeline()
-        .load_subjects(args.subject)
-        .trim_by_timestamp(start_time=0, end_time=float("inf"))
-        .subaverage(1)
-        .fold(5)
-        .evaluate_model(model_name=args.model, training_options=opts)
-    )
+    if args.generic:
+        held_out = Path(args.subject).stem
+        print(f"[run_eval] generic LOSO | model={args.model} | held out={held_out} | data_dir={args.data_dir}")
+        (
+            AnalysisPipeline()
+            .load_subjects(args.data_dir)
+            .trim_by_timestamp(start_time=0, end_time=float("inf"))
+            .subaverage(1)
+            .evaluate_generic_model(
+                model_name=args.model,
+                training_options=opts,
+                only_held_out=[held_out],
+            )
+        )
+    else:
+        print(f"[run_eval] per-subject | model={args.model} | subject={args.subject}")
+        (
+            AnalysisPipeline()
+            .load_subjects(args.subject)
+            .trim_by_timestamp(start_time=0, end_time=float("inf"))
+            .subaverage(1)
+            .fold(5)
+            .evaluate_model(model_name=args.model, training_options=opts)
+        )
 
     print("[run_eval] Done.")
 
