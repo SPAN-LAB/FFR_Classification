@@ -55,7 +55,8 @@ class TorchNNBase(ModelInterface):
     
     def reset_seed(self):
         torch.manual_seed(0)
-        torch.mps.manual_seed(0)
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.manual_seed(0)
     
     def _store_best(self, best):
         self._best_weights = {}
