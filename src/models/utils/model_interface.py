@@ -37,6 +37,10 @@ class ModelInterface:
     #   required_inputs = ["raw", "pitchtrack"]     # both (multi-branch model)
     required_inputs: list[str] = ["raw"]
 
+    @classmethod
+    def required_inputs_for_options(cls, training_options: dict[str, any] | None = None) -> list[str]:
+        return list(cls.required_inputs)
+
     def __init__(self, training_options: dict[str, any]):
         self.subject = None
         self.all_subjects = None
