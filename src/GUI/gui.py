@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
         self._thread: Optional[QThread] = None
         self._worker: Optional[_FunctionWorker] = None
         self._checkpoint_path = Path.cwd() / ".ffr_gui_autosave.pkl"
+        self._checkpoint_loaded_for_resume = False
 
         self._build_ui()
         self._refresh_function_map()
@@ -498,11 +499,11 @@ class MainWindow(QMainWindow):
         bar = QHBoxLayout()
         bar.setContentsMargins(4, 8, 4, 0)
 
-        add_btn = QPushButton("Add Function")
-        add_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
-        add_btn.setFixedSize(160, 40)
-        add_btn.clicked.connect(self._add_function)
-        bar.addWidget(add_btn)
+        self._add_function_btn = QPushButton("Add Function")
+        self._add_function_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        self._add_function_btn.setFixedSize(160, 40)
+        self._add_function_btn.clicked.connect(self._add_function)
+        bar.addWidget(self._add_function_btn)
 
         bar.addSpacing(16)
 
@@ -582,11 +583,8 @@ class MainWindow(QMainWindow):
         
         dlayout.addLayout(header_layout)
 
-        already_added = {f["name"] for f in self._pipeline_functions}
         lw = QListWidget()
         for name, func in self.function_map.items():
-            if name in already_added:
-                continue
             det = _function_detail(func)
             display = det.label if det and det.label else name
             item = QListWidgetItem(display)
@@ -613,30 +611,64 @@ class MainWindow(QMainWindow):
         func = self.function_map[func_name]
         detail = _function_detail(func)
 
-        params: dict[str, Any] = {}
-        if detail:
-            # Extract parameter names from function signature, skip 'self'
-            sig = inspect.signature(func)
-            param_names = [p for p in sig.parameters.keys() if p != 'self']
-            
-            for i, ad in enumerate(detail.argument_details):
-                # Get the parameter name by position
-                param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
-                
-                if isinstance(ad.default_value, Selection):
-                    # For Selection types, use empty string as default (lazy-load options later)
-                    params[param_name] = ""
-                else:
-                    params[param_name] = ad.default_value
-            label = detail.label
-        else:
-            label = func_name
+        params = self._default_params_for_function(func_name, func, detail)
+        label = detail.label if detail and detail.label else func_name
 
         self._pipeline_functions.append(
             {"name": func_name, "label": label, "params": params, "detail": detail}
         )
         self._rebuild_cards()
+        self._checkpoint_loaded_for_resume = False
         self._autosave_checkpoint()
+
+    def _default_params_for_function(
+        self,
+        func_name: str,
+        func: Callable,
+        detail: Optional[FunctionDetail],
+    ) -> dict[str, Any]:
+        if func_name == "evaluate_model":
+            model_name, training_options = self._default_model_config()
+            return {
+                "model_name": model_name,
+                "training_options": training_options,
+            }
+        if func_name == "train_model":
+            model_name, training_options = self._default_model_config()
+            return {
+                "model_name": model_name,
+                "hyperparameters": training_options,
+                "output_dirpath": "",
+            }
+
+        params: dict[str, Any] = {}
+        if not detail:
+            return params
+
+        sig = inspect.signature(func)
+        param_names = [p for p in sig.parameters.keys() if p != "self"]
+        for i, ad in enumerate(detail.argument_details):
+            param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
+            params[param_name] = "" if isinstance(ad.default_value, Selection) else ad.default_value
+        return params
+
+    def _default_model_config(self) -> tuple[str, dict[str, Any]]:
+        try:
+            from ..models.utils import find_models
+
+            model_names = sorted(find_models().keys())
+        except Exception:
+            model_names = []
+
+        model_name = "LDA" if "LDA" in model_names else (model_names[0] if model_names else "")
+        if model_name == "LDA":
+            return model_name, {"solver": "lsqr", "shrinkage": "auto"}
+        return model_name, {
+            "num_epochs": 20,
+            "batch_size": 32,
+            "learning_rate": 0.001,
+            "weight_decay": 0.1,
+        }
 
     def _rebuild_cards(self) -> None:
         while self._cards_layout.count() > 1:
@@ -661,6 +693,7 @@ class MainWindow(QMainWindow):
         elif self._selected_index is not None and self._selected_index > index:
             self._selected_index -= 1
         self._rebuild_cards()
+        self._checkpoint_loaded_for_resume = False
         self._autosave_checkpoint()
 
     def _on_edit_card(self, index: int) -> None:
@@ -685,6 +718,7 @@ class MainWindow(QMainWindow):
         self._rebuild_cards()
         self._param_editor.clear_and_hide()
         self._selected_index = None
+        self._checkpoint_loaded_for_resume = False
         self._autosave_checkpoint()
 
     # ── subjects ─────────────────────────────────────────────────────────────
@@ -703,6 +737,7 @@ class MainWindow(QMainWindow):
 
         self._update_subjects()
         self._refresh_function_map()
+        self._checkpoint_loaded_for_resume = False
         self._autosave_checkpoint()
 
     def _choose_subject_file(self) -> None:
@@ -719,6 +754,7 @@ class MainWindow(QMainWindow):
 
         self._update_subjects()
         self._refresh_function_map()
+        self._checkpoint_loaded_for_resume = False
         self._autosave_checkpoint()
 
     def _update_subjects(self) -> None:
@@ -904,6 +940,7 @@ class MainWindow(QMainWindow):
             self._selected_index = None
             self._param_editor.clear_and_hide()
             self._rebuild_cards()
+            self._checkpoint_loaded_for_resume = False
             self._autosave_checkpoint()
 
         except Exception as exc:
@@ -981,6 +1018,7 @@ class MainWindow(QMainWindow):
             self._log_text = payload.get("log_text", "")
             self._update_subjects()
             self._refresh_function_map()
+            self._checkpoint_loaded_for_resume = bool(self._pending_queue)
             self._status_label.setText("Checkpoint loaded. Click to view log.")
             self._status_label.show()
             QMessageBox.information(self, "Success", "Checkpoint loaded successfully.")
@@ -995,17 +1033,25 @@ class MainWindow(QMainWindow):
                 self, "Empty Pipeline", "Add functions to the pipeline first."
             )
             return
-        self._pending_queue = [
-            (f["name"], dict(f["params"])) for f in self._pipeline_functions
-        ]
-        self._total_steps = len(self._pending_queue)
-        self._completed_steps = 0
-        self._log_text = ""
-        if self._log_dialog_text is not None:
-            self._log_dialog_text.setPlainText("")
+
+        if self._checkpoint_loaded_for_resume and self._pending_queue:
+            remaining_steps = len(self._pending_queue)
+            self._total_steps = self._completed_steps + remaining_steps
+            self._append_log(f"--- Resuming {remaining_steps} pending step(s) ---\n")
+        else:
+            self._pending_queue = [
+                (f["name"], dict(f["params"])) for f in self._pipeline_functions
+            ]
+            self._total_steps = len(self._pending_queue)
+            self._completed_steps = 0
+            self._log_text = ""
+            if self._log_dialog_text is not None:
+                self._log_dialog_text.setPlainText("")
+
+        self._checkpoint_loaded_for_resume = False
         self._progress_bar.setMaximum(self._total_steps)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setFormat(f"0/{self._total_steps}")
+        self._progress_bar.setValue(self._completed_steps)
+        self._progress_bar.setFormat(f"{self._completed_steps}/{self._total_steps}")
         self._progress_bar.show()
         self._status_label.show()
         self._autosave_checkpoint()
@@ -1015,6 +1061,7 @@ class MainWindow(QMainWindow):
         if not self._pending_queue:
             self._set_running(False)
             self._update_subjects()
+            self._refresh_selected_subject_plots()
             self._status_label.setText("Pipeline finished. Click to view log.")
             QMessageBox.information(
                 self, "Complete", "Pipeline execution finished."
@@ -1026,8 +1073,8 @@ class MainWindow(QMainWindow):
         if func is None:
             self._append_log(f"Error: Unknown function: {name}\n")
             QMessageBox.critical(self, "Error", f"Unknown function: {name}")
-            self._pending_queue.clear()
             self._set_running(False)
+            self._autosave_checkpoint()
             return
 
         detail = _function_detail(func)
@@ -1080,6 +1127,7 @@ class MainWindow(QMainWindow):
         else:
             self._set_running(False)
             self._update_subjects()
+            self._refresh_selected_subject_plots()
             self._status_label.setText("Pipeline finished. Click to view log.")
             QMessageBox.information(
                 self, "Complete", "Pipeline execution finished."
@@ -1089,9 +1137,9 @@ class MainWindow(QMainWindow):
         self._thread = None
         self._worker = None
         self._append_log(f"ERROR: {message}\n")
-        self._pending_queue.clear()
         self._set_running(False)
         self._autosave_checkpoint()
+        self._checkpoint_loaded_for_resume = bool(self._pending_queue)
         self._status_label.setText("Pipeline failed. Click to view log.")
         QMessageBox.critical(self, "Execution Error", message)
 
@@ -1130,11 +1178,22 @@ class MainWindow(QMainWindow):
     def _clear_log_dialog_ref(self) -> None:
         self._log_dialog_text = None
 
+    def _refresh_selected_subject_plots(self) -> None:
+        current = self._subject_list.currentItem()
+        if current is not None:
+            self._on_subject_clicked(current)
+
     def _set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._load_subjects_btn.setEnabled(not running)
         self._load_subject_file_btn.setEnabled(not running)
         self._load_checkpoint_btn.setEnabled(not running)
+        self._load_pipe_btn.setEnabled(not running)
+        self._save_pipe_btn.setEnabled(not running)
+        self._save_checkpoint_btn.setEnabled(not running)
+        self._add_function_btn.setEnabled(not running)
+        self._scroll.setEnabled(not running)
+        self._param_editor.setEnabled(not running)
 
 
 def main() -> None:

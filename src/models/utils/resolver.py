@@ -14,6 +14,9 @@ import pkgutil
 
 from ...models.utils import ModelInterface
 
+_MODEL_IMPORT_ERRORS: dict[str, str] = {}
+
+
 def _iter_model_classes():
     """
     Yield ``(module_name, class_obj)`` for concrete ``ModelInterface`` implementations.
@@ -25,6 +28,7 @@ def _iter_model_classes():
     package = importlib.import_module(package_name)
 
     # Iterates over all the submodules, skipping any that are packages (i.e. files)
+    _MODEL_IMPORT_ERRORS.clear()
     for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
         if is_pkg or module_name == "utils":
             continue
@@ -33,6 +37,7 @@ def _iter_model_classes():
         try:
             module = importlib.import_module(f"{package_name}.{module_name}")
         except Exception as exc:
+            _MODEL_IMPORT_ERRORS[module_name] = str(exc)
             print(f"Warning: Skipping model module {module_name}: {exc}")
             continue
 
@@ -80,3 +85,7 @@ def find_models() -> dict[str, type[ModelInterface]]:
     for (name, cls) in models:
         map[name] = cls
     return map
+
+
+def get_model_import_errors() -> dict[str, str]:
+    return dict(_MODEL_IMPORT_ERRORS)

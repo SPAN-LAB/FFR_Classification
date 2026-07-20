@@ -134,13 +134,13 @@ extract_features_detail = FD(
     label="Extract Features",
     argument_details=[
         AD(
-            label="Feature Names",
+            label="Feature Names (comma-separated)",
             type=str,
-            default_value="pitchtrack",
+            default_value="pitchtrack,autocorr,zerocrossing",
             description="Comma-separated features to compute: pitchtrack, autocorr, zerocrossing."
         )
     ],
-    description="Computes selected features for every loaded trial."
+    description="Computes one or more selected features for every loaded trial."
 )
 
 save_state_detail = FD(

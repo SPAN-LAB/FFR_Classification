@@ -5,9 +5,9 @@ import json
 from typing import Any, Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QDoubleValidator, QIntValidator
 from PyQt5.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -16,7 +16,6 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QSpinBox,
     QToolTip,
     QVBoxLayout,
     QWidget,
@@ -24,7 +23,7 @@ from PyQt5.QtWidgets import (
 
 from .manager import Manager
 from ..core.utils.function_detail import ArgumentDetail, FunctionDetail, Selection
-from ..models.utils import find_model, find_models
+from ..models.utils import find_models, get_model_import_errors
 
 
 def _is_dict_type(typ) -> bool:
@@ -200,6 +199,19 @@ class FunctionCardWidget(QFrame):
         self.setLayout(layout)
 
     def _make_summary(self) -> str:
+        if "model_name" in self._params:
+            parts = [f"Model: {self._params.get('model_name', '')}"]
+            options = self._params.get("training_options", self._params.get("hyperparameters"))
+            if isinstance(options, dict):
+                parts.append(
+                    "Options: "
+                    + ", ".join(f"{k}: {v}" for k, v in options.items())
+                )
+            output_dir = self._params.get("output_dirpath")
+            if output_dir:
+                parts.append(f"Output Directory: {output_dir}")
+            return "\n".join(parts)
+
         if not self._detail or not self._detail.argument_details:
             return ""
         parts = []
@@ -307,18 +319,33 @@ class ParameterEditorWidget(QWidget):
             model_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             model_combo.setMinimumWidth(120)
             
+            model_names = []
             try:
                 models = find_models()
-                for m_name in sorted(models.keys()):
+                model_names = sorted(models.keys())
+                for m_name in model_names:
                     model_combo.addItem(m_name)
             except Exception:
-                pass
+                warning = QLabel("Model list could not be loaded. Check dependencies.")
+                warning.setWordWrap(True)
+                warning.setStyleSheet("color: #b00020; font-size: 11px;")
+                self._form_layout.addRow("", warning)
             
             current_model = current_params.get("model_name", "LDA")
             if isinstance(current_model, str) and current_model:
                 idx = model_combo.findText(current_model)
                 if idx >= 0:
                     model_combo.setCurrentIndex(idx)
+                elif model_names:
+                    model_combo.setCurrentIndex(0)
+
+            import_errors = get_model_import_errors()
+            if import_errors:
+                skipped = ", ".join(sorted(import_errors.keys()))
+                warning = QLabel(f"Some models are hidden because imports failed: {skipped}")
+                warning.setWordWrap(True)
+                warning.setStyleSheet("color: #8a5a00; font-size: 11px;")
+                self._form_layout.addRow("", warning)
             
             self._editors.append(("model_name", model_combo, None))
             self._form_layout.addRow("Select Model:", model_combo)
@@ -552,36 +579,47 @@ class ParameterEditorWidget(QWidget):
         " padding: 4px 6px; background: white; }"
         " QComboBox QAbstractItemView {"
         "   background: white; color: #333;"
-        "   selection-background-color: #4285f4;"
-        "   selection-color: white;"
+        "   selection-background-color: #e8f0fe;"
+        "   selection-color: #111;"
         "   outline: none;"
+        " }"
+        " QComboBox QAbstractItemView::item:hover {"
+        "   background: #e8f0fe; color: #111;"
+        " }"
+        " QComboBox QAbstractItemView::item:selected {"
+        "   background: #d2e3fc; color: #111;"
         " }"
     )
 
     def _build_editor(self, ad: ArgumentDetail, current_value: Any) -> QWidget:
         typ = ad.type
         if typ is int:
-            w = QSpinBox()
+            w = QLineEdit()
             w.setStyleSheet(self._EDITOR_STYLE)
-            w.setMinimum(-10_000_000)
-            w.setMaximum(10_000_000)
+            w.setValidator(QIntValidator(-10_000_000, 10_000_000, self))
             if current_value is not None:
-                w.setValue(int(current_value))
+                w.setText(str(current_value))
+            if ad.description:
+                w.setPlaceholderText(ad.description)
             return w
         if typ is float:
-            w = QDoubleSpinBox()
+            w = QLineEdit()
             w.setStyleSheet(self._EDITOR_STYLE)
-            w.setDecimals(6)
-            w.setMinimum(-1e9)
-            w.setMaximum(1e9)
+            validator = QDoubleValidator(-1e9, 1e9, 6, self)
+            validator.setNotation(QDoubleValidator.StandardNotation)
+            w.setValidator(validator)
             if current_value is not None:
-                w.setValue(float(current_value))
+                w.setText(str(current_value))
+            if ad.description:
+                w.setPlaceholderText(ad.description)
             return w
         if typ is str:
             w = QLineEdit()
             w.setStyleSheet(self._EDITOR_STYLE)
             if current_value is not None:
                 w.setText(str(current_value))
+            if ad.description:
+                w.setPlaceholderText(ad.description)
             return w
         if _is_dict_type(typ):
             w = DictEditorWidget(current_value if isinstance(current_value, dict) else {})
@@ -637,13 +675,17 @@ class ParameterEditorWidget(QWidget):
         
         for name, widget, _ad in self._editors:
             val = None
-            if isinstance(widget, QSpinBox):
-                val = widget.value()
-            elif isinstance(widget, QDoubleSpinBox):
-                val = widget.value()
-            elif isinstance(widget, QLineEdit):
+            if isinstance(widget, QLineEdit):
                 val = widget.text()
-                if val.strip().startswith("[") and val.strip().endswith("]"):
+                if _ad is not None and _ad.type is int:
+                    if val.strip() == "":
+                        raise ValueError(f"{_ad.label} requires an integer value.")
+                    val = int(val)
+                elif _ad is not None and _ad.type is float:
+                    if val.strip() == "":
+                        raise ValueError(f"{_ad.label} requires a numeric value.")
+                    val = float(val)
+                elif val.strip().startswith("[") and val.strip().endswith("]"):
                     try:
                         val = json.loads(val.strip())
                     except Exception:
