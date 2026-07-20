@@ -16,6 +16,7 @@
 !analysis.py
 
 *.png
+!spanlab_logo_final.png
 *.jpg
 *.jpeg
 *.svg

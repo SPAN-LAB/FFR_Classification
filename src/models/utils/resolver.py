@@ -30,7 +30,11 @@ def _iter_model_classes():
             continue
         
         # A module in src.models (a `.py` file)
-        module = importlib.import_module(f"{package_name}.{module_name}")
+        try:
+            module = importlib.import_module(f"{package_name}.{module_name}")
+        except Exception as exc:
+            print(f"Warning: Skipping model module {module_name}: {exc}")
+            continue
 
         # Iterates over all the classes inside the module 
         for _, cls in inspect.getmembers(module, inspect.isclass):

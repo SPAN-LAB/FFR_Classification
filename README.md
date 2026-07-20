@@ -24,8 +24,8 @@ cd FFR_Classification
 Create a virtual environment and activate it:
 
 ```bash
-python3.11 -m venv .env
-source .env/bin/activate
+python3.11 -m venv classiFFRy
+source classiFFRy/bin/activate
 ```
 
 Install dependencies: 

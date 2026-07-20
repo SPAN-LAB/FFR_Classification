@@ -10,6 +10,7 @@ Description: The interface and implementation of the EEGSubject type.
 
 from __future__ import annotations
 from typing import Any, Self, Callable
+import ast
 
 import numpy as np
 from pymatreader import read_mat
@@ -118,6 +119,36 @@ class EEGSubject:
 
     # MARK: Processing methods
 
+    @staticmethod
+    def _normalize_label(value: Any) -> Any:
+        if isinstance(value, bytes):
+            return value.decode()
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            if value.shape == () or value.size == 1:
+                return value.item()
+            return tuple(value.tolist())
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @staticmethod
+    def parse_label_token(value: Any) -> Any:
+        if not isinstance(value, str):
+            return EEGSubject._normalize_label(value)
+
+        value = value.strip()
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            parsed = value
+        return EEGSubject._normalize_label(parsed)
+
+    @staticmethod
+    def _label_key(value: Any) -> Any:
+        return EEGSubject._normalize_label(value)
+
     def trim_by_index(self, start_index: int, end_index: int) -> EEGSubject:
         for trial in self.trials:
             trial.trim_by_index(start_index, end_index)
@@ -126,6 +157,41 @@ class EEGSubject:
     def trim_by_timestamp(self, start_time: float, end_time: float) -> EEGSubject:
         for trial in self.trials:
             trial.trim_by_timestamp(start_time, end_time)
+        return self
+
+    def trim_by_type(
+        self,
+        label_values: str | list[Any],
+        label_source: str = "raw",
+    ) -> EEGSubject:
+        if isinstance(label_values, str):
+            label_values = [
+                value.strip()
+                for value in label_values.replace(";", ",").split(",")
+                if value.strip()
+            ]
+
+        allowed = {
+            self._label_key(self.parse_label_token(value))
+            for value in label_values
+        }
+
+        def label_for(trial: EEGTrial):
+            if label_source == "raw":
+                return trial.raw_label
+            if label_source == "mapped":
+                return trial.mapped_label
+            if label_source == "current":
+                return trial.label
+            raise ValueError("label_source must be 'raw', 'mapped', or 'current'.")
+
+        self.trials = [
+            trial
+            for trial in self.trials
+            if self._label_key(label_for(trial)) in allowed
+        ]
+        self.folds = None
+        self.setup_labels_map()
         return self
 
     def subaverage(self, size: int) -> EEGSubject:
@@ -175,7 +241,7 @@ This causes some folds to have 0 trials from this category.""")
 
     def map_trial_labels(self, rule_filepath: str) -> Self:
         # Create a dictionary that maps from raw label to mapped label
-        labels_map: dict[int, int] = {}
+        labels_map: dict[Any, Any] = {}
 
         with open(rule_filepath, "r") as file:
             for line in file:
@@ -184,21 +250,20 @@ This causes some folds to have 0 trials from this category.""")
                     continue  # Skip empty lines or comments
 
                 values = line.split(",")
-                mapped_label = int(values[0].strip())  # First value is mapped label
+                mapped_label = self.parse_label_token(values[0])
                 for raw_label in values[1:]:
                     raw_label = raw_label.strip()
                     if raw_label:
-                        labels_map[int(raw_label)] = (
-                            mapped_label  # Convert raw labels to int
-                        )
+                        labels_map[self._label_key(self.parse_label_token(raw_label))] = mapped_label
 
         # Assign mapped labels to each trial
         for trial in self.trials:
-            raw = int(trial.raw_label)  # Ensure raw_label is int
+            raw = self._label_key(trial.raw_label)
             if raw not in labels_map:
                 raise ValueError(f"Raw label {raw} not found in mapping.")
             trial.mapped_label = labels_map[raw]
 
+        self.setup_labels_map()
         return self
 
     # MARK: Label management
@@ -208,6 +273,7 @@ This causes some folds to have 0 trials from this category.""")
             trial.set_label_preference(pref)
 
     def setup_labels_map(self):
+        self.labels_map = {}
         # Find all the labels
         labels_set = set()
         labels_array = []
@@ -231,14 +297,20 @@ This causes some folds to have 0 trials from this category.""")
             
     # MARK: Helpers
 
-    def grouped_trials(self) -> dict[any, list[EEGTrial]]:
+    def grouped_trials(
+        self,
+        key: Callable[[EEGTrial], Any] | None = None,
+    ) -> dict[any, list[EEGTrial]]:
         # Divide into groups separated by their label
+        if key is None:
+            key = lambda trial: trial.label
         g = {}
         for trial in self.trials:
-            if trial.label in g:
-                g[trial.label].append(trial)
+            group_key = key(trial)
+            if group_key in g:
+                g[group_key].append(trial)
             else:
-                g[trial.label] = [trial]
+                g[group_key] = [trial]
         return g
     
     def reindex_trials(self):
