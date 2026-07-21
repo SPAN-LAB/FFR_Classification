@@ -59,7 +59,7 @@ class EEGSubject:
     # MARK: IO
 
     @staticmethod
-    def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
+    def init_from_filepath(filepath: str, extract: Callable = None, data_var: str = "ffr_nodss") -> EEGSubject:
         def default_extract(raw_mat_file: dict[str, Any]) -> dict[str, any]:
             """
             Default method of extracting the data from the raw .mat file.
@@ -67,7 +67,7 @@ class EEGSubject:
             """
             output = {}
             import numpy as np
-            data = raw_mat_file["ffr_nodss"]
+            data = raw_mat_file[data_var]
             if isinstance(data, dict):
                 data = list(data.values())[0]
             import numpy as np
@@ -78,9 +78,12 @@ class EEGSubject:
             import numpy as np
             data = np.array(data)
             # pymatreader may return (timepoints, trials) or (trials, timepoints)
-            # ensure shape is (trials, timepoints) where trials matches labels count
-            if data.shape[0] > data.shape[1]:
-                data = data.T  # transpose only if needed
+            # ensure shape is (trials, timepoints) by matching labels count
+            n_labels = len(raw_mat_file["labels"])
+            if data.shape[0] != n_labels:
+                data = data.T
+            if data.shape[0] != n_labels:
+                raise ValueError(f"Data shape {data.shape} doesn't match labels count {n_labels}")
             output["data"] = data
             output["timestamps"] = raw_mat_file["time"]
             labels = raw_mat_file["labels"]
@@ -249,6 +252,7 @@ This causes some folds to have 0 trials from this category.""")
 
     def setup_labels_map(self):
         # Find all the labels
+        self.labels_map = {}
         labels_set = set()
         labels_array = []
 

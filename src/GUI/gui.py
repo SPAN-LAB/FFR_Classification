@@ -381,7 +381,15 @@ class MainWindow(QMainWindow):
         self._confusion_layout = panel.layout()
         self._confusion_layout.addWidget(self._accuracy_label)
         self._confusion_layout.addWidget(lbl, stretch=1)
-        return panel
+
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(_PANEL_STYLE)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return scroll
+    
 
     def _build_roc_panel(self) -> QWidget:
         panel = _titled_panel("ROC Curve")
@@ -399,7 +407,14 @@ class MainWindow(QMainWindow):
         self._roc_layout = panel.layout()
         self._roc_layout.addWidget(self._auc_label)
         self._roc_layout.addWidget(lbl, stretch=1)
-        return panel
+
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(_PANEL_STYLE)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return scroll
 
     def _build_subjects_panel(self) -> QWidget:
         panel = QWidget()
@@ -422,15 +437,23 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_signals_panel(self) -> QWidget:
+    # Inner widget that holds the grid
         self._signals_panel = QWidget()
-        self._signals_panel.setStyleSheet(_PANEL_STYLE)
+        self._signals_panel.setStyleSheet("background: white;")
         self._signals_grid = QGridLayout()
         self._signals_grid.setSpacing(6)
         self._signals_grid.setContentsMargins(8, 8, 8, 8)
         self._signals_panel.setLayout(self._signals_grid)
         self._plot_layouts = []
         self._rebuild_signal_slots(4)  # default 4 slots
-        return self._signals_panel
+
+        # Wrap in a scroll area
+        scroll = QScrollArea()
+        scroll.setWidget(self._signals_panel)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(_PANEL_STYLE)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        return scroll
 
     def _rebuild_signal_slots(self, n: int) -> None:
         # Clear existing
@@ -454,6 +477,10 @@ class MainWindow(QMainWindow):
             self._plot_layouts.append(fl)
             frame.setLayout(fl)
             self._signals_grid.addWidget(frame, r, c)
+        
+        cols = 2
+        rows = max(1, (n + cols - 1) // cols)
+        self._signals_panel.setMinimumHeight(rows * 220)
 
     # ── bottom bar ───────────────────────────────────────────────────────────
 
@@ -682,9 +709,45 @@ class MainWindow(QMainWindow):
         )
         if not file_paths:
             return
+
+        # Peek into the first file to find available data variables
+        try:
+            import pymatreader
+            raw = pymatreader.read_mat(file_paths[0])
+            skip = {"__header__", "__version__", "__globals__", "labels", "time"}
+            data_vars = [k for k in raw.keys() if k not in skip]
+        except Exception:
+            data_vars = ["ffr_nodss"]
+
+        # Show variable picker dialog
+        if len(data_vars) > 1:
+            dialog = QDialog(self)
+            dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            dialog.setWindowTitle("Select Data Variable")
+            dialog.setMinimumWidth(280)
+            dlayout = QVBoxLayout()
+            dlayout.addWidget(QLabel("Which variable contains the EEG data?"))
+            combo = QComboBox()
+            for v in data_vars:
+                combo.addItem(v)
+            # Default to ffr_nodss if available
+            if "ffr_nodss" in data_vars:
+                combo.setCurrentIndex(data_vars.index("ffr_nodss"))
+            dlayout.addWidget(combo)
+            btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            btns.accepted.connect(dialog.accept)
+            btns.rejected.connect(dialog.reject)
+            dlayout.addWidget(btns)
+            dialog.setLayout(dlayout)
+            if dialog.exec_() != QDialog.Accepted:
+                return
+            selected_var = combo.currentText()
+        else:
+            selected_var = data_vars[0] if data_vars else "ffr_nodss"
+
         try:
             for i, file_path in enumerate(file_paths):
-                self.manager.load_subjects(file_path, reset=(i == 0))
+                self.manager.load_subjects(file_path, reset=(i == 0), data_var=selected_var)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
             return
@@ -731,7 +794,7 @@ class MainWindow(QMainWindow):
         grouped = subject.grouped_trials()
         
         try:
-            keys = sorted(list(grouped.keys()))
+            keys = sorted(list(grouped.keys()), key=lambda x: int(x) if str(x).isdigit() else str(x))
         except Exception:
             keys = list(grouped.keys())
                    
@@ -809,7 +872,8 @@ class MainWindow(QMainWindow):
                 try:
                     plots.plot_confusion_matrix(subject=subject, show_popup=False)
                     fig_cm = plt.gcf()
-                    fig_cm.set_size_inches(4, 4)  
+                    n_classes = len(subject.labels_map)
+                    fig_cm.set_size_inches(max(4, n_classes * 0.5), max(4, n_classes * 0.5))  
                     fig_cm.tight_layout()
                     if not fig_cm.axes:
                         self._confusion_layout.addWidget(QLabel("No valid predictions yet."))
@@ -855,7 +919,9 @@ class MainWindow(QMainWindow):
                 try:
                     plots.plot_roc_curve(subject=subject, show_popup=False)
                     fig_roc = plt.gcf()
-                    fig_roc.set_size_inches(5, 4)
+                    n_classes = len(subject.labels_map)
+                    fig_roc.set_size_inches(max(10, n_classes * 0.6), max(5, n_classes * 0.35))
+                    fig_roc.subplots_adjust(right=0.65)  
                     fig_roc.tight_layout()
                     if not fig_roc.axes:
                         self._roc_layout.addWidget(QLabel("No valid predictions yet."))

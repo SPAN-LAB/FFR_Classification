@@ -14,12 +14,11 @@ class Manager:
         # List of tuples, each containing the name of the function and its parameters
         self.functions: list[tuple[str, dict]] = []
 
-    def load_subjects(self, folder_path: str, reset: bool = True):
-        # Only reset on first file load
+    def load_subjects(self, folder_path: str, reset: bool = True, data_var: str = "ffr_nodss"):
         if reset:
             self.state = PipelineState()
             self.initial_subjects_state = PipelineState()
-        self.state.load_subjects(path=folder_path)
+        self.state.load_subjects(path=folder_path, data_var=data_var)
         self.state.save(to=self.initial_subjects_state)
 
     def find_functions(self) -> dict[str, Callable]:

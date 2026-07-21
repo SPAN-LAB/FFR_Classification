@@ -80,7 +80,7 @@ class AnalysisPipeline:
     # MARK: IO
 
     @gui_private()
-    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
+    def load_subjects(self, path: str | list[str], data_var: str = "ffr_nodss") -> AnalysisPipeline:
         """
         Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
         instances and adds them to this object's subjects list. 
@@ -99,7 +99,7 @@ class AnalysisPipeline:
         def load_subjects_helper(filepath: str, check_extension: bool = True):
             if check_extension and not filepath.endswith(".mat"):
                 raise ValueError(f"File does not end with .mat: {filepath}")
-            subject = EEGSubject.init_from_filepath(filepath)
+            subject = EEGSubject.init_from_filepath(filepath, data_var=data_var)
             print(f"load_subjects : Subject loaded from {filepath}")
             self.subjects.append(subject)
             
@@ -180,6 +180,24 @@ class AnalysisPipeline:
         for subject in self.subjects:
             subject.trim_by_timestamp(start_time, end_time)
         print("trim_by_timestamp : done")
+        return self
+    
+    @detail(details.filter_by_label_detail)
+    def filter_by_label(self, labels: str) -> AnalysisPipeline:
+        """
+        Keeps only trials whose label matches one of the provided labels.
+        labels: comma-separated string e.g. "1,2,3"
+        """
+        label_set = set(l.strip() for l in labels.split(","))
+        for subject in self.subjects:
+            subject.trials = [
+                t for t in subject.trials
+                if str(t.label) in label_set
+            ]
+            subject.setup_labels_map()
+            print(f"DEBUG: n_trials={len(subject.trials)}, labels={set(str(t.label) for t in subject.trials)}, num_cat={subject.num_categories}")
+            print(f"DEBUG after filter: labels_map={subject.labels_map}, num_categories={subject.num_categories}, n_trials={len(subject.trials)}")
+        print(f"filter_by_label {label_set} : done")
         return self
 
     @detail(details.trim_by_index_detail)

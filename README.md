@@ -62,15 +62,15 @@ cd FFR_Classification
 ### Step 4 — Set up the environment
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
+python3.11 -m venv classiFFRy
+source classiFFRy/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
 > **Every time you open a new terminal**, activate the environment first:
 > ```bash
-> source .venv/bin/activate
+> source classiFFRy/bin/activate
 > ```
 
 ---
@@ -100,18 +100,18 @@ cd FFR_Classification
 ### Step 4 — Set up the environment
 
 ```cmd
-py -3.11 -m venv .venv
-.venv\Scripts\activate.bat
+py -3.11 -m venv classiFFRy
+classiFFRy\Scripts\activate.bat
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
 > **Every time you open a new Command Prompt**, activate the environment first:
 > ```cmd
-> .venv\Scripts\activate.bat
+> classiFFRy\Scripts\activate.bat
 > ```
 
-> **If you see a PowerShell error about scripts being disabled**, switch to Command Prompt (not PowerShell) and use `.venv\Scripts\activate.bat` instead.
+> **If you see a PowerShell error about scripts being disabled**, switch to Command Prompt (not PowerShell) and use `classiFFRy\Scripts\activate.bat` instead.
 
 ---
 
@@ -283,7 +283,7 @@ pipeline = (
 ## Troubleshooting
 
 **"No module named PyQt5"**
-You forgot to activate the virtual environment. Run `source .venv/bin/activate` (Mac/Linux) or `.venv\Scripts\activate.bat` (Windows).
+You forgot to activate the virtual environment. Run `source classiFFRy/bin/activate` (Mac/Linux) or `classiFFRy\Scripts\activate.bat` (Windows).
 
 **"index out of bounds" error when loading a `.mat` file**
 Make sure your `.mat` file contains the fields `ffr_nodss`, `labels`, and `time`. Files from other datasets may have a different structure.

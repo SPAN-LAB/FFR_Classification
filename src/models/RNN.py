@@ -32,7 +32,6 @@ class RNN(nn.Module):
 class RNN_model(TorchNNBase):
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
-        self.build()
 
     def build(self):
         input_size = 1

@@ -54,7 +54,7 @@ def plot_averaged_trials(subject: EEGSubject, key: Callable[[EEGTrial], Any]=lam
         return ax
 
     try:
-        keys = sorted(keys)
+        keys = sorted(keys, key=lambda x: int(x) if str(x).isdigit() else str(x))
     except Exception:
         pass
 
@@ -160,7 +160,7 @@ def plot_grand_average(subjects: list[EEGSubject], show_components: bool=True):
         return ax
 
     try:
-        keys = sorted(keys)
+        keys = sorted(keys, key=lambda x: int(x) if str(x).isdigit() else str(x))
     except Exception:
         pass
 
@@ -298,7 +298,7 @@ def plot_roc_curve(
         for trial in subject.trials:
             labels_set.add(trial.label)
     
-    labels = sorted(list(labels_set))
+    labels = sorted(list(labels_set), key=lambda x: int(x) if str(x).isdigit() else str(x))
     n_classes = len(labels)
     
     # Collect true labels and prediction distributions
@@ -354,7 +354,7 @@ def plot_roc_curve(
         y_scores = y_scores[:, 1]  # Use probability of positive class
     
     # Plotting
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 8))
     
     # Set seaborn style for beautiful plots
     sns.set_palette("husl")
@@ -380,11 +380,11 @@ def plot_roc_curve(
     plt.xlabel('False Positive Rate', fontsize=12)
     plt.ylabel('True Positive Rate', fontsize=12)
     plt.title(f'ROC Curve, {subject.name}', fontsize=14)
-    plt.legend(loc='lower right', fontsize=10)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9, borderaxespad=0)
     plt.grid(True, alpha=0.3)
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 0.72, 1])
     
     if filepath is not None:
         # Create the necessary folders if they don't exist in the filepath
@@ -421,7 +421,7 @@ def plot_confusion_matrix(
     labels = []
     for label in labels_set:
         labels.append(label)
-    labels.sort()
+    labels.sort(key=lambda x: int(x) if str(x).isdigit() else str(x))
     
     # Initialize the matrix 
     matrix = []
@@ -655,7 +655,7 @@ def plot_results(
         # Move legend outside if needed
         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
     
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 0.65, 1])
     
     if output_dir:
         out_path = Path(output_dir)

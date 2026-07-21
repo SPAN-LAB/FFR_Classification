@@ -66,6 +66,16 @@ trim_by_timestamp_detail = FD(
     description="Keeps only the datapoints recorded between the provided timestamps."
 )
 
+filter_by_label_detail = FD(
+    kind=FunctionKind.gui,
+    label="Filter by Label",
+    argument_details=[
+        AD("labels", str, "1,2,3,4",
+           "Comma-separated labels to keep e.g. '1,2,3'"),
+    ],
+    description="Keep only trials matching the specified labels."
+)
+
 trim_by_index_detail = FD(
     label="Trim by Index",
     argument_details=[

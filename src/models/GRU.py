@@ -52,11 +52,10 @@ class GRU(nn.Module):
 class RNN_model(TorchNNBase):
     def __init__(self, training_options: dict[str, any]):
         super().__init__(training_options)
-        self.build()
 
     def build(self):
         input_size = int(self.training_options.get("input_size", 1))
-        num_classes = int(self.training_options.get("n_classes", 4))
+        num_classes = int(self.training_options.get("n_classes", self.subject.num_categories if self.subject else 4))
 
         # Moderate defaults: bidirectional but not huge
         hidden_size = int(self.training_options.get("hidden_size", 256))

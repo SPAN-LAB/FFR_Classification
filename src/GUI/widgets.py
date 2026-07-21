@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -12,6 +13,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -420,6 +422,29 @@ class ParameterEditorWidget(QWidget):
 
             self._editors.append((param_name, line_edit, detail.argument_details[0]))
             self._form_layout.addRow("Model Filepath:", container)
+        elif function_name == "extract_features":
+            from ..features import FEATURE_REGISTRY
+            available = list(FEATURE_REGISTRY.keys())
+            current_val = current_params.get("feature_names", "pitchtrack,autocorr,autoencoder_latent")
+            selected = set(s.strip() for s in current_val.split(",") if s.strip()) if isinstance(current_val, str) else set(current_val)
+
+            lw = QListWidget()
+            lw.setSelectionMode(QAbstractItemView.MultiSelection)
+            lw.setStyleSheet(
+                "QListWidget { border: 1px solid #ccc; border-radius: 4px;"
+                " background: white; color: #333333; }"
+                " QListWidget::item { padding: 4px 8px; }"
+                " QListWidget::item:selected { background: #4285f4; color: white; }"
+                " QListWidget::item:hover { background: #f0f4ff; }"
+            )
+            for feat in available:
+                lw.addItem(feat)
+                if feat in selected:
+                    lw.item(lw.count() - 1).setSelected(True)
+            lw.setFixedHeight(min(32 * len(available), 160))
+
+            self._editors.append(("feature_names", lw, None))
+            self._form_layout.addRow("Features:", lw)
 
         else:
             for i, ad in enumerate(detail.argument_details):
@@ -485,7 +510,6 @@ class ParameterEditorWidget(QWidget):
                 ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
                 ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
                 ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
-                ArgumentDetail("n_classes", int, 4, "Number of output classes"),
                 ArgumentDetail("p_drop", float, 0.1, "Dropout probability"),
             ]
         elif model_name_lower == "svm":
@@ -672,6 +696,8 @@ class ParameterEditorWidget(QWidget):
                 val = widget.get_value()
             elif isinstance(widget, QComboBox):
                 val = widget.currentText()
+            elif isinstance(widget, QListWidget):
+                val = ",".join(item.text() for item in widget.selectedItems())
 
             if name.startswith("to_"):
                 key = name[3:]
