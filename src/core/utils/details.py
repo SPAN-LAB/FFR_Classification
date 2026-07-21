@@ -95,6 +95,25 @@ trim_by_index_detail = FD(
     description="Keeps only the datapoints recorded between the provided indices."
 )
 
+trim_by_type_detail = FD(
+    label="Trim by Type",
+    argument_details=[
+        AD(
+            label="Labels to Keep",
+            type=str,
+            default_value="1,2,3",
+            description="Comma-separated labels to keep."
+        ),
+        AD(
+            label="Label Source",
+            type=str,
+            default_value="raw",
+            description="Use raw, mapped, or current labels."
+        )
+    ],
+    description="Keeps only selected trial categories before classification."
+)
+
 subaverage_detail = FD(
     label="Subaverage Trials",
     argument_details=[
@@ -132,6 +151,97 @@ fold_detail = FD(
         )
     ],
     description="Divides each subject's trials into the number of groups (folds) provided."
+)
+
+extract_features_detail = FD(
+    label="Extract Features",
+    argument_details=[
+        AD(
+            label="Feature Names (comma-separated)",
+            type=str,
+            default_value="pitchtrack,autocorr,zerocrossing",
+            description="Comma-separated features to compute: pitchtrack, autocorr, zerocrossing."
+        )
+    ],
+    description="Computes one or more selected features for every loaded trial."
+)
+
+save_state_detail = FD(
+    label="Save Full State",
+    argument_details=[
+        AD(
+            label="Output Filepath",
+            type=str,
+            default_value="ffr_pipeline_state.pkl",
+            description="Pickle filepath for the full pipeline state."
+        )
+    ],
+    description="Saves loaded subjects, features, predictions, and models."
+)
+
+load_state_detail = FD(
+    label="Load Full State",
+    argument_details=[
+        AD(
+            label="Input Filepath",
+            type=str,
+            default_value="ffr_pipeline_state.pkl",
+            description="Pickle filepath written by Save Full State."
+        )
+    ],
+    description="Restores a full saved pipeline state."
+)
+
+save_features_detail = FD(
+    label="Save Features",
+    argument_details=[
+        AD(
+            label="Output Filepath",
+            type=str,
+            default_value="ffr_features.pkl",
+            description="Pickle filepath for extracted features and feature inputs."
+        )
+    ],
+    description="Saves extracted feature arrays and the raw inputs used to compute them."
+)
+
+load_features_detail = FD(
+    label="Load Features",
+    argument_details=[
+        AD(
+            label="Input Filepath",
+            type=str,
+            default_value="ffr_features.pkl",
+            description="Pickle filepath written by Save Features."
+        )
+    ],
+    description="Loads saved feature arrays onto matching loaded subjects."
+)
+
+save_visualization_data_detail = FD(
+    label="Save Visualization Data",
+    argument_details=[
+        AD(
+            label="Output Filepath",
+            type=str,
+            default_value="ffr_visualization_data.pkl",
+            description="Pickle filepath for data needed to visualize later."
+        )
+    ],
+    description="Saves trial data, labels, features, predictions, and probabilities."
+)
+
+load_visualization_data_detail = FD(
+    label="Load Visualization Data",
+    argument_details=[
+        AD(
+            label="Input Filepath",
+            type=str,
+            default_value="ffr_visualization_data.pkl",
+            description="Pickle filepath written by Save Visualization Data."
+        )
+    ],
+    description="Loads saved subjects and prediction data for plotting."
 )
 
 evaluate_model_detail = FD(

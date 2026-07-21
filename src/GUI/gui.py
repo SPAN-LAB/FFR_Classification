@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import io
 import json
+import math
 import os
 import sys
 import threading
@@ -13,7 +14,6 @@ from typing import Any, Callable, Optional
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QDialog,
     QDialogButtonBox,
@@ -39,6 +39,11 @@ from PyQt5.QtWidgets import (
     QLineEdit,
 )
 
+_cache_root = Path(os.environ.get("TMPDIR", "/tmp")) / "ffr_gui_cache"
+_cache_root.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(_cache_root / "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(_cache_root / "xdg"))
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -47,7 +52,6 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from .manager import Manager
 from .widgets import FunctionCardWidget, ParameterEditorWidget
 from ..core.utils.function_detail import FunctionDetail, Selection
-
 
 def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
     func = getattr(fn, "__func__", fn)
@@ -189,7 +193,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
         
         # Set window icon to the logo
-        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_new.png"
+        logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
         if logo_path.exists():
             self.setWindowIcon(QIcon(str(logo_path)))
 
@@ -199,10 +203,13 @@ class MainWindow(QMainWindow):
         self._selected_index: int | None = None
         self._pending_queue: list[tuple[str, dict]] = []
         self._plot_layouts: list[QVBoxLayout] = []
+        self._signals_grid: QGridLayout | None = None
         self._confusion_layout: QVBoxLayout | None = None
         self._roc_layout: QVBoxLayout | None = None
         self._thread: Optional[QThread] = None
         self._worker: Optional[_FunctionWorker] = None
+        self._checkpoint_path = Path.cwd() / ".ffr_gui_autosave.pkl"
+        self._checkpoint_loaded_for_resume = False
 
         self._build_ui()
         self._refresh_function_map()
@@ -226,7 +233,7 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         header = QWidget()
-        header.setFixedHeight(90)
+        header.setFixedHeight(70)
         header.setStyleSheet(
             "background: white; border-bottom: 1px solid #d0d0d0;"
         )
@@ -237,12 +244,12 @@ class MainWindow(QMainWindow):
 
         logo_label = QLabel()
         logo_path = (
-            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_new.png"
+            Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
         )
         if logo_path.exists():
             pix = QPixmap(str(logo_path))
             logo_label.setPixmap(
-                pix.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pix.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
             logo_label.setText("SPANLAB")
@@ -263,6 +270,18 @@ class MainWindow(QMainWindow):
         self._save_pipe_btn.setFixedHeight(34)
         self._save_pipe_btn.clicked.connect(self._save_pipeline)
         layout.addWidget(self._save_pipe_btn)
+
+        self._load_checkpoint_btn = QPushButton("+  Load Checkpoint")
+        self._load_checkpoint_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        self._load_checkpoint_btn.setFixedHeight(34)
+        self._load_checkpoint_btn.clicked.connect(self._load_checkpoint)
+        layout.addWidget(self._load_checkpoint_btn)
+
+        self._save_checkpoint_btn = QPushButton("+  Save Checkpoint")
+        self._save_checkpoint_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        self._save_checkpoint_btn.setFixedHeight(34)
+        self._save_checkpoint_btn.clicked.connect(self._save_checkpoint_as)
+        layout.addWidget(self._save_checkpoint_btn)
 
         self._load_subject_file_btn = QPushButton("+  Load Subject File")
         self._load_subject_file_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
@@ -372,24 +391,9 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
-        self._accuracy_label = QLabel("")
-        self._accuracy_label.setAlignment(Qt.AlignCenter)
-        self._accuracy_label.setStyleSheet(
-            "color: #1a73e8; font-size: 14px; font-weight: bold;"
-            " border: none; background: transparent; padding: 4px;"
-        )
         self._confusion_layout = panel.layout()
-        self._confusion_layout.addWidget(self._accuracy_label)
         self._confusion_layout.addWidget(lbl, stretch=1)
-
-        scroll = QScrollArea()
-        scroll.setWidget(panel)
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(_PANEL_STYLE)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        return scroll
-    
+        return panel
 
     def _build_roc_panel(self) -> QWidget:
         panel = _titled_panel("ROC Curve")
@@ -398,23 +402,9 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
-        self._auc_label = QLabel("")
-        self._auc_label.setAlignment(Qt.AlignCenter)
-        self._auc_label.setStyleSheet(
-            "color: #1a73e8; font-size: 13px;"
-            " border: none; background: transparent; padding: 4px;"
-        )
         self._roc_layout = panel.layout()
-        self._roc_layout.addWidget(self._auc_label)
         self._roc_layout.addWidget(lbl, stretch=1)
-
-        scroll = QScrollArea()
-        scroll.setWidget(panel)
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(_PANEL_STYLE)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        return scroll
+        return panel
 
     def _build_subjects_panel(self) -> QWidget:
         panel = QWidget()
@@ -424,63 +414,72 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         panel.setLayout(layout)
+
         self._subject_list = QListWidget()
         self._subject_list.setStyleSheet(
             "QListWidget { border: none; font-size: 12px;"
-            " background: white; color: #333333; }"
-            " QListWidget::item { padding: 3px 8px; color: #333333; }"
-            " QListWidget::item:hover { background: #f0f4ff; color: #333333; }"
-            " QListWidget::item:selected { background: #4285f4; color: white; }"
+            " background: white; }"
+            " QListWidget::item { padding: 3px 8px; }"
+            " QListWidget::item:hover { background: #f0f4ff; }"
         )
         self._subject_list.itemClicked.connect(self._on_subject_clicked)
         layout.addWidget(self._subject_list)
         return panel
 
     def _build_signals_panel(self) -> QWidget:
-    # Inner widget that holds the grid
-        self._signals_panel = QWidget()
-        self._signals_panel.setStyleSheet("background: white;")
-        self._signals_grid = QGridLayout()
-        self._signals_grid.setSpacing(6)
-        self._signals_grid.setContentsMargins(8, 8, 8, 8)
-        self._signals_panel.setLayout(self._signals_grid)
-        self._plot_layouts = []
-        self._rebuild_signal_slots(4)  # default 4 slots
-
-        # Wrap in a scroll area
         scroll = QScrollArea()
-        scroll.setWidget(self._signals_panel)
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(_PANEL_STYLE)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(_PANEL_STYLE + "QScrollArea { border: none; }")
+        panel = QWidget()
+        panel.setStyleSheet("background: white;")
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        grid.setContentsMargins(8, 8, 8, 8)
+        panel.setLayout(grid)
+        scroll.setWidget(panel)
+        self._signals_grid = grid
+        self._set_signal_placeholder()
         return scroll
 
-    def _rebuild_signal_slots(self, n: int) -> None:
-        # Clear existing
+    def _clear_signal_plots(self) -> None:
+        if self._signals_grid is None:
+            return
         while self._signals_grid.count():
-            item = self._signals_grid.takeAt(0)
-            if item and item.widget():
-                item.widget().deleteLater()
+            child = self._signals_grid.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         self._plot_layouts = []
-        cols = 2
-        rows = max(1, (n + cols - 1) // cols)
-        for idx in range(n):
-            r, c = divmod(idx, cols)
-            frame = QFrame()
-            frame.setFrameShape(QFrame.StyledPanel)
-            frame.setStyleSheet(
-                "QFrame { border: 1px solid #ddd; border-radius: 4px;"
-                " background: #fafafa; }"
-            )
-            fl = QVBoxLayout()
-            fl.setContentsMargins(4, 4, 4, 4)
-            self._plot_layouts.append(fl)
-            frame.setLayout(fl)
-            self._signals_grid.addWidget(frame, r, c)
-        
-        cols = 2
-        rows = max(1, (n + cols - 1) // cols)
-        self._signals_panel.setMinimumHeight(rows * 220)
+
+    def _add_signal_plot_slot(self, index: int, total: int) -> QVBoxLayout:
+        if self._signals_grid is None:
+            raise ValueError("Signal plot grid is not initialized.")
+        columns = min(4, max(1, math.ceil(math.sqrt(total))))
+        row = index // columns
+        col = index % columns
+        frame = QFrame()
+        frame.setFrameShape(QFrame.StyledPanel)
+        frame.setMinimumHeight(220)
+        frame.setStyleSheet(
+            "QFrame { border: 1px solid #ddd; border-radius: 4px;"
+            " background: #fafafa; }"
+        )
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        frame.setLayout(layout)
+        self._signals_grid.addWidget(frame, row, col)
+        self._plot_layouts.append(layout)
+        return layout
+
+    def _set_signal_placeholder(self) -> None:
+        self._clear_signal_plots()
+        layout = self._add_signal_plot_slot(0, 1)
+        lbl = QLabel("Select a subject to view waveforms.")
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(
+            "color: #aaa; font-size: 12px; border: none;"
+            " background: transparent;"
+        )
+        layout.addWidget(lbl, stretch=1)
 
     # ── bottom bar ───────────────────────────────────────────────────────────
 
@@ -500,11 +499,11 @@ class MainWindow(QMainWindow):
         bar = QHBoxLayout()
         bar.setContentsMargins(4, 8, 4, 0)
 
-        add_btn = QPushButton("Add Function")
-        add_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
-        add_btn.setFixedSize(160, 40)
-        add_btn.clicked.connect(self._add_function)
-        bar.addWidget(add_btn)
+        self._add_function_btn = QPushButton("Add Function")
+        self._add_function_btn.setStyleSheet(_OUTLINED_BTN_STYLE)
+        self._add_function_btn.setFixedSize(160, 40)
+        self._add_function_btn.clicked.connect(self._add_function)
+        bar.addWidget(self._add_function_btn)
 
         bar.addSpacing(16)
 
@@ -584,11 +583,8 @@ class MainWindow(QMainWindow):
         
         dlayout.addLayout(header_layout)
 
-        already_added = {f["name"] for f in self._pipeline_functions}
         lw = QListWidget()
         for name, func in self.function_map.items():
-            if name in already_added:
-                continue
             det = _function_detail(func)
             display = det.label if det and det.label else name
             item = QListWidgetItem(display)
@@ -615,29 +611,64 @@ class MainWindow(QMainWindow):
         func = self.function_map[func_name]
         detail = _function_detail(func)
 
-        params: dict[str, Any] = {}
-        if detail:
-            # Extract parameter names from function signature, skip 'self'
-            sig = inspect.signature(func)
-            param_names = [p for p in sig.parameters.keys() if p != 'self']
-            
-            for i, ad in enumerate(detail.argument_details):
-                # Get the parameter name by position
-                param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
-                
-                if isinstance(ad.default_value, Selection):
-                    # For Selection types, use empty string as default (lazy-load options later)
-                    params[param_name] = ""
-                else:
-                    params[param_name] = ad.default_value
-            label = detail.label
-        else:
-            label = func_name
+        params = self._default_params_for_function(func_name, func, detail)
+        label = detail.label if detail and detail.label else func_name
 
         self._pipeline_functions.append(
             {"name": func_name, "label": label, "params": params, "detail": detail}
         )
         self._rebuild_cards()
+        self._checkpoint_loaded_for_resume = False
+        self._autosave_checkpoint()
+
+    def _default_params_for_function(
+        self,
+        func_name: str,
+        func: Callable,
+        detail: Optional[FunctionDetail],
+    ) -> dict[str, Any]:
+        if func_name == "evaluate_model":
+            model_name, training_options = self._default_model_config()
+            return {
+                "model_name": model_name,
+                "training_options": training_options,
+            }
+        if func_name == "train_model":
+            model_name, training_options = self._default_model_config()
+            return {
+                "model_name": model_name,
+                "hyperparameters": training_options,
+                "output_dirpath": "",
+            }
+
+        params: dict[str, Any] = {}
+        if not detail:
+            return params
+
+        sig = inspect.signature(func)
+        param_names = [p for p in sig.parameters.keys() if p != "self"]
+        for i, ad in enumerate(detail.argument_details):
+            param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
+            params[param_name] = "" if isinstance(ad.default_value, Selection) else ad.default_value
+        return params
+
+    def _default_model_config(self) -> tuple[str, dict[str, Any]]:
+        try:
+            from ..models.utils import find_models
+
+            model_names = sorted(find_models().keys())
+        except Exception:
+            model_names = []
+
+        model_name = "LDA" if "LDA" in model_names else (model_names[0] if model_names else "")
+        if model_name == "LDA":
+            return model_name, {"solver": "lsqr", "shrinkage": "auto"}
+        return model_name, {
+            "num_epochs": 20,
+            "batch_size": 32,
+            "learning_rate": 0.001,
+            "weight_decay": 0.1,
+        }
 
     def _rebuild_cards(self) -> None:
         while self._cards_layout.count() > 1:
@@ -662,6 +693,8 @@ class MainWindow(QMainWindow):
         elif self._selected_index is not None and self._selected_index > index:
             self._selected_index -= 1
         self._rebuild_cards()
+        self._checkpoint_loaded_for_resume = False
+        self._autosave_checkpoint()
 
     def _on_edit_card(self, index: int) -> None:
         self._selected_index = index
@@ -685,6 +718,8 @@ class MainWindow(QMainWindow):
         self._rebuild_cards()
         self._param_editor.clear_and_hide()
         self._selected_index = None
+        self._checkpoint_loaded_for_resume = False
+        self._autosave_checkpoint()
 
     # ── subjects ─────────────────────────────────────────────────────────────
 
@@ -702,6 +737,8 @@ class MainWindow(QMainWindow):
 
         self._update_subjects()
         self._refresh_function_map()
+        self._checkpoint_loaded_for_resume = False
+        self._autosave_checkpoint()
 
     def _choose_subject_file(self) -> None:
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -709,66 +746,23 @@ class MainWindow(QMainWindow):
         )
         if not file_paths:
             return
-
-        # Peek into the first file to find available data variables
         try:
-            import pymatreader
-            raw = pymatreader.read_mat(file_paths[0])
-            skip = {"__header__", "__version__", "__globals__", "labels", "time"}
-            data_vars = [k for k in raw.keys() if k not in skip]
-        except Exception:
-            data_vars = ["ffr_nodss"]
-
-        # Show variable picker dialog
-        if len(data_vars) > 1:
-            dialog = QDialog(self)
-            dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-            dialog.setWindowTitle("Select Data Variable")
-            dialog.setMinimumWidth(280)
-            dlayout = QVBoxLayout()
-            dlayout.addWidget(QLabel("Which variable contains the EEG data?"))
-            combo = QComboBox()
-            for v in data_vars:
-                combo.addItem(v)
-            # Default to ffr_nodss if available
-            if "ffr_nodss" in data_vars:
-                combo.setCurrentIndex(data_vars.index("ffr_nodss"))
-            dlayout.addWidget(combo)
-            btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            btns.accepted.connect(dialog.accept)
-            btns.rejected.connect(dialog.reject)
-            dlayout.addWidget(btns)
-            dialog.setLayout(dlayout)
-            if dialog.exec_() != QDialog.Accepted:
-                return
-            selected_var = combo.currentText()
-        else:
-            selected_var = data_vars[0] if data_vars else "ffr_nodss"
-
-        try:
-            for i, file_path in enumerate(file_paths):
-                self.manager.load_subjects(file_path, reset=(i == 0), data_var=selected_var)
+            self.manager.load_subjects(file_paths)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
             return
+
         self._update_subjects()
         self._refresh_function_map()
+        self._checkpoint_loaded_for_resume = False
+        self._autosave_checkpoint()
 
     def _update_subjects(self) -> None:
         self._subject_list.clear()
         for subj in self.manager.state.subjects:
             self._subject_list.addItem(subj.name)
 
-    # ── subject clicked: wrapper catches and prints real traceback ────────────
-
     def _on_subject_clicked(self, item: QListWidgetItem) -> None:
-        try:
-            self._on_subject_clicked_impl(item)
-        except Exception:
-            traceback.print_exc(file=sys.__stderr__)
-            sys.__stderr__.flush()
-
-    def _on_subject_clicked_impl(self, item: QListWidgetItem) -> None:
         subj_name = item.text()
         subject = next((s for s in self.manager.state.subjects if s.name == subj_name), None)
         if not subject:
@@ -777,80 +771,68 @@ class MainWindow(QMainWindow):
         # Import plots module locally to avoid circular dependencies
         from ..core import plots
         from ..core import EEGSubject
-        import matplotlib as mpl
-        mpl.rcParams.update({
-            'font.size': 7,
-            'axes.titlesize': 8,
-            'axes.labelsize': 7,
-            'xtick.labelsize': 6,
-            'ytick.labelsize': 6,
-            'legend.fontsize': 6,
-        })
         
+        self._clear_signal_plots()
+                    
         # Generate new plots using Agg backend
         plt.close('all')
         
-        # Group trials by label
-        grouped = subject.grouped_trials()
+        # Group waveform plots by raw tone label so mapped classification labels
+        # do not collapse distinct stimuli into one averaged waveform.
+        grouped = subject.grouped_trials(key=lambda trial: trial.raw_label)
         
         try:
-            keys = sorted(list(grouped.keys()), key=lambda x: int(x) if str(x).isdigit() else str(x))
+            keys = sorted(list(grouped.keys()))
         except Exception:
             keys = list(grouped.keys())
-                   
+            
+        # Plot up to 4 labels in the 4 slots
         import warnings
         import seaborn as sns
         
         # Reset seaborn palette to prevent plot_roc_curve's "husl" palette from turning signal plots red
         sns.set_palette("deep")
         
-        self._rebuild_signal_slots(len(keys))
-        
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            for i, group_key in enumerate(keys):    
+            if not keys:
+                self._set_signal_placeholder()
+
+            for i, group_key in enumerate(keys):
+                plot_layout = self._add_signal_plot_slot(i, len(keys))
+                    
                 trials = grouped[group_key]
                 if not trials:
-                    self._plot_layouts[i].addWidget(QLabel(f"No data for Label {group_key}"))
+                    plot_layout.addWidget(QLabel(f"No data for Raw Label {group_key}"))
                     continue
+                    
+                # Create a pseudo-subject with just these trials to average them
                 pseudo_subject = EEGSubject(trials=trials)
-                pseudo_subject.subaverage(size=5)
-                                               
+                pseudo_subject.subaverage(size=len(trials))
+                
                 if pseudo_subject.trials:
                     avg_trial = pseudo_subject.trials[0]
                     # Inject metadata so plot_single_trial creates a nice title
                     avg_trial.trial_index = "Avg"
-                    avg_trial.mapped_label = f"Label {group_key}"
+                    avg_trial.mapped_label = f"Raw Label {group_key}"
                     
                     try:
-                        print(f"DEBUG plot: data range {avg_trial.data.min():.4f} to {avg_trial.data.max():.4f}, timestamps {avg_trial.timestamps[0]:.2f} to {avg_trial.timestamps[-1]:.2f}")
                         plots.plot_single_trial(avg_trial)
                         fig = plt.gcf()
-                        fig.set_size_inches(4, 3)
-                        fig.set_tight_layout(True)
                         canvas = FigureCanvas(fig)
-                        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-                        canvas.updateGeometry()
-                        def on_sig_resize(event, f=fig, c=canvas):
-                            f.tight_layout()
-                            c.draw_idle()
-                        canvas.mpl_connect('resize_event', on_sig_resize)
-                        self._plot_layouts[i].addWidget(canvas, stretch=1)
-                        canvas.draw()
+                        plot_layout.addWidget(canvas)
                         plt.close(fig)
                     except Exception as e:
-                        traceback.print_exc(file=sys.__stderr__)
-                        sys.__stderr__.flush()
-                        self._plot_layouts[i].addWidget(QLabel(f"Failed to plot Label {group_key}:\n{e}"))
+                        plot_layout.addWidget(QLabel(f"Failed to plot Raw Label {group_key}:\n{e}"))
                 else:
-                    self._plot_layouts[i].addWidget(QLabel(f"Could not average Label {group_key}"))
+                    plot_layout.addWidget(QLabel(f"Could not average Raw Label {group_key}"))
             
         # Plot Confusion Matrix and ROC Curve
         for layout in (self._confusion_layout, self._roc_layout):
             if layout:
-                # Keep title (index 0) and accuracy/auc label (index 1), remove the rest
-                while layout.count() > 2:
-                    child = layout.takeAt(2)
+                # Keep the title label at index 0, remove the rest
+                while layout.count() > 1:
+                    child = layout.takeAt(1)
                     if child.widget():
                         child.widget().deleteLater()
                         
@@ -863,83 +845,29 @@ class MainWindow(QMainWindow):
             
             try:
                 # Confusion Matrix
-                from ..core.eeg_trial import EEGTrial
-                try:
-                    acc = EEGTrial.get_accuracy(subject.trials)
-                    self._accuracy_label.setText(f"Accuracy: {acc:.2%}")
-                except Exception:
-                    self._accuracy_label.setText("")
                 try:
                     plots.plot_confusion_matrix(subject=subject, show_popup=False)
                     fig_cm = plt.gcf()
-                    n_classes = len(subject.labels_map)
-                    fig_cm.set_size_inches(max(4, n_classes * 0.5), max(4, n_classes * 0.5))  
-                    fig_cm.tight_layout()
                     if not fig_cm.axes:
                         self._confusion_layout.addWidget(QLabel("No valid predictions yet."))
                     else:
-                        fig_cm.set_size_inches(1, 1)
-                        fig_cm.set_tight_layout(True)
                         canvas_cm = FigureCanvas(fig_cm)
-                        canvas_cm.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-                        canvas_cm.updateGeometry()
-                        def on_cm_resize(event, f=fig_cm, c=canvas_cm):
-                            f.tight_layout()
-                            c.draw_idle()
-                        canvas_cm.mpl_connect('resize_event', on_cm_resize)
-                        self._confusion_layout.addWidget(canvas_cm, stretch=1)
+                        self._confusion_layout.addWidget(canvas_cm)
                     original_close(fig_cm)
                 except Exception as e:
-                    traceback.print_exc(file=sys.__stderr__)
-                    sys.__stderr__.flush()
                     self._confusion_layout.addWidget(QLabel(f"No Confusion Matrix available.\n{e}"))
-
-                # AUC Score
-                try:
-                    from sklearn.metrics import roc_auc_score
-                    import numpy as np
-                    y_true = []
-                    y_scores = []
-                    classes = sorted(set(t.label for t in subject.trials if t.prediction_distribution))
-                    for trial in subject.trials:
-                        if trial.prediction_distribution:
-                            y_true.append(trial.label)
-                            y_scores.append([trial.prediction_distribution.get(c, 0) for c in classes])
-                    if y_true:
-                        y_true_bin = [[1 if t == c else 0 for c in classes] for t in y_true]
-                        auc_scores = roc_auc_score(y_true_bin, y_scores, average=None)
-                        auc_text = "  ".join([f"T{c}: {a:.3f}" for c, a in zip(classes, auc_scores)])
-                        self._auc_label.setText(f"AUC — {auc_text}")
-                except Exception:
-                    self._auc_label.setText("")
-
-
-
+                    
                 # ROC Curve
                 try:
                     plots.plot_roc_curve(subject=subject, show_popup=False)
                     fig_roc = plt.gcf()
-                    n_classes = len(subject.labels_map)
-                    fig_roc.set_size_inches(max(10, n_classes * 0.6), max(5, n_classes * 0.35))
-                    fig_roc.subplots_adjust(right=0.65)  
-                    fig_roc.tight_layout()
                     if not fig_roc.axes:
                         self._roc_layout.addWidget(QLabel("No valid predictions yet."))
                     else:
-                        fig_roc.set_size_inches(1, 1)
-                        fig_roc.set_tight_layout(True)
                         canvas_roc = FigureCanvas(fig_roc)
-                        canvas_roc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-                        canvas_roc.updateGeometry()
-                        def on_roc_resize(event, f=fig_roc, c=canvas_roc):
-                            f.tight_layout()
-                            c.draw_idle()
-                        canvas_roc.mpl_connect('resize_event', on_roc_resize)
-                        self._roc_layout.addWidget(canvas_roc, stretch=1)
+                        self._roc_layout.addWidget(canvas_roc)
                     original_close(fig_roc)
                 except Exception as e:
-                    traceback.print_exc(file=sys.__stderr__)
-                    sys.__stderr__.flush()
                     self._roc_layout.addWidget(QLabel(f"No ROC Curve available.\n{e}"))
             finally:
                 # Restore plt.close
@@ -1012,40 +940,128 @@ class MainWindow(QMainWindow):
             self._selected_index = None
             self._param_editor.clear_and_hide()
             self._rebuild_cards()
+            self._checkpoint_loaded_for_resume = False
+            self._autosave_checkpoint()
 
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", f"Could not load pipeline:\n{exc}")
 
+    def _checkpoint_payload_functions(self) -> list[dict]:
+        payload = []
+        for func in self._pipeline_functions:
+            payload.append({
+                "name": func["name"],
+                "label": func["label"],
+                "params": func["params"],
+            })
+        return payload
+
+    def _restore_checkpoint_functions(self, saved_functions: list[dict]) -> None:
+        self._refresh_function_map()
+        restored = []
+        for item in saved_functions:
+            name = item.get("name")
+            func = self.function_map.get(name)
+            detail = _function_detail(func) if func else None
+            restored.append({
+                "name": name,
+                "label": item.get("label", name),
+                "params": item.get("params", {}),
+                "detail": detail,
+            })
+        self._pipeline_functions = restored
+        self._selected_index = None
+        self._param_editor.clear_and_hide()
+        self._rebuild_cards()
+
+    def _autosave_checkpoint(self) -> None:
+        try:
+            self.manager.save_checkpoint(
+                self._checkpoint_path,
+                pipeline_functions=self._checkpoint_payload_functions(),
+                pending_queue=list(self._pending_queue),
+                completed_steps=getattr(self, "_completed_steps", 0),
+                log_text=self._log_text,
+            )
+        except Exception as exc:
+            self._append_log(f"Checkpoint save failed: {exc}\n")
+
+    def _save_checkpoint_as(self) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Checkpoint", str(Path.cwd() / "ffr_gui_checkpoint.pkl"), "Pickle files (*.pkl)"
+        )
+        if not file_path:
+            return
+        try:
+            self.manager.save_checkpoint(
+                file_path,
+                pipeline_functions=self._checkpoint_payload_functions(),
+                pending_queue=list(self._pending_queue),
+                completed_steps=getattr(self, "_completed_steps", 0),
+                log_text=self._log_text,
+            )
+            QMessageBox.information(self, "Success", "Checkpoint saved successfully.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Could not save checkpoint:\n{exc}")
+
+    def _load_checkpoint(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Checkpoint", str(Path.cwd()), "Pickle files (*.pkl)"
+        )
+        if not file_path:
+            return
+        try:
+            payload = self.manager.load_checkpoint(file_path)
+            self._restore_checkpoint_functions(payload.get("pipeline_functions", []))
+            self._pending_queue = payload.get("pending_queue", [])
+            self._completed_steps = int(payload.get("completed_steps", 0))
+            self._log_text = payload.get("log_text", "")
+            self._update_subjects()
+            self._refresh_function_map()
+            self._checkpoint_loaded_for_resume = bool(self._pending_queue)
+            self._status_label.setText("Checkpoint loaded. Click to view log.")
+            self._status_label.show()
+            QMessageBox.information(self, "Success", "Checkpoint loaded successfully.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", f"Could not load checkpoint:\n{exc}")
+
     # ── pipeline execution ───────────────────────────────────────────────────
 
     def _run_pipeline(self) -> None:
-        self.manager.reset_to_initial()
-        self._refresh_function_map()
         if not self._pipeline_functions:
             QMessageBox.information(
                 self, "Empty Pipeline", "Add functions to the pipeline first."
             )
             return
-        self._pending_queue = [
-            (f["name"], dict(f["params"])) for f in self._pipeline_functions
-        ]
-        self._total_steps = len(self._pending_queue)
-        self._completed_steps = 0
-        self._log_text = ""
-        if self._log_dialog_text is not None:
-            self._log_dialog_text.setPlainText("")
+
+        if self._checkpoint_loaded_for_resume and self._pending_queue:
+            remaining_steps = len(self._pending_queue)
+            self._total_steps = self._completed_steps + remaining_steps
+            self._append_log(f"--- Resuming {remaining_steps} pending step(s) ---\n")
+        else:
+            self._pending_queue = [
+                (f["name"], dict(f["params"])) for f in self._pipeline_functions
+            ]
+            self._total_steps = len(self._pending_queue)
+            self._completed_steps = 0
+            self._log_text = ""
+            if self._log_dialog_text is not None:
+                self._log_dialog_text.setPlainText("")
+
+        self._checkpoint_loaded_for_resume = False
         self._progress_bar.setMaximum(self._total_steps)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setFormat(f"0/{self._total_steps}")
+        self._progress_bar.setValue(self._completed_steps)
+        self._progress_bar.setFormat(f"{self._completed_steps}/{self._total_steps}")
         self._progress_bar.show()
         self._status_label.show()
-        self._show_log()
+        self._autosave_checkpoint()
         self._start_next_queued()
 
     def _start_next_queued(self) -> None:
         if not self._pending_queue:
             self._set_running(False)
             self._update_subjects()
+            self._refresh_selected_subject_plots()
             self._status_label.setText("Pipeline finished. Click to view log.")
             QMessageBox.information(
                 self, "Complete", "Pipeline execution finished."
@@ -1057,8 +1073,8 @@ class MainWindow(QMainWindow):
         if func is None:
             self._append_log(f"Error: Unknown function: {name}\n")
             QMessageBox.critical(self, "Error", f"Unknown function: {name}")
-            self._pending_queue.clear()
             self._set_running(False)
+            self._autosave_checkpoint()
             return
 
         detail = _function_detail(func)
@@ -1105,11 +1121,13 @@ class MainWindow(QMainWindow):
             f"{self._completed_steps}/{self._total_steps}"
         )
         self._refresh_function_map()
+        self._autosave_checkpoint()
         if self._pending_queue:
             self._start_next_queued()
         else:
             self._set_running(False)
             self._update_subjects()
+            self._refresh_selected_subject_plots()
             self._status_label.setText("Pipeline finished. Click to view log.")
             QMessageBox.information(
                 self, "Complete", "Pipeline execution finished."
@@ -1119,8 +1137,9 @@ class MainWindow(QMainWindow):
         self._thread = None
         self._worker = None
         self._append_log(f"ERROR: {message}\n")
-        self._pending_queue.clear()
         self._set_running(False)
+        self._autosave_checkpoint()
+        self._checkpoint_loaded_for_resume = bool(self._pending_queue)
         self._status_label.setText("Pipeline failed. Click to view log.")
         QMessageBox.critical(self, "Execution Error", message)
 
@@ -1142,7 +1161,7 @@ class MainWindow(QMainWindow):
         text.setPlainText(self._log_text)
         text.setStyleSheet(
             "QPlainTextEdit { font-family: monospace; font-size: 12px;"
-            " background: white; color: #222; border: 1px solid #ccc; border-radius: 4px;"
+            " background: white; border: 1px solid #ccc; border-radius: 4px;"
             " padding: 8px; }"
         )
         text.moveCursor(QTextCursor.End)
@@ -1159,10 +1178,22 @@ class MainWindow(QMainWindow):
     def _clear_log_dialog_ref(self) -> None:
         self._log_dialog_text = None
 
+    def _refresh_selected_subject_plots(self) -> None:
+        current = self._subject_list.currentItem()
+        if current is not None:
+            self._on_subject_clicked(current)
+
     def _set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._load_subjects_btn.setEnabled(not running)
         self._load_subject_file_btn.setEnabled(not running)
+        self._load_checkpoint_btn.setEnabled(not running)
+        self._load_pipe_btn.setEnabled(not running)
+        self._save_pipe_btn.setEnabled(not running)
+        self._save_checkpoint_btn.setEnabled(not running)
+        self._add_function_btn.setEnabled(not running)
+        self._scroll.setEnabled(not running)
+        self._param_editor.setEnabled(not running)
 
 
 def main() -> None:

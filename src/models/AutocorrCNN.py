@@ -52,8 +52,9 @@ class AutocorrCNNModel(TorchNNBase):
 
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
+        self.build()
 
     def build(self) -> None:
-        n_classes = int(self.training_options.get("n_classes", self.subject.num_categories if self.subject else 4))
+        n_classes = int(self.training_options.get("n_classes", 4))
         p_drop    = float(self.training_options.get("p_drop", 0.1))
         self.model = _AutocorrCNN1D(n_classes=n_classes, p_drop=p_drop).to(self.device)

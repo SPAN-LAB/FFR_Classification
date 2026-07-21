@@ -9,17 +9,18 @@ A graphical user interface for the SPAN Lab FFR Classification EEG analysis tool
 From the project root directory:
 
 ```bash
+# Create and activate the project environment
+python3.11 -m venv classiFFRy
+source classiFFRy/bin/activate
+
 # Make sure you have dependencies installed
 pip install -r requirements.txt
-
-# Run the GUI
-python run_gui.py
 ```
 
-Or you can run it directly from the src/GUI folder:
+Run the GUI:
 
 ```bash
-python -m src.GUI.main
+python -m src.GUI.gui
 ```
 
 ## Features
@@ -30,6 +31,7 @@ The GUI provides an intuitive interface for EEG data analysis with the following
 - **Data Selection**: Browse and select your EEG data file (.mat format)
 - **Data Information**: View file path and size details
 - Supports single .mat files and directories containing multiple .mat files
+- Supports selecting multiple .mat files in one file picker
 
 ### 2. Processing Tab
 - **Trim Data**: Optionally trim data by timestamp range

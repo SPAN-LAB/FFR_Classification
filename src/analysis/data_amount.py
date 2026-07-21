@@ -1,35 +1,21 @@
 from src.analysis import accuracy_against_data_amount
-from .config import SUBJECT_FILEPATHS
 
 
-def analyze(model_name: str):
-    
-    # -------------------------- TODO: Change these! --------------------------
-    
-    # IMPORTANT: Ensure that this path is different 
-    # from the one used in `/src/analysis/subaverage_size.py`.
-    OUTPUT_DIR_PATH = "analyses/data_amount"
-    
-    # -------------------------------------------------------------------------
-    
+def analyze(model_name: str, subject_filepath: str, output_dirpath: str):
+
+    MODEL_NAMES = [model_name]
+    SUBJECT_FILEPATHS = [subject_filepath]
+    OUTPUT_DIR_PATH = output_dirpath
     MIN_TRIALS = 100
     STRIDE = 100 # Trial number is incremented by this amount
-    MODEL_NAMES = [model_name]
-    DEFER_SUBJECT_LOADING = True
+    DEFER_SUBJECT_LOADING = False
     TRAINING_OPTIONS = {
         "num_epochs": 20,
         "batch_size": 32,
         "learning_rate": 0.001,
         "weight_decay": 0.1
     }
-    
-    # Check SUBJECT_FILEPATHS
-    if SUBJECT_FILEPATHS is None or SUBJECT_FILEPATHS == []:
-        print("Error: SUBJECT_FILEPATHS is empty.")
-        print("       You may have forgotten to configure it.")
-        print("       The configuration file is in /src/analysis/config.py")
-        return
-    
+
     accuracy_against_data_amount(
         min_trials=MIN_TRIALS,
         stride=STRIDE,

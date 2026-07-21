@@ -14,11 +14,12 @@ class Manager:
         # List of tuples, each containing the name of the function and its parameters
         self.functions: list[tuple[str, dict]] = []
 
-    def load_subjects(self, folder_path: str, reset: bool = True, data_var: str = "ffr_nodss"):
-        if reset:
-            self.state = PipelineState()
-            self.initial_subjects_state = PipelineState()
-        self.state.load_subjects(path=folder_path, data_var=data_var)
+    def load_subjects(self, folder_path: str):
+        # Reset the stored states
+        self.state = PipelineState()
+        self.initial_subjects_state = PipelineState()
+
+        self.state.load_subjects(path=folder_path)
         self.state.save(to=self.initial_subjects_state)
 
     def find_functions(self) -> dict[str, Callable]:
@@ -54,9 +55,36 @@ class Manager:
     
     def run_all_functions(self):
         for (function_name, parameters) in self.functions:
-            self.run_function(function_name, **parameters) 
+            self.run_function(function_name, **parameters)        
 
-    def reset_to_initial(self):
-        """Restore subjects to their state right after loading."""
-        self.initial_subjects_state.save(to=self.state)       
-        
+    def save_checkpoint(
+        self,
+        filepath: str | Path,
+        *,
+        pipeline_functions: list[dict] | None = None,
+        pending_queue: list[tuple[str, dict]] | None = None,
+        completed_steps: int = 0,
+        log_text: str = "",
+    ):
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "state": self.state.deepcopy(),
+            "initial_subjects_state": self.initial_subjects_state.deepcopy(),
+            "pipeline_functions": pipeline_functions or [],
+            "pending_queue": pending_queue or [],
+            "completed_steps": completed_steps,
+            "log_text": log_text,
+        }
+        with filepath.open("wb") as file:
+            pickle.dump(payload, file)
+
+    def load_checkpoint(self, filepath: str | Path) -> dict:
+        with Path(filepath).open("rb") as file:
+            payload = pickle.load(file)
+        self.state = payload["state"]
+        self.initial_subjects_state = payload.get(
+            "initial_subjects_state",
+            PipelineState(),
+        )
+        return payload

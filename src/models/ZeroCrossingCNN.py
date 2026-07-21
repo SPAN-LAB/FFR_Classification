@@ -4,11 +4,10 @@ import torch
 import torch.nn as nn
 
 
-class _PitchCNN1D(nn.Module):
+class _ZeroCrossingCNN1D(nn.Module):
     """
-    Same architecture as CNN but with smaller kernels suited to the pitch track
-    input (~265 samples vs ~4997 for raw).
-
+    Same architecture as CNN but takes the zero-crossing instantaneous
+    frequency track as input instead of the raw waveform.
     Expects input [B, 1, T].
     """
 
@@ -16,20 +15,29 @@ class _PitchCNN1D(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
 
-            nn.Conv1d(1, 16, kernel_size=51, padding=25, bias=False),
-            nn.BatchNorm1d(16),
+            nn.Conv1d(1, 64, kernel_size=251, padding=125, bias=False),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.AvgPool1d(2),
 
-            nn.Conv1d(16, 32, kernel_size=25, padding=12, bias=False),
-            nn.BatchNorm1d(32),
+            nn.Conv1d(64, 128, kernel_size=15, padding=7, bias=False),
+            nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.AvgPool1d(2),
+
+            nn.Conv1d(128, 128, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.AvgPool1d(2),
+
+            nn.Conv1d(128, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
 
             nn.AdaptiveAvgPool1d(1),
             nn.Flatten(),
             nn.Dropout(p_drop),
-            nn.Linear(32, n_classes),
+            nn.Linear(64, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -38,8 +46,8 @@ class _PitchCNN1D(nn.Module):
         return self.net(x)
 
 
-class PitchCNNModel(TorchNNBase):
-    required_inputs = ["pitchtrack"]
+class ZeroCrossingCNNModel(TorchNNBase):
+    required_inputs = ["zerocrossing"]
 
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
@@ -48,4 +56,4 @@ class PitchCNNModel(TorchNNBase):
     def build(self) -> None:
         n_classes = int(self.training_options.get("n_classes", 4))
         p_drop    = float(self.training_options.get("p_drop", 0.1))
-        self.model = _PitchCNN1D(n_classes=n_classes, p_drop=p_drop).to(self.device)
+        self.model = _ZeroCrossingCNN1D(n_classes=n_classes, p_drop=p_drop).to(self.device)
