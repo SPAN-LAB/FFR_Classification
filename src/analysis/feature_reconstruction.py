@@ -60,7 +60,7 @@ def main():
         
     print(f"Running Decoder Reconstruction on device: {device}")
 
-    target_subject = "/Volumes/gurindapalli/projects/trial_classification/4tone_cell/4T1015.mat"
+    target_subject = "your_path"
     
     pipeline = AnalysisPipeline()
     print("Loading data and applying subaverage(size=1)...") # Fixed this print statement!
