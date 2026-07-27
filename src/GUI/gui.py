@@ -47,11 +47,13 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_cache_root / "xdg"))
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from .manager import Manager
 from .widgets import FunctionCardWidget, ParameterEditorWidget
 from ..core.utils.function_detail import FunctionDetail, Selection
+
 
 def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
     func = getattr(fn, "__func__", fn)
@@ -100,7 +102,7 @@ class _FdCapture:
                 pass
             with self.lock:
                 self.secondary.flush()
-        
+
         def isatty(self):
             return getattr(self.primary, "isatty", lambda: False)()
 
@@ -191,8 +193,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("FFR Pipeline Tool")
         self.resize(1400, 900)
-        
-        # Set window icon to the logo
+
         logo_path = Path(__file__).resolve().parent.parent.parent / "spanlab_logo_final.png"
         if logo_path.exists():
             self.setWindowIcon(QIcon(str(logo_path)))
@@ -300,7 +301,6 @@ class MainWindow(QMainWindow):
     # ── main content with splitters ──────────────────────────────────────────
 
     def _build_content(self) -> QSplitter:
-        # Top level: left panel | right area
         self._main_splitter = QSplitter(Qt.Horizontal)
         self._main_splitter.setStyleSheet(
             "QSplitter { background: #eaeaea; }"
@@ -311,14 +311,12 @@ class MainWindow(QMainWindow):
 
         self._main_splitter.addWidget(self._build_left_panel())
 
-        # Right area: top row / bottom row
         right_splitter = QSplitter(Qt.Vertical)
         right_splitter.setHandleWidth(4)
         right_splitter.setStyleSheet(
             "QSplitter::handle { background: #d0d0d0; }"
         )
 
-        # Top right: confusion matrix | ROC curve
         top_right = QSplitter(Qt.Horizontal)
         top_right.setHandleWidth(4)
         top_right.setStyleSheet(
@@ -328,7 +326,6 @@ class MainWindow(QMainWindow):
         top_right.addWidget(self._build_roc_panel())
         top_right.setSizes([500, 500])
 
-        # Bottom right: subjects | signal plots
         bottom_right = QSplitter(Qt.Horizontal)
         bottom_right.setHandleWidth(4)
         bottom_right.setStyleSheet(
@@ -347,7 +344,7 @@ class MainWindow(QMainWindow):
 
         return self._main_splitter
 
-    # ── left panel (functions + editor) ──────────────────────────────────────
+    # ── left panel ───────────────────────────────────────────────────────────
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -391,9 +388,22 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
+        self._accuracy_label = QLabel("")
+        self._accuracy_label.setAlignment(Qt.AlignCenter)
+        self._accuracy_label.setStyleSheet(
+            "color: #1a73e8; font-size: 14px; font-weight: bold;"
+            " border: none; background: transparent; padding: 4px;"
+        )
         self._confusion_layout = panel.layout()
+        self._confusion_layout.addWidget(self._accuracy_label)
         self._confusion_layout.addWidget(lbl, stretch=1)
-        return panel
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(_PANEL_STYLE)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return scroll
 
     def _build_roc_panel(self) -> QWidget:
         panel = _titled_panel("ROC Curve")
@@ -402,9 +412,22 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet(
             "color: #aaa; font-size: 13px; border: none; background: transparent;"
         )
+        self._auc_label = QLabel("")
+        self._auc_label.setAlignment(Qt.AlignCenter)
+        self._auc_label.setStyleSheet(
+            "color: #1a73e8; font-size: 13px;"
+            " border: none; background: transparent; padding: 4px;"
+        )
         self._roc_layout = panel.layout()
+        self._roc_layout.addWidget(self._auc_label)
         self._roc_layout.addWidget(lbl, stretch=1)
-        return panel
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(_PANEL_STYLE)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return scroll
 
     def _build_subjects_panel(self) -> QWidget:
         panel = QWidget()
@@ -418,7 +441,7 @@ class MainWindow(QMainWindow):
         self._subject_list = QListWidget()
         self._subject_list.setStyleSheet(
             "QListWidget { border: none; font-size: 12px;"
-            " background: white; }"
+            " background: white; color: #333333; }"
             " QListWidget::item { padding: 3px 8px; }"
             " QListWidget::item:hover { background: #f0f4ff; }"
         )
@@ -572,15 +595,13 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("Add Function")
         dialog.setMinimumWidth(320)
         dlayout = QVBoxLayout()
-        
+
         header_layout = QHBoxLayout()
         header_layout.addWidget(QLabel("Select a function to add:"))
         header_layout.addStretch()
-        
         help_link = QLabel("<a href='https://github.com/SPAN-LAB/FFR_Classification'>Help (?)</a>")
         help_link.setOpenExternalLinks(True)
         header_layout.addWidget(help_link)
-        
         dlayout.addLayout(header_layout)
 
         lw = QListWidget()
@@ -655,11 +676,9 @@ class MainWindow(QMainWindow):
     def _default_model_config(self) -> tuple[str, dict[str, Any]]:
         try:
             from ..models.utils import find_models
-
             model_names = sorted(find_models().keys())
         except Exception:
             model_names = []
-
         model_name = "LDA" if "LDA" in model_names else (model_names[0] if model_names else "")
         if model_name == "LDA":
             return model_name, {"solver": "lsqr", "shrinkage": "auto"}
@@ -734,7 +753,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
             return
-
         self._update_subjects()
         self._refresh_function_map()
         self._checkpoint_loaded_for_resume = False
@@ -746,8 +764,45 @@ class MainWindow(QMainWindow):
         )
         if not file_paths:
             return
+
+        # Peek into first file to find available data variables
         try:
-            self.manager.load_subjects(file_paths)
+            import pymatreader
+            raw = pymatreader.read_mat(file_paths[0])
+            skip = {"__header__", "__version__", "__globals__", "labels", "time"}
+            data_vars = [k for k in raw.keys() if k not in skip]
+        except Exception:
+            data_vars = ["ffr_nodss"]
+
+        # Show variable picker if multiple options
+        selected_var = "ffr_nodss"
+        if len(data_vars) > 1:
+            dialog = QDialog(self)
+            dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            dialog.setWindowTitle("Select Data Variable")
+            dialog.setMinimumWidth(280)
+            dlayout = QVBoxLayout()
+            dlayout.addWidget(QLabel("Which variable contains the EEG data?"))
+            combo = QComboBox()
+            for v in data_vars:
+                combo.addItem(v)
+            if "ffr_nodss" in data_vars:
+                combo.setCurrentIndex(data_vars.index("ffr_nodss"))
+            dlayout.addWidget(combo)
+            btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            btns.accepted.connect(dialog.accept)
+            btns.rejected.connect(dialog.reject)
+            dlayout.addWidget(btns)
+            dialog.setLayout(dlayout)
+            if dialog.exec_() != QDialog.Accepted:
+                return
+            selected_var = combo.currentText()
+        elif data_vars:
+            selected_var = data_vars[0]
+
+        try:
+            for i, file_path in enumerate(file_paths):
+                self.manager.load_subjects(file_path, reset=(i == 0), data_var=selected_var)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
             return
@@ -767,32 +822,35 @@ class MainWindow(QMainWindow):
         subject = next((s for s in self.manager.state.subjects if s.name == subj_name), None)
         if not subject:
             return
-            
-        # Import plots module locally to avoid circular dependencies
+
         from ..core import plots
         from ..core import EEGSubject
-        
+
+        # Smaller fonts for plots
+        mpl.rcParams.update({
+            'font.size': 7,
+            'axes.titlesize': 8,
+            'axes.labelsize': 7,
+            'xtick.labelsize': 6,
+            'ytick.labelsize': 6,
+            'legend.fontsize': 6,
+        })
+
         self._clear_signal_plots()
-                    
-        # Generate new plots using Agg backend
         plt.close('all')
-        
-        # Group waveform plots by raw tone label so mapped classification labels
-        # do not collapse distinct stimuli into one averaged waveform.
+
+        # Group by raw label so mapped labels don't collapse distinct tones
         grouped = subject.grouped_trials(key=lambda trial: trial.raw_label)
-        
+
         try:
-            keys = sorted(list(grouped.keys()))
+            keys = sorted(list(grouped.keys()), key=lambda x: int(x) if str(x).isdigit() else str(x))
         except Exception:
             keys = list(grouped.keys())
-            
-        # Plot up to 4 labels in the 4 slots
+
         import warnings
         import seaborn as sns
-        
-        # Reset seaborn palette to prevent plot_roc_curve's "husl" palette from turning signal plots red
         sns.set_palette("deep")
-        
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             if not keys:
@@ -800,49 +858,50 @@ class MainWindow(QMainWindow):
 
             for i, group_key in enumerate(keys):
                 plot_layout = self._add_signal_plot_slot(i, len(keys))
-                    
+
                 trials = grouped[group_key]
                 if not trials:
                     plot_layout.addWidget(QLabel(f"No data for Raw Label {group_key}"))
                     continue
-                    
-                # Create a pseudo-subject with just these trials to average them
+
                 pseudo_subject = EEGSubject(trials=trials)
                 pseudo_subject.subaverage(size=len(trials))
-                
+
                 if pseudo_subject.trials:
                     avg_trial = pseudo_subject.trials[0]
-                    # Inject metadata so plot_single_trial creates a nice title
                     avg_trial.trial_index = "Avg"
                     avg_trial.mapped_label = f"Raw Label {group_key}"
-                    
+
                     try:
                         plots.plot_single_trial(avg_trial)
                         fig = plt.gcf()
+                        fig.set_size_inches(4, 3)
+                        fig.set_tight_layout(True)
                         canvas = FigureCanvas(fig)
-                        plot_layout.addWidget(canvas)
+                        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                        canvas.draw()
+                        plot_layout.addWidget(canvas, stretch=1)
                         plt.close(fig)
                     except Exception as e:
+                        traceback.print_exc(file=sys.__stderr__)
                         plot_layout.addWidget(QLabel(f"Failed to plot Raw Label {group_key}:\n{e}"))
                 else:
                     plot_layout.addWidget(QLabel(f"Could not average Raw Label {group_key}"))
-            
-        # Plot Confusion Matrix and ROC Curve
+
+        # Clear confusion/ROC (keep title at 0, accuracy/auc at 1)
         for layout in (self._confusion_layout, self._roc_layout):
             if layout:
-                # Keep the title label at index 0, remove the rest
-                while layout.count() > 1:
-                    child = layout.takeAt(1)
+                while layout.count() > 2:
+                    child = layout.takeAt(2)
                     if child.widget():
                         child.widget().deleteLater()
-                        
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            
-            # Temporarily disable plt.close so we can capture the figures before plots.py destroys them
+
             original_close = plt.close
             plt.close = lambda *args, **kwargs: None
-            
+
             try:
                 # Confusion Matrix
                 try:
@@ -851,12 +910,25 @@ class MainWindow(QMainWindow):
                     if not fig_cm.axes:
                         self._confusion_layout.addWidget(QLabel("No valid predictions yet."))
                     else:
+                        n_classes = len(subject.labels_map)
+                        fig_cm.set_size_inches(max(4, n_classes * 0.5), max(4, n_classes * 0.5))
+                        fig_cm.set_tight_layout(True)
                         canvas_cm = FigureCanvas(fig_cm)
-                        self._confusion_layout.addWidget(canvas_cm)
+                        canvas_cm.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                        canvas_cm.draw()
+                        self._confusion_layout.addWidget(canvas_cm, stretch=1)
+                        # Accuracy label
+                        try:
+                            from ..core.eeg_trial import EEGTrial as _EEGTrial
+                            acc = _EEGTrial.get_accuracy(subject.trials)
+                            self._accuracy_label.setText(f"Accuracy: {acc:.2%}")
+                        except Exception:
+                            self._accuracy_label.setText("")
                     original_close(fig_cm)
                 except Exception as e:
+                    traceback.print_exc(file=sys.__stderr__)
                     self._confusion_layout.addWidget(QLabel(f"No Confusion Matrix available.\n{e}"))
-                    
+
                 # ROC Curve
                 try:
                     plots.plot_roc_curve(subject=subject, show_popup=False)
@@ -864,22 +936,42 @@ class MainWindow(QMainWindow):
                     if not fig_roc.axes:
                         self._roc_layout.addWidget(QLabel("No valid predictions yet."))
                     else:
+                        n_classes = len(subject.labels_map)
+                        fig_roc.set_size_inches(max(10, n_classes * 0.6), max(5, n_classes * 0.35))
+                        fig_roc.set_tight_layout(True)
                         canvas_roc = FigureCanvas(fig_roc)
-                        self._roc_layout.addWidget(canvas_roc)
+                        canvas_roc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                        canvas_roc.draw()
+                        self._roc_layout.addWidget(canvas_roc, stretch=1)
+                        # AUC label
+                        try:
+                            from sklearn.metrics import roc_auc_score
+                            import numpy as np
+                            classes = sorted(subject.labels_map.keys(), key=lambda x: int(x) if str(x).isdigit() else str(x))
+                            y_true, y_scores = [], []
+                            for trial in subject.trials:
+                                if trial.prediction_distribution:
+                                    y_true.append(trial.label)
+                                    y_scores.append([trial.prediction_distribution.get(c, 0) for c in classes])
+                            if y_true:
+                                y_true_bin = [[1 if t == c else 0 for c in classes] for t in y_true]
+                                auc_scores = roc_auc_score(y_true_bin, y_scores, average=None)
+                                auc_text = "  ".join([f"T{c}: {a:.3f}" for c, a in zip(classes, auc_scores)])
+                                self._auc_label.setText(f"AUC — {auc_text}")
+                        except Exception:
+                            self._auc_label.setText("")
                     original_close(fig_roc)
                 except Exception as e:
+                    traceback.print_exc(file=sys.__stderr__)
                     self._roc_layout.addWidget(QLabel(f"No ROC Curve available.\n{e}"))
             finally:
-                # Restore plt.close
                 plt.close = original_close
 
     # ── pipeline saving / loading ────────────────────────────────────────────
 
     def _save_pipeline(self) -> None:
         if not self._pipeline_functions:
-            QMessageBox.information(
-                self, "Empty Pipeline", "No functions to save."
-            )
+            QMessageBox.information(self, "Empty Pipeline", "No functions to save.")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
@@ -890,8 +982,6 @@ class MainWindow(QMainWindow):
 
         pipeline_data = []
         for func in self._pipeline_functions:
-            # We don't save the 'detail' object because it might not be JSON serializable
-            # We'll re-fetch it when loading
             pipeline_data.append({
                 "name": func["name"],
                 "label": func["label"],
@@ -927,7 +1017,6 @@ class MainWindow(QMainWindow):
                 if not name:
                     continue
                 func = self.function_map.get(name)
-                # Even if func is missing (maybe changed version), we load it
                 detail = _function_detail(func) if func else None
                 new_functions.append({
                     "name": name,
@@ -945,6 +1034,8 @@ class MainWindow(QMainWindow):
 
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", f"Could not load pipeline:\n{exc}")
+
+    # ── checkpoint ───────────────────────────────────────────────────────────
 
     def _checkpoint_payload_functions(self) -> list[dict]:
         payload = []
@@ -1039,6 +1130,9 @@ class MainWindow(QMainWindow):
             self._total_steps = self._completed_steps + remaining_steps
             self._append_log(f"--- Resuming {remaining_steps} pending step(s) ---\n")
         else:
+            # Reset to initial state before each fresh run
+            self.manager.reset_to_initial()
+            self._refresh_function_map()
             self._pending_queue = [
                 (f["name"], dict(f["params"])) for f in self._pipeline_functions
             ]
@@ -1063,9 +1157,7 @@ class MainWindow(QMainWindow):
             self._update_subjects()
             self._refresh_selected_subject_plots()
             self._status_label.setText("Pipeline finished. Click to view log.")
-            QMessageBox.information(
-                self, "Complete", "Pipeline execution finished."
-            )
+            QMessageBox.information(self, "Complete", "Pipeline execution finished.")
             return
 
         name, params = self._pending_queue.pop(0)
@@ -1089,7 +1181,6 @@ class MainWindow(QMainWindow):
         self._status_label.setText(f"Evaluating {display_name}{subject_suffix}")
         self._append_log(f"--- {display_name}{subject_suffix} ---\n")
 
-        # Ensure folding if evaluating model and no folds exist
         if name == "evaluate_model":
             for s in subjects:
                 if s.folds is None:
@@ -1117,9 +1208,7 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._completed_steps += 1
         self._progress_bar.setValue(self._completed_steps)
-        self._progress_bar.setFormat(
-            f"{self._completed_steps}/{self._total_steps}"
-        )
+        self._progress_bar.setFormat(f"{self._completed_steps}/{self._total_steps}")
         self._refresh_function_map()
         self._autosave_checkpoint()
         if self._pending_queue:
@@ -1129,9 +1218,7 @@ class MainWindow(QMainWindow):
             self._update_subjects()
             self._refresh_selected_subject_plots()
             self._status_label.setText("Pipeline finished. Click to view log.")
-            QMessageBox.information(
-                self, "Complete", "Pipeline execution finished."
-            )
+            QMessageBox.information(self, "Complete", "Pipeline execution finished.")
 
     def _on_run_failed(self, message: str, _tb: str) -> None:
         self._thread = None
@@ -1161,7 +1248,7 @@ class MainWindow(QMainWindow):
         text.setPlainText(self._log_text)
         text.setStyleSheet(
             "QPlainTextEdit { font-family: monospace; font-size: 12px;"
-            " background: white; border: 1px solid #ccc; border-radius: 4px;"
+            " background: white; color: #222; border: 1px solid #ccc; border-radius: 4px;"
             " padding: 8px; }"
         )
         text.moveCursor(QTextCursor.End)
@@ -1198,7 +1285,6 @@ class MainWindow(QMainWindow):
 
 def main() -> None:
     app = QApplication(sys.argv)
-    # app.setStyle("Fusion")
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

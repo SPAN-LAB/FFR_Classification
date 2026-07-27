@@ -157,6 +157,7 @@ class AnalysisPipeline:
         """
         for subject in self.subjects:
             subject.map_trial_labels(rule_csv)
+            subject.setup_labels_map()
         print("map_labels : done")
         return self
 

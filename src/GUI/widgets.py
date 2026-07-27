@@ -241,13 +241,15 @@ class FunctionCardWidget(QFrame):
             self.setStyleSheet(
                 "FunctionCardWidget { background: #cfe0fc;"
                 " border: 2px solid #4285f4; border-radius: 6px;"
-                " padding: 6px; margin: 2px 4px; }"
+                " padding: 6px; margin: 2px 4px; color: #333333; }"
+                " QLabel { color: #333333; background: transparent; }"
             )
         else:
             self.setStyleSheet(
                 "FunctionCardWidget { background: white;"
                 " border: 1px solid #ccc; border-radius: 6px;"
-                " padding: 8px; margin: 2px 4px; }"
+                " padding: 8px; margin: 2px 4px; color: #333333; }"
+                " QLabel { color: #333333; background: transparent; }"
             )
 
     def enterEvent(self, event):
@@ -274,7 +276,15 @@ class ParameterEditorWidget(QWidget):
         self._manager = manager
         self._editors: list[tuple[str, QWidget, ArgumentDetail]] = []
 
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("""
+            QWidget { color: #333333; }
+            QLabel { color: #333333; background: transparent; }
+            QLineEdit { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+            QComboBox { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+            QComboBox QAbstractItemView { color: #333333; background: white; selection-background-color: #4285f4; selection-color: white; }
+            QPushButton { color: #333333; }
+            QPlainTextEdit { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+        """)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
@@ -409,6 +419,30 @@ class ParameterEditorWidget(QWidget):
             
             self._editors.append((param_name, line_edit, detail.argument_details[0]))
             self._form_layout.addRow("Model Filepath:", container)
+        elif function_name == "extract_features":
+            from ..features import FEATURE_REGISTRY
+            from PyQt5.QtWidgets import QListWidget, QAbstractItemView
+            available = list(FEATURE_REGISTRY.keys())
+            current_val = current_params.get("feature_names", "pitchtrack,autocorr,autoencoder_latent")
+            selected = set(s.strip() for s in current_val.split(",") if s.strip()) if isinstance(current_val, str) else set(current_val)
+
+            lw = QListWidget()
+            lw.setSelectionMode(QAbstractItemView.MultiSelection)
+            lw.setStyleSheet(
+                "QListWidget { border: 1px solid #ccc; border-radius: 4px;"
+                " background: white; color: #333333; }"
+                " QListWidget::item { padding: 4px 8px; color: #333333; }"
+                " QListWidget::item:selected { background: #4285f4; color: white; }"
+                " QListWidget::item:hover { background: #f0f4ff; }"
+            )
+            for feat in available:
+                lw.addItem(feat)
+                if feat in selected:
+                    lw.item(lw.count() - 1).setSelected(True)
+            lw.setFixedHeight(min(36 * len(available), 180))
+
+            self._editors.append(("feature_names", lw, None))
+            self._form_layout.addRow("Features:", lw)
         else:
             # Standard positional matching for other functions
             param_names = self._parameter_names(function_name)
@@ -527,6 +561,23 @@ class ParameterEditorWidget(QWidget):
                 ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
                 ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
             ]
+        elif model_name_lower in ["dynamiccnn", "dynamicffnn", "dynamicrnn", "dynamiccrnn", "dynamictransformer", "multibranch", "multibranchffnn"]:
+            ads = [
+                ArgumentDetail("num_epochs", int, 50, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
+                ArgumentDetail("patience", int, 20, "Early stopping patience"),
+                ArgumentDetail("min_delta", float, 0.001, "Minimum improvement for early stopping"),
+                ArgumentDetail("embed_dim", int, 64, "Embedding dimension per branch"),
+            ]
+        elif model_name_lower in ["autoencoder", "autoencoder_loso"]:
+            ads = [
+                ArgumentDetail("num_epochs", int, 100, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 64, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("latent_dim", int, 128, "Latent space dimensions"),
+            ]
         else:
             # Fallback to default generic dict
             ads = [ArgumentDetail("training_options", dict, {}, "Training options")]
@@ -553,7 +604,7 @@ class ParameterEditorWidget(QWidget):
 
     _EDITOR_STYLE = (
         "border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white;"
+        " padding: 4px 6px; background: white; color: #333333;"
     )
 
     _TEXTEDIT_STYLE = (
@@ -576,7 +627,7 @@ class ParameterEditorWidget(QWidget):
 
     _COMBO_STYLE = (
         "QComboBox { border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white; }"
+        " padding: 4px 6px; background: white; color: #333333; }"
         " QComboBox QAbstractItemView {"
         "   background: white; color: #333;"
         "   selection-background-color: #e8f0fe;"
@@ -703,6 +754,9 @@ class ParameterEditorWidget(QWidget):
                 val = widget.get_value()
             elif isinstance(widget, QComboBox):
                 val = widget.currentText()
+            elif hasattr(widget, 'selectedItems') and callable(widget.selectedItems):
+                # QListWidget multi-select (e.g. extract_features)
+                val = ",".join(item.text() for item in widget.selectedItems())
             
             if name.startswith("to_"):
                 # Re-assemble training_options

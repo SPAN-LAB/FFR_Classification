@@ -275,14 +275,18 @@ This causes some folds to have 0 trials from this category.""")
             
     # MARK: Helpers
 
-    def grouped_trials(self) -> dict[any, list[EEGTrial]]:
-        # Divide into groups separated by their label
+    def grouped_trials(self, key=None) -> dict[any, list[EEGTrial]]:
+    # Divide into groups separated by their label
+    # key: optional callable to extract group key from trial, defaults to trial.label
+        if key is None:
+            key = lambda trial: trial.label
         g = {}
         for trial in self.trials:
-            if trial.label in g:
-                g[trial.label].append(trial)
+            k = key(trial)
+            if k in g:
+                g[k].append(trial)
             else:
-                g[trial.label] = [trial]
+                g[k] = [trial]
         return g
     
     def reindex_trials(self):
