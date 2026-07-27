@@ -1,4 +1,4 @@
-# FFR Classification Toolbox
+# ClassiFFRy
 
 A Python toolbox for analyzing, classifying, and visualizing frequency-following response (FFR) EEG data using machine learning. Built at the [Speech Processing and Auditory Neuroscience (SPAN) Lab](https://spanlab.csd.wisc.edu/) at the University of Wisconsin–Madison.
 
