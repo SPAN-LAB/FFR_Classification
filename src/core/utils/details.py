@@ -117,6 +117,22 @@ subaverage_detail = FD(
     description="Combines trials through subaveraging. This can help reduce noise in your data."
 )
 
+extract_features_detail = FD(
+    label="Extract Features",
+    argument_details=[
+        AD(
+            label="Feature Names (comma-separated)",
+            type=str,
+            default_value="pitchtrack,autocorr,zerocrossing",
+            description=(
+                "Comma-separated features to compute: pitchtrack, autocorr, "
+                "zerocrossing, spectrogram, autoencoder_latent."
+            )
+        )
+    ],
+    description="Computes one or more selected features for every loaded trial."
+)
+
 fold_detail = FD(
     label="Split into Folds",
     argument_details=[
@@ -128,19 +144,6 @@ fold_detail = FD(
         )
     ],
     description="Divides each subject's trials into the number of groups (folds) provided."
-)
-
-extract_features_detail = FD(
-    label="Extract Features",
-    argument_details=[
-        AD(
-            label="Feature Names (comma-separated)",
-            type=str,
-            default_value="pitchtrack,autocorr,zerocrossing",
-            description="Comma-separated features to compute: pitchtrack, autocorr, zerocrossing."
-        )
-    ],
-    description="Computes one or more selected features for every loaded trial."
 )
 
 save_state_detail = FD(

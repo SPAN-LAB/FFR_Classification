@@ -42,7 +42,6 @@ class CNN_LSTM(nn.Module):
 class RNN_model(TorchNNBase):
     def __init__(self, training_options: dict[str, any]):
         super().__init__(training_options)
-        self.build()
 
     def build(self):
         num_classes = 4

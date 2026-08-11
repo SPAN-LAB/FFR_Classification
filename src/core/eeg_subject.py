@@ -17,8 +17,6 @@ from pymatreader import read_mat
 from pathlib import Path
 
 from .eeg_trial import EEGTrial
-import os
-import sys
 from copy import deepcopy
 
 # from .utils import silence_stderr
@@ -89,6 +87,16 @@ class EEGSubject:
             data = np.asarray(data)
 
             labels = raw_mat_file["labels"]
+            if isinstance(labels, np.ndarray) and labels.dtype == np.uint32:
+                import h5py
+
+                with h5py.File(filepath, "r") as file:
+                    mcos = file["#subsystem#"]["MCOS"]
+                    trial_labels = file[mcos[0][3]][0]
+                    labels = [str(label) for label in trial_labels]
+            elif isinstance(labels, np.ndarray):
+                labels = labels.tolist()
+
             n_labels = len(labels)
             if data.ndim < 2:
                 raise ValueError(
@@ -107,23 +115,7 @@ class EEGSubject:
             output["labels"] = labels
             return output
 
-        # Get the raw data from the .mat file
-        # raw = None
-        # def do(): 
-        raw = None
-        with open(os.devnull, 'w') as null:
-            # Save original stderr
-            old_stderr = os.dup(sys.stderr.fileno())
-            # Replace stderr with null
-            os.dup2(null.fileno(), sys.stderr.fileno())
-            try:
-                raw = read_mat(filepath)
-            finally:
-                # Restore original stderr
-                os.dup2(old_stderr, sys.stderr.fileno())
-                os.close(old_stderr)
-        # raw = read_mat(filepath)
-        # silence_stderr(do)
+        raw = read_mat(filepath)
 
         # Use the default extraction method if one isn't provided
         if extract is None:

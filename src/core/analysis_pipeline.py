@@ -13,6 +13,8 @@ import os
 from copy import deepcopy
 from typing import Any
 
+import numpy as np
+
 from ..printing import print, printl
 
 from .eeg_subject import EEGSubject
@@ -455,13 +457,57 @@ class AnalysisPipeline:
                 raise ValueError(f"Unknown feature '{name}'. Available: {list(FEATURE_REGISTRY.keys())}")
 
         for subject in self.subjects:
+            if not subject.trials:
+                continue
+
             fs = compute_fs(subject.trials[0].timestamps)
+
+            for name in feature_names:
+                extractor = FEATURE_REGISTRY[name]
+                if hasattr(extractor, "fit"):
+                    subject_signals = [trial.data for trial in subject.trials]
+                    print(
+                        f"extract_features | fitting '{name}' on "
+                        f"{subject.name} ({len(subject_signals)} trials)..."
+                    )
+                    extractor.fit(subject_signals)
+
             for trial in subject.trials:
+                trial.features["raw"] = np.asarray(trial.data, dtype=np.float32)
                 for name in feature_names:
-                    trial.features[name] = FEATURE_REGISTRY[name](trial.data, fs)
+                    trial.features[name] = np.asarray(
+                        FEATURE_REGISTRY[name](trial.data, fs),
+                        dtype=np.float32,
+                    )
 
         print(f"extract_features {feature_names} : done")
         return self
+
+    def _prepare_model_inputs(
+        self,
+        concrete_model,
+        training_options: dict[str, any] | None,
+    ) -> list[str]:
+        required_inputs = concrete_model.required_inputs_for_options(training_options)
+
+        if "raw" in required_inputs:
+            for subject in self.subjects:
+                for trial in subject.trials:
+                    if "raw" not in trial.features:
+                        trial.features["raw"] = np.asarray(trial.data, dtype=np.float32)
+
+        features_needed = [name for name in required_inputs if name != "raw"]
+        if features_needed:
+            already_computed = all(
+                name in trial.features
+                for subject in self.subjects
+                for trial in subject.trials
+                for name in features_needed
+            ) if self.subjects else True
+            if not already_computed:
+                self.extract_features(features_needed)
+
+        return required_inputs
 
     # MARK: ML functions
 
@@ -475,21 +521,7 @@ class AnalysisPipeline:
         self.models = []
         concrete_model = find_model(model_name)
 
-        # Auto-extract any non-raw features the model declares it needs
-        features_needed = [
-            f for f in concrete_model.required_inputs_for_options(training_options)
-            if f != "raw"
-        ]
-        if features_needed:
-            # Only compute features that haven't been computed yet
-            already_computed = all(
-                f in trial.features
-                for subject in self.subjects
-                for trial in subject.trials
-                for f in features_needed
-            ) if self.subjects else True
-            if not already_computed:
-                self.extract_features(features_needed)
+        self._prepare_model_inputs(concrete_model, training_options)
 
         for i, subject in enumerate(self.subjects):
             # Construct the model
@@ -503,14 +535,6 @@ class AnalysisPipeline:
             accuracy = model.evaluate()
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
-
-            # Evaluate it
-            # try:
-            #     accuracy = model.evaluate()
-            #     print(f"Evaluation accuracy on {subject.name}: {accuracy}")
-            #     self.models.append(model)
-            # except Exception as e:
-            #     print(f"Error evaluating {subject.name}: {e}")
 
         return self
 
@@ -581,20 +605,7 @@ class AnalysisPipeline:
         self.models = []
         concrete_model = find_model(model_name)
 
-        # Auto-extract any non-raw features the model declares it needs (mirrors evaluate_model)
-        features_needed = [
-            f for f in concrete_model.required_inputs_for_options(training_options)
-            if f != "raw"
-        ]
-        if features_needed:
-            already_computed = all(
-                f in trial.features
-                for subject in self.subjects
-                for trial in subject.trials
-                for f in features_needed
-            )
-            if not already_computed:
-                self.extract_features(features_needed)
+        self._prepare_model_inputs(concrete_model, training_options)
 
         # Pooled cross-subject training requires a shared label space
         self.unify_label_maps()
@@ -614,6 +625,8 @@ class AnalysisPipeline:
 
             model = concrete_model(training_options)
             model.set_subject(held_out)
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
             # Pass a fresh list: _core_train pops the validation split out of it,
             # which must not mutate any subject's own trial list.
             model.train(
@@ -653,24 +666,14 @@ class AnalysisPipeline:
 
         concrete_model = find_model(model_name)
 
-        features_needed = [
-            f for f in concrete_model.required_inputs_for_options(hyperparameters)
-            if f != "raw"
-        ]
-        if features_needed:
-            already_computed = all(
-                f in trial.features
-                for subject in self.subjects
-                for trial in subject.trials
-                for f in features_needed
-            ) if self.subjects else True
-            if not already_computed:
-                self.extract_features(features_needed)
+        self._prepare_model_inputs(concrete_model, hyperparameters)
 
         for subject in self.subjects:
             # Construct the model
             model = concrete_model(hyperparameters)
             model.set_subject(subject)
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
             
             print(f"training on {len(model.subject.trials)} trials")
 

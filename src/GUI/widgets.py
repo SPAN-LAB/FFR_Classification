@@ -570,6 +570,32 @@ class ParameterEditorWidget(QWidget):
                 ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
                 ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
             ]
+        elif model_name_lower in [
+            "dynamiccnn",
+            "dynamicffnn",
+            "dynamicrnn",
+            "dynamiccrnn",
+            "dynamictransformer",
+            "multibranchffnn",
+            "multichannelcnn",
+            "transformermulti",
+        ]:
+            ads = [
+                ArgumentDetail("num_epochs", int, 50, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
+                ArgumentDetail("patience", int, 20, "Early stopping patience"),
+                ArgumentDetail("min_delta", float, 0.001, "Minimum improvement for early stopping"),
+                ArgumentDetail("embed_dim", int, 64, "Embedding dimension per branch"),
+            ]
+        elif model_name_lower in ["autoencoder", "autoencoder_loso"]:
+            ads = [
+                ArgumentDetail("num_epochs", int, 100, "Number of training epochs"),
+                ArgumentDetail("batch_size", int, 64, "Number of trials per batch"),
+                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
+                ArgumentDetail("latent_dim", int, 128, "Latent space dimensions"),
+            ]
         else:
             # Fallback to default generic dict
             ads = [ArgumentDetail("training_options", dict, {}, "Training options")]
