@@ -6,6 +6,13 @@ def sds2(trials: list[EEGTrial], num_trials: int) -> list[EEGTrial]:
     """
     Returns REFERENCES to the num_trials sampled EEGTrial instances.
     """
+    if num_trials < 1:
+        raise ValueError("num_trials must be at least 1")
+    if num_trials > len(trials):
+        raise ValueError(
+            f"Cannot sample {num_trials} trials from a pool of {len(trials)}"
+        )
+
     subject = EEGSubject(trials=trials)
     total_num_trials = len(subject.trials)
     grouped_trials = subject.grouped_trials()
@@ -50,9 +57,5 @@ def sds2(trials: list[EEGTrial], num_trials: int) -> list[EEGTrial]:
     for label, trials in grouped_trials.items():
         num_trials_to_take = num_trials_per_label[label][1]
         sampled_trials += grouped_trials[label][:num_trials_to_take]
-    
-    # Reassign indices to the trials 
-    for i, trial in enumerate(sampled_trials):
-        trial.trial_index = i
     
     return sampled_trials

@@ -538,6 +538,64 @@ class AnalysisPipeline:
 
         return self
 
+    def evaluate_model_with_training_amount(
+        self,
+        model_name: str,
+        training_options: dict[str, Any],
+        training_amount: int,
+    ) -> AnalysisPipeline:
+        """Evaluate fixed folds while limiting only each fold's training pool."""
+        from ..models.utils import find_model
+        from .utils.sampling import sds2
+
+        if training_amount < 1:
+            raise ValueError("training_amount must be at least 1")
+
+        self.models = []
+        concrete_model = find_model(model_name)
+        self._prepare_model_inputs(concrete_model, training_options)
+
+        for subject in self.subjects:
+            if not subject.folds:
+                raise ValueError(
+                    "Subjects must be folded before evaluating a training-data amount."
+                )
+
+            model = concrete_model(training_options)
+            model.set_subject(subject)
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
+
+            for held_out_i, test_trials in enumerate(subject.folds):
+                training_pool = [
+                    trial
+                    for fold_i, fold_trials in enumerate(subject.folds)
+                    if fold_i != held_out_i
+                    for trial in fold_trials
+                ]
+                if training_amount > len(training_pool):
+                    raise ValueError(
+                        f"training_amount={training_amount} exceeds the smallest "
+                        f"available training pool ({len(training_pool)}) for "
+                        f"subject {subject.name}."
+                    )
+
+                sampled_training = sds2(list(training_pool), training_amount)
+                model.train(
+                    trials=list(sampled_training),
+                    validation_trials=model.get_validation_ratio(),
+                )
+                model.infer(trials=test_trials)
+
+            accuracy = EEGTrial.get_accuracy(subject.folds)
+            print(
+                f"Evaluation accuracy on {subject.name} with "
+                f"{training_amount} training trials per fold: {accuracy}"
+            )
+            self.models.append(model)
+
+        return self
+
     def unify_label_maps(self) -> AnalysisPipeline:
         """
         Builds a single global label -> index map shared by every loaded subject.
