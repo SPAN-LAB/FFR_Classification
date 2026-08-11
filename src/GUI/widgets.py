@@ -13,12 +13,14 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QToolTip,
     QVBoxLayout,
     QWidget,
+    QAbstractItemView,
 )
 
 from .manager import Manager
@@ -241,13 +243,15 @@ class FunctionCardWidget(QFrame):
             self.setStyleSheet(
                 "FunctionCardWidget { background: #cfe0fc;"
                 " border: 2px solid #4285f4; border-radius: 6px;"
-                " padding: 6px; margin: 2px 4px; }"
+                " padding: 6px; margin: 2px 4px; color: #333333; }"
+                " QLabel { color: #333333; background: transparent; }"
             )
         else:
             self.setStyleSheet(
                 "FunctionCardWidget { background: white;"
                 " border: 1px solid #ccc; border-radius: 6px;"
-                " padding: 8px; margin: 2px 4px; }"
+                " padding: 8px; margin: 2px 4px; color: #333333; }"
+                " QLabel { color: #333333; background: transparent; }"
             )
 
     def enterEvent(self, event):
@@ -274,7 +278,15 @@ class ParameterEditorWidget(QWidget):
         self._manager = manager
         self._editors: list[tuple[str, QWidget, ArgumentDetail]] = []
 
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("""
+            QWidget { color: #333333; }
+            QLabel { color: #333333; background: transparent; }
+            QLineEdit { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+            QComboBox { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+            QComboBox QAbstractItemView { color: #333333; background: white; selection-background-color: #e8f0fe; selection-color: #111111; }
+            QPushButton { color: #333333; }
+            QPlainTextEdit { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
+        """)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
@@ -409,6 +421,37 @@ class ParameterEditorWidget(QWidget):
             
             self._editors.append((param_name, line_edit, detail.argument_details[0]))
             self._form_layout.addRow("Model Filepath:", container)
+        elif function_name == "extract_features":
+            from ..features import FEATURE_REGISTRY
+
+            available_features = list(FEATURE_REGISTRY.keys())
+            current_val = current_params.get("feature_names", "")
+            if isinstance(current_val, str):
+                selected_features = {
+                    name.strip()
+                    for name in current_val.split(",")
+                    if name.strip()
+                }
+            else:
+                selected_features = set(current_val or [])
+
+            feature_list = QListWidget()
+            feature_list.setSelectionMode(QAbstractItemView.MultiSelection)
+            feature_list.setStyleSheet(
+                "QListWidget { border: 1px solid #ccc; border-radius: 4px;"
+                " background: white; color: #333333; }"
+                " QListWidget::item { padding: 4px 8px; color: #333333; }"
+                " QListWidget::item:selected { background: #4285f4; color: white; }"
+                " QListWidget::item:hover { background: #f0f4ff; color: #333333; }"
+            )
+            for feature_name in available_features:
+                feature_list.addItem(feature_name)
+                if feature_name in selected_features:
+                    feature_list.item(feature_list.count() - 1).setSelected(True)
+            feature_list.setFixedHeight(min(36 * max(len(available_features), 1), 180))
+
+            self._editors.append(("feature_names", feature_list, None))
+            self._form_layout.addRow("Features:", feature_list)
         else:
             # Standard positional matching for other functions
             param_names = self._parameter_names(function_name)
@@ -553,12 +596,12 @@ class ParameterEditorWidget(QWidget):
 
     _EDITOR_STYLE = (
         "border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white;"
+        " padding: 4px 6px; background: white; color: #333333;"
     )
 
     _TEXTEDIT_STYLE = (
         "QPlainTextEdit { border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white; }"
+        " padding: 4px 6px; background: white; color: #333333; }"
         " QPlainTextEdit QScrollBar:vertical {"
         "   background: #f0f0f0; width: 8px; border-radius: 4px;"
         " }"
@@ -576,7 +619,7 @@ class ParameterEditorWidget(QWidget):
 
     _COMBO_STYLE = (
         "QComboBox { border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white; }"
+        " padding: 4px 6px; background: white; color: #333333; }"
         " QComboBox QAbstractItemView {"
         "   background: white; color: #333;"
         "   selection-background-color: #e8f0fe;"
@@ -703,6 +746,8 @@ class ParameterEditorWidget(QWidget):
                 val = widget.get_value()
             elif isinstance(widget, QComboBox):
                 val = widget.currentText()
+            elif isinstance(widget, QListWidget):
+                val = ",".join(item.text() for item in widget.selectedItems())
             
             if name.startswith("to_"):
                 # Re-assemble training_options

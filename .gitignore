@@ -14,6 +14,7 @@
 /*.py
 !demo.py
 !analysis.py
+!run_gui.py
 
 *.png
 !spanlab_logo_final.png

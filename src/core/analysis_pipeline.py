@@ -138,7 +138,11 @@ class AnalysisPipeline:
         return subject
 
     @gui_private()
-    def load_subjects(self, path: str | list[str]) -> AnalysisPipeline:
+    def load_subjects(
+        self,
+        path: str | list[str],
+        data_var: str = "ffr_nodss",
+    ) -> AnalysisPipeline:
         """
         Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
         instances and adds them to this object's subjects list. 
@@ -157,7 +161,7 @@ class AnalysisPipeline:
         def load_subjects_helper(filepath: str, check_extension: bool = True):
             if check_extension and not filepath.endswith(".mat"):
                 raise ValueError(f"File does not end with .mat: {filepath}")
-            subject = EEGSubject.init_from_filepath(filepath)
+            subject = EEGSubject.init_from_filepath(filepath, data_var=data_var)
             print(f"load_subjects : Subject loaded from {filepath}")
             self.subjects.append(subject)
             

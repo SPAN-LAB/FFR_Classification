@@ -27,10 +27,12 @@ class EEGSubject:
     
     # MARK: Initializer and stored properties
     
-    def __init__(self, *, trials=[], source_filepath=None):
+    def __init__(self, *, trials=None, source_filepath=None):
         """
         Provide argument for either `trials` or `source_filepath` but not both.
         """
+        if trials is None:
+            trials = []
         self.trials: list[EEGTrial] = trials
         self.source_filepath = source_filepath
         self.folds: list[list[EEGTrial]] | None = None
@@ -58,7 +60,11 @@ class EEGSubject:
     # MARK: IO
 
     @staticmethod
-    def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
+    def init_from_filepath(
+        filepath: str,
+        extract: Callable = None,
+        data_var: str = "ffr_nodss",
+    ) -> EEGSubject:
         def default_extract(raw_mat_file: dict[str, Any]) -> dict[str, any]:
             """
             Default method of extracting the data from the raw .mat file.
@@ -66,9 +72,39 @@ class EEGSubject:
             :returns: a dictionary with keys "data", "timestamps", and "labels".
             """
             output = {}
-            output["data"] = raw_mat_file["ffr_nodss"].T
+            if data_var not in raw_mat_file:
+                available = ", ".join(
+                    key
+                    for key in raw_mat_file.keys()
+                    if not str(key).startswith("__")
+                )
+                raise ValueError(
+                    f"Data variable '{data_var}' not found in {filepath}. "
+                    f"Available variables: {available}"
+                )
+
+            data = raw_mat_file[data_var]
+            while isinstance(data, dict) and len(data) == 1:
+                data = next(iter(data.values()))
+            data = np.asarray(data)
+
+            labels = raw_mat_file["labels"]
+            n_labels = len(labels)
+            if data.ndim < 2:
+                raise ValueError(
+                    f"Data variable '{data_var}' must be at least 2D; got shape {data.shape}."
+                )
+            if data.shape[0] != n_labels and data.shape[-1] == n_labels:
+                data = data.T
+            if data.shape[0] != n_labels:
+                raise ValueError(
+                    f"Data variable '{data_var}' shape {data.shape} does not match "
+                    f"labels count {n_labels}."
+                )
+
+            output["data"] = data
             output["timestamps"] = raw_mat_file["time"]
-            output["labels"] = raw_mat_file["labels"]
+            output["labels"] = labels
             return output
 
         # Get the raw data from the .mat file
@@ -329,6 +365,6 @@ This causes some folds to have 0 trials from this category.""")
             for trial in subject.trials:
                 all_trials.append(deepcopy(trial))
         
-        merged_subject = EEGSubject(all_trials, source_filepath="DNE")
+        merged_subject = EEGSubject(trials=all_trials, source_filepath="DNE")
         return merged_subject
         
