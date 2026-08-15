@@ -137,13 +137,15 @@ class EEGNeXModel(TorchNNBase):
 
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
-        self.build()
 
     def build(self) -> None:
-        n_chans   = int(self.training_options.get("n_chans", 1))
-        n_times   = int(self.training_options.get("n_times", 4915))
-        n_classes = int(self.training_options.get("n_classes", 4))
-        drop_prob = float(self.training_options.get("drop_prob", 0.5))
+        if self.subject is None:
+            raise ValueError("EEGNeX requires a subject before it can be built.")
+        options = self.training_options or {}
+        n_chans   = int(options.get("n_chans", 1))
+        n_times   = int(options.get("n_times", self.subject.trial_size))
+        n_classes = int(options.get("n_classes", self.subject.num_categories))
+        drop_prob = float(options.get("drop_prob", 0.5))
         self.model = _EEGNeXNet(
             n_chans=n_chans,
             n_times=n_times,
