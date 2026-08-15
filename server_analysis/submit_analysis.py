@@ -68,14 +68,19 @@ def build_manifest(
     analyses: list[str],
     git_commit: str,
 ) -> list[str]:
-    if [model.lower() for model in models] == ["all"]:
-        models = list(MODEL_TRAINING_OPTIONS)
-    if not models:
-        raise ValueError("At least one model is required")
+    models = expand_models(models)
     return [
         f"{model} {subject} {analysis} {git_commit}"
         for model, subject, analysis in product(models, subjects, analyses)
     ]
+
+
+def expand_models(models: list[str]) -> list[str]:
+    if [model.lower() for model in models] == ["all"]:
+        return list(MODEL_TRAINING_OPTIONS)
+    if not models:
+        raise ValueError("At least one model is required")
+    return models
 
 
 def main() -> None:
@@ -86,8 +91,9 @@ def main() -> None:
     if not submit_path.is_file():
         raise FileNotFoundError(f"Submit file not found: {submit_path}")
 
+    models = expand_models(args.models)
     rows = build_manifest(
-        models=args.models,
+        models=models,
         subjects=_read_subjects(subjects_path),
         analyses=args.analyses,
         git_commit=_git_commit(),
@@ -96,8 +102,11 @@ def main() -> None:
     manifest_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
     (jobs_dir / "logs").mkdir(parents=True, exist_ok=True)
-    for analysis in args.analyses:
-        (jobs_dir / "analyses" / analysis).mkdir(parents=True, exist_ok=True)
+    for analysis, model in product(args.analyses, models):
+        (jobs_dir / "analyses" / analysis / model).mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
     print(f"Prepared {len(rows)} jobs in {manifest_path}")
     for row in rows[:10]:

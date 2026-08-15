@@ -60,11 +60,13 @@ determines all valid values internally. Results return to:
 ```text
 analyses/
   subaverage/
-    FFNN.4T1002.mat.subaverage.summary.json
-    FFNN.4T1002.mat.subaverage.predictions.csv
+    FFNN/
+      FFNN.4T1002.mat.subaverage.summary.json
+      FFNN.4T1002.mat.subaverage.predictions.csv
   data_amount/
-    FFNN.4T1002.mat.data_amount.summary.json
-    FFNN.4T1002.mat.data_amount.predictions.csv
+    FFNN/
+      FFNN.4T1002.mat.data_amount.summary.json
+      FFNN.4T1002.mat.data_amount.predictions.csv
 ```
 
 The summary contains one condition record per value, including accuracy,

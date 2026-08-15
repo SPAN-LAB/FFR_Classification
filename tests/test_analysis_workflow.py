@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from server_analysis.submit_analysis import build_manifest
+from server_analysis.submit_analysis import build_manifest, main as submit_analysis
 from src.analysis.job_result import write_analysis_results
 from src.analysis.runner import ConditionResult, run_analysis_conditions
 from src.analysis.settings import MODEL_TRAINING_OPTIONS, SUBAVERAGE_VALUES
@@ -123,6 +123,26 @@ class AnalysisWorkflowTests(unittest.TestCase):
             git_commit="abc123",
         )
         self.assertEqual(len(rows), len(MODEL_TRAINING_OPTIONS))
+
+    def test_submitter_creates_model_output_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            jobs_dir = Path(directory)
+            (jobs_dir / "subjects.txt").write_text("A.mat\n", encoding="utf-8")
+            (jobs_dir / "analysis.sub").touch()
+            argv = [
+                "submit_analysis",
+                "FFNN",
+                "CNN",
+                "--jobs-dir",
+                str(jobs_dir),
+                "--dry-run",
+            ]
+            with patch("sys.argv", argv):
+                submit_analysis()
+
+            for analysis in ("subaverage", "data_amount"):
+                self.assertTrue((jobs_dir / "analyses" / analysis / "FFNN").is_dir())
+                self.assertTrue((jobs_dir / "analyses" / analysis / "CNN").is_dir())
 
     def test_default_subaverage_values_include_unaveraged_case(self):
         self.assertEqual(SUBAVERAGE_VALUES[0], 1)
