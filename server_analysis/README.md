@@ -1,69 +1,72 @@
-# Some instructions
+# Running Analyses
 
-To analyze the effect of subaverage size, data amount, etc. on accuracy, simply create a `.py` file in this directory, copy the contents of `example.py` into it, and **execute the code from the root directory**. 
-
-## Detailed walkthrough
-
-Step 1: Configure `SUBJECT_FILEPATHS`, found in `/src/analysis/config.py`, with the paths to the subject files.
-
-```python
-SUBJECT_FILEPATHS = ["Martian001.mat", "Martian051.mat"]
-```
-
-Step 2: Create your file in `src/server_analysis` and import the module(s). I'll call it `subaverage_ffnn.py`.
-
-```python
-from src.analysis import subaverage_size
-from src.analysis import data_amount
-```
-
-Step 3: Call the `analyze` function of the appropriate module. 
-
-```python
-subaverage_size.analyze("FFNN")
-```
-
-Step 4: Run the function from the **ROOT DIRECTORY**. (Don't include the `.py` extension.)
+There is one canonical analysis command for both local execution and CHTC:
 
 ```bash
-python -m server_analysis.subaverage_ffnn
+python -m server_analysis.run_analysis \
+  --model FFNN \
+  --subject /path/to/4T1002.mat \
+  --analysis subaverage
 ```
 
-## CHTC analysis jobs
-
-CHTC analysis submissions use `server_analysis.run_job`. Each queue row runs
-one model, subject, and analysis value while keeping all cross-validation folds
-inside that process.
-
-Submit from the job configuration directory so its relative paths resolve:
+Omitting `--value` runs the complete configured sweep. Supplying `--value`
+runs only that condition and may be repeated:
 
 ```bash
-cd jobs_config/ffr_test_run
-mkdir -p logs analyses/subaverage analyses/data_amount
-condor_submit subaverage.sub
-# or: condor_submit data_amount.sub
+python -m server_analysis.run_analysis \
+  --model FFNN \
+  --subject /path/to/4T1002.mat \
+  --analysis subaverage \
+  --value 1 --value 5 --value 10
 ```
 
-`subaverage_jobs.txt` and `data_amount_jobs.txt` contain rows in this format:
+All shared settings live in `src/analysis/settings.py`, including trimming,
+fold count, default subaverage values, data-amount stride, and model training
+options.
+
+## CHTC
+
+On the CHTC access point, update `subjects.txt`, then run from
+`jobs_config/ffr_test_run`:
+
+```bash
+./submit_analysis.sh FFNN
+```
+
+That submits every subject for both `subaverage` and `data_amount`. Select only
+one type with:
+
+```bash
+./submit_analysis.sh FFNN --analyses subaverage
+```
+
+Pass multiple model names, or every model with explicit shared training
+settings:
+
+```bash
+./submit_analysis.sh FFNN CNN PitchCNN
+./submit_analysis.sh all
+```
+
+Use `--dry-run` to inspect `analysis_jobs.txt` without submitting:
+
+```bash
+./submit_analysis.sh FFNN --dry-run
+```
+
+Each Condor process handles one model, subject, and analysis type. The runner
+determines all valid values internally. Results return to:
 
 ```text
-FFNN 4T1002.mat 5
+analyses/
+  subaverage/
+    FFNN.4T1002.mat.subaverage.summary.json
+    FFNN.4T1002.mat.subaverage.predictions.csv
+  data_amount/
+    FFNN.4T1002.mat.data_amount.summary.json
+    FFNN.4T1002.mat.data_amount.predictions.csv
 ```
 
-The columns are model, subject filename, and analysis value. Each process writes
-two uniquely named files in its scratch directory. HTCondor remaps those files
-into `analyses/subaverage/` or `analyses/data_amount/` on the access point.
-
-Each condition produces two files named with its model, subject, condition, and
-value:
-
-- `*.summary.json`: status, parameters, timing, job metadata, aggregate metrics,
-  and a traceback when the analysis failed
-- `*.predictions.csv`: fold and trial-level labels, predictions, and
-  probabilities
-
-Per-subject submit files transfer only `src/`, `server_analysis/`, and that
-job's subject `.mat` file. They do not transfer the repository's `.git`, local
-virtual environment, GUI checkpoints, or unrelated subjects. The autoencoder
-submission still transfers the complete data directory because it loads all
-subjects in one process.
+The summary contains one condition record per value, including accuracy,
+duration, parameters, status, and traceback. The CSV contains fold-level trial
+predictions for every successful value.

@@ -15,45 +15,7 @@ import argparse
 from pathlib import Path
 
 from src.core import AnalysisPipeline
-
-
-TRAINING_OPTIONS = {
-    "CNN": {
-        "num_epochs": 50,
-        "batch_size": 64,
-        "learning_rate": 1e-3,
-        "weight_decay": 1e-2,
-    },
-    "FFNN": {
-        "num_epochs": 50,
-        "batch_size": 64,
-        "learning_rate": 5e-5,
-        "weight_decay": 1e-3,
-    },
-    "PitchCNN": {
-        "num_epochs": 50,
-        "batch_size": 64,
-        "learning_rate": 1e-3,
-        "weight_decay": 1e-2,
-        "patience": 50,
-    },
-    "EEGNeXFFR": {
-        "num_epochs": 50,
-        "batch_size": 64,
-        "learning_rate": 1e-3,
-        "weight_decay": 1e-2,
-        "patience": 50,
-        "sinc_frontend": False,
-    },
-}
-
-DEFAULT_TRAINING_OPTIONS = {
-    "num_epochs": 50,
-    "batch_size": 64,
-    "learning_rate": 1e-3,
-    "weight_decay": 1e-2,
-    "patience": 50,
-}
+from src.analysis.settings import training_options_for
 
 
 def main():
@@ -75,7 +37,7 @@ def main():
     )
     args = parser.parse_args()
 
-    opts = TRAINING_OPTIONS.get(args.model, DEFAULT_TRAINING_OPTIONS)
+    opts = training_options_for(args.model)
 
     if args.generic:
         held_out = Path(args.subject).stem

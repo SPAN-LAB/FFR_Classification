@@ -5,6 +5,7 @@
 /*/
 !src/
 !server_analysis/
+!tests/
 
 # Ignore all .txt files except requirements.txt.
 *.txt

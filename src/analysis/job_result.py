@@ -123,26 +123,51 @@ def _atomic_path(path: Path) -> Path:
     return path.with_name(f".{path.name}.{uuid4().hex}.tmp")
 
 
-def write_result_files(
+def write_analysis_results(
     output_prefix: str | Path,
     *,
-    pipeline: AnalysisPipeline | None,
+    condition_results: list[Any],
     metadata: dict[str, Any],
-    error_traceback: str | None = None,
 ) -> tuple[Path, Path]:
-    """Write JSON metrics and trial-level CSV predictions for one cluster job."""
+    """Write one summary and prediction table for an entire analysis sweep."""
     output_prefix = Path(output_prefix)
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
     summary_path = Path(f"{output_prefix}.summary.json")
     predictions_path = Path(f"{output_prefix}.predictions.csv")
-    rows = _prediction_rows(pipeline, metadata)
+
+    rows = []
+    conditions = []
+    for result in condition_results:
+        condition_metadata = {**metadata, "value": result.value}
+        condition_rows = _prediction_rows(result.pipeline, condition_metadata)
+        rows.extend(condition_rows)
+        condition = {
+            "value": result.value,
+            "status": result.status,
+            "started_at": result.started_at,
+            "finished_at": result.finished_at,
+            "duration_seconds": result.duration_seconds,
+            "metrics": _metrics(condition_rows),
+        }
+        if result.error_traceback is not None:
+            condition["traceback"] = result.error_traceback
+        conditions.append(condition)
+
+    statuses = {condition["status"] for condition in conditions}
+    if statuses == {"success"}:
+        overall_status = "success"
+    elif "success" in statuses:
+        overall_status = "partial_failure"
+    else:
+        overall_status = "failure"
+
     summary = {
-        "schema_version": 1,
+        "schema_version": 2,
         **metadata,
-        "metrics": _metrics(rows),
+        "status": overall_status,
+        "values": [condition["value"] for condition in conditions],
+        "conditions": conditions,
     }
-    if error_traceback is not None:
-        summary["traceback"] = error_traceback
 
     temporary_summary = _atomic_path(summary_path)
     temporary_predictions = _atomic_path(predictions_path)
@@ -151,11 +176,7 @@ def write_result_files(
             json.dump(summary, file, indent=2, default=_json_value)
             file.write("\n")
 
-        with temporary_predictions.open(
-            "w",
-            newline="",
-            encoding="utf-8",
-        ) as file:
+        with temporary_predictions.open("w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=PREDICTION_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
