@@ -29,6 +29,19 @@ MODEL_TRAINING_OPTIONS: dict[str, dict[str, Any]] = {
         "learning_rate": 5e-5,
         "weight_decay": 1e-3,
     },
+    "MultiBranchCNN": {
+        "num_epochs": 50,
+        "batch_size": 64,
+        "learning_rate": 1e-3,
+        "weight_decay": 1e-2,
+        "feature_inputs": ["raw", "pitchtrack", "autocorr"],
+    },
+    "MultiBranchFFNN": {
+        "num_epochs": 50,
+        "batch_size": 64,
+        "learning_rate": 5e-5,
+        "weight_decay": 1e-3,
+    },
     "PitchCNN": {
         "num_epochs": 50,
         "batch_size": 64,

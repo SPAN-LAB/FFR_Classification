@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 
-_DEFAULT_INPUTS = ["raw", "pitchtrack"]
+_DEFAULT_INPUTS = ["raw", "pitchtrack", "autocorr"]
 _FEATURE_INPUTS = {"pitchtrack", "autocorr", "zerocrossing"}
 
 
@@ -112,7 +112,7 @@ class _MultiBranchCNN1D(nn.Module):
 
 
 class MultiBranchCNNModel(TorchNNBase):
-    required_inputs = ["raw", "pitchtrack"]
+    required_inputs = list(_DEFAULT_INPUTS)
 
     @classmethod
     def required_inputs_for_options(cls, training_options: dict[str, any] | None = None) -> list[str]:
@@ -124,10 +124,14 @@ class MultiBranchCNNModel(TorchNNBase):
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
         self.required_inputs = self.required_inputs_for_options(training_options)
-        self.build()
 
     def build(self) -> None:
-        n_classes = int(self.training_options.get("n_classes", 4))
+        n_classes = int(
+            self.training_options.get(
+                "n_classes",
+                self.subject.num_categories if self.subject else 4,
+            )
+        )
         p_drop    = float(self.training_options.get("p_drop", 0.1))
         self.model = _MultiBranchCNN1D(
             input_names=self.required_inputs,
