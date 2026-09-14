@@ -56,7 +56,8 @@ class TorchNNBase(ModelInterface):
     
     def reset_seed(self):
         torch.manual_seed(0)
-        torch.mps.manual_seed(0)
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.manual_seed(0)
     
     def _store_best(self, best):
         self._best_weights = {}
@@ -84,6 +85,11 @@ class TorchNNBase(ModelInterface):
     def build(self):
         raise NotImplementedError("This method needs to be implemented")
 
+    def _extract_inputs(self, batch) -> torch.Tensor | dict:
+        if len(self.required_inputs) == 1:
+            return batch["x"].to(self.device)
+        return {k: v.to(self.device) for k, v in batch["inputs"].items()}
+
     def _core_avg_val_loss(self, *, 
         trials: list[EEGTrial], 
         batch_size: int
@@ -97,7 +103,7 @@ class TorchNNBase(ModelInterface):
         criterion = nn.CrossEntropyLoss()
         
         validation_loader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
             batch_size=batch_size,
             shuffle=False
         )
@@ -105,20 +111,13 @@ class TorchNNBase(ModelInterface):
         total_loss = 0.0
         
         with torch.no_grad():
-            for batch in validation_loader: 
-                inputs = batch["x"].to(self.device)
+            for batch in validation_loader:
+                inputs = self._extract_inputs(batch)
                 labels = batch["y"].to(self.device)
 
                 logits = self.model(inputs)
                 loss = criterion(logits, labels)
-                
-                # NOTE: 
-                # loss.item() is the average loss per batch item
-                # inputs.size(0) is the number of items in the batch
-                # We do not use batch_size here, and instead use inputs.size(0), 
-                # to protect against a last batch having fewer 
-                # than <batch_size> items
-                total_loss += loss.item() * inputs.size(0)
+                total_loss += loss.item() * labels.size(0)
                 
         self.model.train()
         
@@ -131,7 +130,7 @@ class TorchNNBase(ModelInterface):
     ) -> list[dict[int, float]]:
         
         dataloader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
             batch_size=batch_size,
             shuffle=False
         )
@@ -141,8 +140,7 @@ class TorchNNBase(ModelInterface):
         self.model.eval()
         with torch.no_grad():
             for batch in dataloader:
-                
-                inputs = batch["x"].to(self.device)
+                inputs = self._extract_inputs(batch)
                 indices = batch["index"]
                 logits = self.model(inputs)
                 probabilities = torch.softmax(logits, dim=1).cpu().numpy()
@@ -203,8 +201,20 @@ class TorchNNBase(ModelInterface):
                 trials.remove(trial)
         # Now, type of validation_trials is strictly either None or list[EEGTrial]
         
+        must_validate = validation_trials is not None and validation_trials != 0
+        if must_validate and isinstance(validation_trials, float):
+            # Sample the validation trials from `trials` if a ratio is provided
+            # and remove those from `trials`
+            num_validation_trials = int(len(trials) * validation_trials)
+            if num_validation_trials <= 0 or len(trials) - num_validation_trials <= 0:
+                raise ValueError("The splitting of trials results in some group being empty")
+            validation_trials = sds2(trials=trials, num_trials=num_validation_trials)
+            for trial in validation_trials:
+                trials.remove(trial)
+        # Now, type of validation_trials is strictly either None or list[EEGTrial]
+        
         train_loader = DataLoader(
-            IndexTrackedDataset(trials=trials),
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
             batch_size=batch_size,
             shuffle=True
         )
@@ -220,8 +230,7 @@ class TorchNNBase(ModelInterface):
         for epoch_i in range(num_epochs):
             
             for batch in train_loader:
-                
-                inputs = batch["x"].to(self.device)
+                inputs = self._extract_inputs(batch)
                 labels = batch["y"].to(self.device)
 
                 optimizer.zero_grad(set_to_none=True)

@@ -26,10 +26,12 @@ class EEGSubject:
     
     # MARK: Initializer and stored properties
     
-    def __init__(self, *, trials=[], source_filepath=None):
+    def __init__(self, *, trials=None, source_filepath=None):
         """
         Provide argument for either `trials` or `source_filepath` but not both.
         """
+        if trials is None:
+            trials = []
         self.trials: list[EEGTrial] = trials
         self.source_filepath = source_filepath
         self.folds: list[list[EEGTrial]] | None = None
@@ -57,34 +59,53 @@ class EEGSubject:
     # MARK: IO
 
     @staticmethod
-    def init_from_filepath(filepath: str, extract: Callable = None) -> EEGSubject:
+    def init_from_filepath(filepath: str, extract: Callable = None, data_var: str = "ffr_nodss") -> EEGSubject:
         def default_extract(raw_mat_file: dict[str, Any]) -> dict[str, any]:
             """
             Default method of extracting the data from the raw .mat file.
-
             :returns: a dictionary with keys "data", "timestamps", and "labels".
             """
             output = {}
-            output["data"] = raw_mat_file["ffr_nodss"].T
+            import numpy as np
+            data = raw_mat_file[data_var]
+            if isinstance(data, dict):
+                data = list(data.values())[0]
+            import numpy as np
+            data = np.array(data)
+            if isinstance(data, dict):
+                # Some .mat versions wrap arrays in a dict — extract the array
+                data = list(data.values())[0]
+            import numpy as np
+            data = np.array(data)
+            # pymatreader may return (timepoints, trials) or (trials, timepoints)
+            # ensure shape is (trials, timepoints) by matching labels count
+            n_labels = len(raw_mat_file["labels"])
+            if data.shape[0] != n_labels:
+                data = data.T
+            if data.shape[0] != n_labels:
+                raise ValueError(f"Data shape {data.shape} doesn't match labels count {n_labels}")
+            output["data"] = data
             output["timestamps"] = raw_mat_file["time"]
-            output["labels"] = raw_mat_file["labels"]
+            labels = raw_mat_file["labels"]
+            # If labels came back as uint32 array (MATLAB object references),
+            # re-read using scipy which handles this correctly
+            import numpy as np
+            if isinstance(labels, np.ndarray) and labels.dtype == np.uint32:
+                import h5py
+                with h5py.File(filepath, 'r') as f:
+                    mcos = f['#subsystem#']['MCOS']
+                    # MCOS[3] contains per-trial labels as uint8 (1,2,3,4)
+                    trial_labels = f[mcos[0][3]][0]  # shape (3837,)
+                    labels = [str(l) for l in trial_labels]
+            elif not isinstance(labels, list):
+                labels = list(labels)
+            output["labels"] = labels
             return output
 
         # Get the raw data from the .mat file
         # raw = None
         # def do(): 
-        raw = None
-        with open(os.devnull, 'w') as null:
-            # Save original stderr
-            old_stderr = os.dup(sys.stderr.fileno())
-            # Replace stderr with null
-            os.dup2(null.fileno(), sys.stderr.fileno())
-            try:
-                raw = read_mat(filepath)
-            finally:
-                # Restore original stderr
-                os.dup2(old_stderr, sys.stderr.fileno())
-                os.close(old_stderr)
+        raw = read_mat(filepath)
         # raw = read_mat(filepath)
         # silence_stderr(do)
 
@@ -175,30 +196,52 @@ This causes some folds to have 0 trials from this category.""")
 
     def map_trial_labels(self, rule_filepath: str) -> Self:
         # Create a dictionary that maps from raw label to mapped label
-        labels_map: dict[int, int] = {}
+        labels_map: dict = {}
 
         with open(rule_filepath, "r") as file:
             for line in file:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue  # Skip empty lines or comments
-
                 values = line.split(",")
-                mapped_label = int(values[0].strip())  # First value is mapped label
+                raw_mapped = values[0].strip()  # Try int, then float, then str
+                try:
+                    mapped_label = int(raw_mapped)
+                except ValueError:
+                    try:
+                        mapped_label = float(raw_mapped)
+                    except ValueError:
+                        mapped_label = raw_mapped
                 for raw_label in values[1:]:
                     raw_label = raw_label.strip()
                     if raw_label:
-                        labels_map[int(raw_label)] = (
-                            mapped_label  # Convert raw labels to int
-                        )
+                        try:
+                            key = int(raw_label)
+                        except ValueError:
+                            try:
+                                key = float(raw_label)
+                            except ValueError:
+                                key = raw_label
+                        labels_map[key] = mapped_label
 
         # Assign mapped labels to each trial
         for trial in self.trials:
-            raw = int(trial.raw_label)  # Ensure raw_label is int
+            raw = trial.raw_label  # Ensure raw_label is int
             if raw not in labels_map:
-                raise ValueError(f"Raw label {raw} not found in mapping.")
+                try:
+                    raw = int(raw)
+                except (ValueError, TypeError):
+                    pass
+            if raw not in labels_map:
+                try:
+                    raw = float(raw)
+                except (ValueError, TypeError):
+                    pass
+            if raw not in labels_map:
+                raw = str(raw)
+            if raw not in labels_map:
+                raise ValueError(f"Raw label {trial.raw_label} not found in mapping.")
             trial.mapped_label = labels_map[raw]
-
         return self
 
     # MARK: Label management
@@ -209,6 +252,7 @@ This causes some folds to have 0 trials from this category.""")
 
     def setup_labels_map(self):
         # Find all the labels
+        self.labels_map = {}
         labels_set = set()
         labels_array = []
 
@@ -231,14 +275,18 @@ This causes some folds to have 0 trials from this category.""")
             
     # MARK: Helpers
 
-    def grouped_trials(self) -> dict[any, list[EEGTrial]]:
-        # Divide into groups separated by their label
+    def grouped_trials(self, key=None) -> dict[any, list[EEGTrial]]:
+    # Divide into groups separated by their label
+    # key: optional callable to extract group key from trial, defaults to trial.label
+        if key is None:
+            key = lambda trial: trial.label
         g = {}
         for trial in self.trials:
-            if trial.label in g:
-                g[trial.label].append(trial)
+            k = key(trial)
+            if k in g:
+                g[k].append(trial)
             else:
-                g[trial.label] = [trial]
+                g[k] = [trial]
         return g
     
     def reindex_trials(self):

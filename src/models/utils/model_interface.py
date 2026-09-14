@@ -25,9 +25,25 @@ class ModelInterface:
     """
     Abstract class representing any model used for FFR classification.
     """
-    
+
+    needs_all_subjects: bool = False
+
+    # Declare which inputs the model needs. "raw" is always available (trial.data).
+    # Any other name must be a key in src.features.FEATURE_REGISTRY and will be
+    # auto-extracted by AnalysisPipeline.evaluate_model before training.
+    # Examples:
+    #   required_inputs = ["raw"]                  # raw waveform only (default)
+    #   required_inputs = ["pitchtrack"]            # pitch track only
+    #   required_inputs = ["raw", "pitchtrack"]     # both (multi-branch model)
+    required_inputs: list[str] = ["raw"]
+
+    @classmethod
+    def required_inputs_for_options(cls, training_options: dict[str, any] | None = None) -> list[str]:
+        return list(cls.required_inputs)
+
     def __init__(self, training_options: dict[str, any]):
         self.subject = None
+        self.all_subjects = None
         self.training_options = training_options
         self._num_stagnant_epochs = 0
         self._lowest_loss = float("inf")
@@ -36,6 +52,13 @@ class ModelInterface:
     
     def set_subject(self, subject: EEGSubject):
         self.subject = subject
+
+    def set_all_subjects(self, subjects: list):
+        """
+        Provides the full subject list to models that require it (e.g. Autoencoder LOSO pretraining).
+        Default implementation stores the list — only models with needs_all_subjects = True use this.
+        """
+        self.all_subjects = subjects
     
     def set_training_options(self, training_options: dict[str, any]):
         self.training_options = training_options
@@ -93,7 +116,7 @@ class ModelInterface:
         if not isinstance(self.training_options, dict):
             return MIN_DELTA
         return self.training_options.get("min_delta", MIN_DELTA)
-    
+
     def get_patience(self) -> int:
         if not isinstance(self.training_options, dict):
             return PATIENCE
