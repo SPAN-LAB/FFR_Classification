@@ -11,7 +11,7 @@ from sklearn.inspection import permutation_importance
 import numpy as np
 import matplotlib.pyplot as plt
 
-from src.models.autoencoder import Autoencoder
+from src.models.Autoencoder import _GlobalAutoencoder
 from src.core.analysis_pipeline import AnalysisPipeline
 
 def isolate_and_plot_feature(autoencoder, x_raw, y_labels, feature_idx, device, tone_names=["Tone 1", "Tone 2", "Tone 3", "Tone 4"]):
@@ -78,7 +78,10 @@ def main():
 
     print("Training Autoencoder to get the 128 Latent Features...")
 
-    autoencoder = Autoencoder(latent_dim=128).to(device)
+    autoencoder = _GlobalAutoencoder(
+        input_dim=x_raw.shape[-1],
+        latent_dim=128,
+    ).to(device)
     ae_optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.001)
     ae_criterion = nn.MSELoss()
 

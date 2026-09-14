@@ -50,11 +50,11 @@ class MultiBranchFFNNModel(TorchNNBase):
     as separate tensors instead of one stacked tensor.
 
     Usage:
-        .extract_features(["pitchtrack", "autocorr"], concatenate=False)
+        .extract_features(["pitchtrack", "autocorr"])
         .evaluate_model("MultiBranchFFNN", training_options={...})
     """
 
-    required_inputs = ["pitchtrack", "autocorr"]
+    required_inputs = ["raw", "pitchtrack", "autocorr"]
 
     def __init__(self, training_options: dict):
         TorchNNBase.__init__(self, training_options)

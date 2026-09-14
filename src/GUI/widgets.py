@@ -13,12 +13,14 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QToolTip,
     QVBoxLayout,
     QWidget,
+    QAbstractItemView,
 )
 
 from .manager import Manager
@@ -281,7 +283,7 @@ class ParameterEditorWidget(QWidget):
             QLabel { color: #333333; background: transparent; }
             QLineEdit { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
             QComboBox { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
-            QComboBox QAbstractItemView { color: #333333; background: white; selection-background-color: #4285f4; selection-color: white; }
+            QComboBox QAbstractItemView { color: #333333; background: white; selection-background-color: #e8f0fe; selection-color: #111111; }
             QPushButton { color: #333333; }
             QPlainTextEdit { color: #333333; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; }
         """)
@@ -421,28 +423,35 @@ class ParameterEditorWidget(QWidget):
             self._form_layout.addRow("Model Filepath:", container)
         elif function_name == "extract_features":
             from ..features import FEATURE_REGISTRY
-            from PyQt5.QtWidgets import QListWidget, QAbstractItemView
-            available = list(FEATURE_REGISTRY.keys())
-            current_val = current_params.get("feature_names", "pitchtrack,autocorr,autoencoder_latent")
-            selected = set(s.strip() for s in current_val.split(",") if s.strip()) if isinstance(current_val, str) else set(current_val)
 
-            lw = QListWidget()
-            lw.setSelectionMode(QAbstractItemView.MultiSelection)
-            lw.setStyleSheet(
+            available_features = list(FEATURE_REGISTRY.keys())
+            current_val = current_params.get("feature_names", "")
+            if isinstance(current_val, str):
+                selected_features = {
+                    name.strip()
+                    for name in current_val.split(",")
+                    if name.strip()
+                }
+            else:
+                selected_features = set(current_val or [])
+
+            feature_list = QListWidget()
+            feature_list.setSelectionMode(QAbstractItemView.MultiSelection)
+            feature_list.setStyleSheet(
                 "QListWidget { border: 1px solid #ccc; border-radius: 4px;"
                 " background: white; color: #333333; }"
                 " QListWidget::item { padding: 4px 8px; color: #333333; }"
                 " QListWidget::item:selected { background: #4285f4; color: white; }"
-                " QListWidget::item:hover { background: #f0f4ff; }"
+                " QListWidget::item:hover { background: #f0f4ff; color: #333333; }"
             )
-            for feat in available:
-                lw.addItem(feat)
-                if feat in selected:
-                    lw.item(lw.count() - 1).setSelected(True)
-            lw.setFixedHeight(min(36 * len(available), 180))
+            for feature_name in available_features:
+                feature_list.addItem(feature_name)
+                if feature_name in selected_features:
+                    feature_list.item(feature_list.count() - 1).setSelected(True)
+            feature_list.setFixedHeight(min(36 * max(len(available_features), 1), 180))
 
-            self._editors.append(("feature_names", lw, None))
-            self._form_layout.addRow("Features:", lw)
+            self._editors.append(("feature_names", feature_list, None))
+            self._form_layout.addRow("Features:", feature_list)
         else:
             # Standard positional matching for other functions
             param_names = self._parameter_names(function_name)
@@ -561,7 +570,16 @@ class ParameterEditorWidget(QWidget):
                 ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
                 ArgumentDetail("weight_decay", float, 0.1, "L2 regularization penalty"),
             ]
-        elif model_name_lower in ["dynamiccnn", "dynamicffnn", "dynamicrnn", "dynamiccrnn", "dynamictransformer", "multibranch", "multibranchffnn"]:
+        elif model_name_lower in [
+            "dynamiccnn",
+            "dynamicffnn",
+            "dynamicrnn",
+            "dynamiccrnn",
+            "dynamictransformer",
+            "multibranchffnn",
+            "multichannelcnn",
+            "transformermulti",
+        ]:
             ads = [
                 ArgumentDetail("num_epochs", int, 50, "Number of training epochs"),
                 ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
@@ -609,7 +627,7 @@ class ParameterEditorWidget(QWidget):
 
     _TEXTEDIT_STYLE = (
         "QPlainTextEdit { border: 1px solid #ccc; border-radius: 4px;"
-        " padding: 4px 6px; background: white; }"
+        " padding: 4px 6px; background: white; color: #333333; }"
         " QPlainTextEdit QScrollBar:vertical {"
         "   background: #f0f0f0; width: 8px; border-radius: 4px;"
         " }"
@@ -754,8 +772,7 @@ class ParameterEditorWidget(QWidget):
                 val = widget.get_value()
             elif isinstance(widget, QComboBox):
                 val = widget.currentText()
-            elif hasattr(widget, 'selectedItems') and callable(widget.selectedItems):
-                # QListWidget multi-select (e.g. extract_features)
+            elif isinstance(widget, QListWidget):
                 val = ",".join(item.text() for item in widget.selectedItems())
             
             if name.startswith("to_"):

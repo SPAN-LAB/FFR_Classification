@@ -66,16 +66,6 @@ trim_by_timestamp_detail = FD(
     description="Keeps only the datapoints recorded between the provided timestamps."
 )
 
-filter_by_label_detail = FD(
-    kind=FunctionKind.gui,
-    label="Filter by Label",
-    argument_details=[
-        AD("labels", str, "1,2,3,4",
-           "Comma-separated labels to keep e.g. '1,2,3'"),
-    ],
-    description="Keep only trials matching the specified labels."
-)
-
 trim_by_index_detail = FD(
     label="Trim by Index",
     argument_details=[
@@ -131,13 +121,16 @@ extract_features_detail = FD(
     label="Extract Features",
     argument_details=[
         AD(
-            label="Feature Names",
+            label="Feature Names (comma-separated)",
             type=str,
-            default_value="pitchtrack,autocorr,autoencoder_latent",
-            description="Comma-separated list of features to extract. Available: pitchtrack, autocorr, autoencoder_latent"
+            default_value="pitchtrack,autocorr,zerocrossing",
+            description=(
+                "Comma-separated features to compute: pitchtrack, autocorr, "
+                "zerocrossing, spectrogram, autoencoder_latent."
+            )
         )
     ],
-    description="Extracts features from raw EEG trials. Features are stored in trial.features[name]."
+    description="Computes one or more selected features for every loaded trial."
 )
 
 fold_detail = FD(
@@ -151,19 +144,6 @@ fold_detail = FD(
         )
     ],
     description="Divides each subject's trials into the number of groups (folds) provided."
-)
-
-extract_features_detail = FD(
-    label="Extract Features",
-    argument_details=[
-        AD(
-            label="Feature Names (comma-separated)",
-            type=str,
-            default_value="pitchtrack,autocorr,zerocrossing",
-            description="Comma-separated features to compute: pitchtrack, autocorr, zerocrossing."
-        )
-    ],
-    description="Computes one or more selected features for every loaded trial."
 )
 
 save_state_detail = FD(

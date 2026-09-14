@@ -20,12 +20,12 @@ import numpy as np
 import pandas as pd
 from math import ceil
 from pathlib import Path
-from ..analysis.utils import get_results
+from ..analysis.utils import get_result_records
 
 def plot_single_trial(trial: EEGTrial):
     # Create a simple line plot of timestamps (x) vs data (y)
     fig, ax = plt.subplots()
-    ax.plot(trial.timestamps, trial.data, linewidth=0.8, color='steelblue')
+    ax.plot(trial.timestamps, trial.data, linewidth=0.8, color="steelblue")
     ax.set_xlabel("Time")
     ax.set_ylabel("Signal")
     title_label = f"{trial.mapped_label}" if getattr(trial, "mapped_label", None) is not None else ""
@@ -54,7 +54,7 @@ def plot_averaged_trials(subject: EEGSubject, key: Callable[[EEGTrial], Any]=lam
         return ax
 
     try:
-        keys = sorted(keys, key=lambda x: int(x) if str(x).isdigit() else str(x))
+        keys = sorted(keys, key=lambda value: int(value) if str(value).isdigit() else str(value))
     except Exception:
         pass
 
@@ -160,7 +160,7 @@ def plot_grand_average(subjects: list[EEGSubject], show_components: bool=True):
         return ax
 
     try:
-        keys = sorted(keys, key=lambda x: int(x) if str(x).isdigit() else str(x))
+        keys = sorted(keys, key=lambda value: int(value) if str(value).isdigit() else str(value))
     except Exception:
         pass
 
@@ -298,7 +298,10 @@ def plot_roc_curve(
         for trial in subject.trials:
             labels_set.add(trial.label)
     
-    labels = sorted(list(labels_set), key=lambda x: int(x) if str(x).isdigit() else str(x))
+    labels = sorted(
+        list(labels_set),
+        key=lambda value: int(value) if str(value).isdigit() else str(value),
+    )
     n_classes = len(labels)
     
     # Collect true labels and prediction distributions
@@ -421,7 +424,7 @@ def plot_confusion_matrix(
     labels = []
     for label in labels_set:
         labels.append(label)
-    labels.sort(key=lambda x: int(x) if str(x).isdigit() else str(x))
+    labels.sort(key=lambda value: int(value) if str(value).isdigit() else str(value))
     
     # Initialize the matrix 
     matrix = []
@@ -587,26 +590,19 @@ def plot_results(
         print(f"Error: {parent_data_dir} is not a valid directory.")
         return
 
-    # Get the names of folders in parent_data_dir
-    folder_paths = [f for f in parent_path.iterdir() if f.is_dir()]
-    folder_paths.sort(key=lambda p: p.name)
-    
-    # Get the results from each folder 
-    all_data = []
-    
-    for folder_path in folder_paths:
-        run_name = folder_path.name
-        try:
-            # The output of get_results is a list of tuples. 
-            # Each tuple is (number, number) in (x, y) coordinate space
-            res = get_results(str(folder_path))
-            if not res:
-                continue
-            for x, y in res:
-                all_data.append({"x": x, "y": y, "run": run_name})
-        except Exception as e:
-            print(f"Error processing {run_name}: {e}")
-            continue
+    try:
+        records = get_result_records(str(parent_path))
+    except Exception as e:
+        print(f"Error processing {parent_path}: {e}")
+        return
+    all_data = [
+        {
+            "x": record["value"],
+            "y": record["accuracy"],
+            "run": record["subject"],
+        }
+        for record in records
+    ]
 
     if not all_data:
         print("No data found to plot.")
@@ -655,7 +651,7 @@ def plot_results(
         # Move legend outside if needed
         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
     
-    plt.tight_layout(rect=[0, 0, 0.65, 1])
+    plt.tight_layout()
     
     if output_dir:
         out_path = Path(output_dir)
@@ -685,26 +681,19 @@ def plot_model_comparison(
         print(f"Error: {models_parent_dir} is not a valid directory.")
         return
 
-    # Subdirs of models_parent_dir are model names
-    model_paths = [f for f in parent_path.iterdir() if f.is_dir()]
-    model_paths.sort(key=lambda p: p.name)
-
-    all_data = []
-    for model_path in model_paths:
-        model_name = model_path.name
-        # Subdirs of model_path are "runs"; each run folder contains .pkl/.json
-        run_paths = [f for f in model_path.iterdir() if f.is_dir()]
-        run_paths.sort(key=lambda p: p.name)
-        for run_path in run_paths:
-            try:
-                res = get_results(str(run_path))
-                if not res:
-                    continue
-                for x, y in res:
-                    all_data.append({"x": x, "y": y, "model": model_name})
-            except Exception as e:
-                print(f"Error processing {model_name}/{run_path.name}: {e}")
-                continue
+    try:
+        records = get_result_records(str(parent_path))
+    except Exception as e:
+        print(f"Error processing {parent_path}: {e}")
+        return
+    all_data = [
+        {
+            "x": record["value"],
+            "y": record["accuracy"],
+            "model": record["model"],
+        }
+        for record in records
+    ]
 
     if not all_data:
         print("No data found to plot.")

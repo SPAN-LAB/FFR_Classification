@@ -1,19 +1,12 @@
-"""
-SPAN Lab - FFR Classification
+"""Compatibility API for training-data-amount sweeps."""
 
-Filename: accuracy_against_data_amount.py
-Author(s): Kevin Chen
-Description: A function that evaluates a model's performance on various data amounts.
-    Data amount refers to the number of trials whose data is used for training.
-"""
-
+from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from .utils import get_subject_loaded_pipelines, stratified_deterministic_sample
-from ..core import AnalysisPipeline
-from ..constants.defaults import SUBAVERAGE_SIZE
-from .iteration import iteration
+from .job_result import write_analysis_results
+from .runner import run_analysis_conditions
 
 
 def accuracy_against_data_amount(
@@ -21,54 +14,35 @@ def accuracy_against_data_amount(
     stride: int,
     subject_filepaths: list[str],
     model_names: list[str],
-    training_options: dict[str, any],
+    training_options: dict[str, Any],
     output_folder_path: str,
-    defer_subject_loading: bool = True
+    defer_subject_loading: bool = True,
 ):
-
-    # Setting up variables and time keepers
-
-    independent_var_name = "data_amount"
-    pkl_filename_prefix = f"{independent_var_name}"
-
-    # If don't defer subject loading, load all the subjects now
-    subject_loaded_pipelines = None
-    if not defer_subject_loading:
-        subject_loaded_pipelines = get_subject_loaded_pipelines(subject_filepaths)
-
+    """Run fixed-test-set learning curves through the canonical implementation."""
+    del defer_subject_loading
     for model_name in model_names:
         for subject_filepath in subject_filepaths:
-
-            # The base subject pipeline state used for this subject.
-            # Do not modify, only deeply copy.
-            if not defer_subject_loading:
-                pipeline = subject_loaded_pipelines[subject_filepath]
-            else:
-                pipeline = AnalysisPipeline().load_subjects(subject_filepath)
-
-            subject_filename = Path(subject_filepath).stem
-            write_directory = (
-                Path(output_folder_path)
-                / independent_var_name
-                / model_name
-                / subject_filename
+            subject_name = Path(subject_filepath).stem
+            results = run_analysis_conditions(
+                model_name=model_name,
+                subject_filepath=subject_filepath,
+                analysis="data_amount",
+                training_options=training_options,
+                data_amount_min=min_trials,
+                data_amount_stride=stride,
             )
-
-            max_data_amount = len(pipeline.subjects[0].trials)
-            for data_amount in range(min_trials, max_data_amount + 1, stride):
-                reduced_trials = stratified_deterministic_sample(
-                    pipeline.subjects[0],
-                    data_amount
-                )
-                reduced_pipeline = pipeline.deepcopy()
-                reduced_pipeline.subjects[0].trials = reduced_trials
-
-                iteration(
-                    model_name,
-                    training_options,
-                    SUBAVERAGE_SIZE,
-                    reduced_pipeline,
-                    write_directory,
-                    pkl_filename_prefix,
-                    data_amount
-                )
+            write_analysis_results(
+                Path(output_folder_path)
+                / f"{model_name}.{subject_name}.data_amount",
+                condition_results=results,
+                metadata={
+                    "subject": subject_name,
+                    "subject_filepath": subject_filepath,
+                    "model": model_name,
+                    "analysis": "data_amount",
+                    "value_definition": (
+                        "subaveraged training examples per cross-validation fold"
+                    ),
+                    "training_options": training_options,
+                },
+            )

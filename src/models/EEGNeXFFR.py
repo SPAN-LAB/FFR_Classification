@@ -221,14 +221,15 @@ class EEGNeXFFRModel(TorchNNBase):
 
     def __init__(self, training_options: dict[str, any]):
         TorchNNBase.__init__(self, training_options)
-        self.build()
 
     def build(self) -> None:
+        if self.subject is None:
+            raise ValueError("EEGNeXFFR requires a subject before it can be built.")
         opt = self.training_options if isinstance(self.training_options, dict) else {}
         self.model = _EEGNeXFFRNet(
             n_chans=int(opt.get("n_chans", 1)),
-            n_times=int(opt.get("n_times", 4915)),
-            n_outputs=int(opt.get("n_classes", 4)),
+            n_times=int(opt.get("n_times", self.subject.trial_size)),
+            n_outputs=int(opt.get("n_classes", self.subject.num_categories)),
             kernel_block_3=int(opt.get("kernel_block_3", 16)),
             drop_prob=float(opt.get("drop_prob", 0.5)),
             sinc_frontend=bool(opt.get("sinc_frontend", False)),

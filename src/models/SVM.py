@@ -77,10 +77,18 @@ class SVM(ModelInterface):
                 n_jobs=-1
             )
 
-    def train(self):
-
-        X_train = np.array([t.data for t in self.subject.trials])
-        y_train = np.array([t.raw_label for t in self.subject.trials])
+    def train(
+        self,
+        *,
+        trials=None,
+        validation_trials=None,
+        pickle_to=None,
+        overwrite=True,
+    ):
+        del validation_trials, pickle_to, overwrite
+        training_trials = self.subject.trials if trials is None else trials
+        X_train = np.array([t.data for t in training_trials])
+        y_train = np.array([t.raw_label for t in training_trials])
 
         self.scaler = StandardScaler()
         X_train_scaled = self.scaler.fit_transform(X_train)

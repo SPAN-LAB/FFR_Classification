@@ -163,6 +163,29 @@ python your_script.py
 python your_script.py
 ```
 
+### Analysis sweeps
+
+Use the same command locally and on CHTC. Omitting `--value` runs every
+configured value for that analysis:
+
+```bash
+python -m server_analysis.run_analysis \
+  --model FFNN \
+  --subject data/4T1002.mat \
+  --analysis subaverage
+```
+
+On the CHTC access point, `jobs_config/ffr_test_run/submit_analysis.sh` creates
+the subject/type manifest and submits it:
+
+```bash
+./submit_analysis.sh FFNN
+```
+
+This runs both subaverage and data-amount analyses for every subject listed in
+`subjects.txt`. See `server_analysis/README.md` for selecting models or only one
+analysis type.
+
 ---
 
 ## Quick Example

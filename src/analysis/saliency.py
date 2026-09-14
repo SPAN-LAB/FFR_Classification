@@ -12,7 +12,7 @@ def analyze_saliency_phase_locking(
     training_options: dict,
     output_folder_path: str,
     target_tones: list[int] = [1, 2, 3, 4],
-    sampling_rate: int = 5000,
+    sampling_rate: int = 16384,
     subaverage_size: int = 1,
     num_folds: int = 5  # Added parameter for folding
 ):
@@ -50,6 +50,9 @@ def analyze_saliency_phase_locking(
             continue
 
         model_wrapper = pipeline.models[i]
+        if getattr(model_wrapper, "required_inputs", ["raw"]) != ["raw"]:
+            print(f"  {model_name} requires non-raw inputs; saliency currently supports raw-only models.")
+            continue
         
         # Access the internal PyTorch module
         if hasattr(model_wrapper, 'model'):
@@ -77,14 +80,23 @@ def analyze_saliency_phase_locking(
             grand_avg = np.mean(X_np, axis=0)
             
             # Prepare Tensor: (1, 1, Time)
-            input_tensor = torch.tensor(grand_avg, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-            input_tensor.requires_grad_()
+            device = next(torch_model.parameters()).device
+            input_tensor = (
+                torch.tensor(grand_avg, dtype=torch.float32, device=device)
+                .reshape(1, 1, -1)
+                .clone()
+                .detach()
+                .requires_grad_(True)
+            )
             
             # B. Forward Pass & Backprop
             torch_model.zero_grad()
             output = torch_model(input_tensor)
             
-            target_idx = target_tone - 1 
+            target_idx = subject.labels_map.get(target_tone)
+            if target_idx is None:
+                print(f"  Warning: Tone {target_tone} is not in the subject label map")
+                continue
             if output.shape[1] <= target_idx:
                 print(f"  Warning: Output size {output.shape} too small for target {target_idx}")
                 continue

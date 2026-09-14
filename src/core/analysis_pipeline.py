@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
+from typing import Any
+
 import numpy as np
 
 from ..printing import print, printl
 
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
-from ..models.utils import ModelInterface
-from ..models.utils import find_model
 from .utils import detail, undetailed, gui_private, details
 from pathlib import Path
 import pickle
@@ -40,7 +40,7 @@ class AnalysisPipeline:
         `models[i]` is trained on all subjects except `subjects[i]`. 
         """
         self.subjects: list[EEGSubject] = []
-        self.models: list[ModelInterface] = []
+        self.models: list[Any] = []
 
     @undetailed()
     def save(self, *, to: PipelineState) -> AnalysisPipeline:
@@ -79,8 +79,72 @@ class AnalysisPipeline:
 
     # MARK: IO
 
+    @staticmethod
+    def _coerce_csv_list(values: str | list[str]) -> list[str]:
+        if isinstance(values, str):
+            values = [part.strip() for part in values.replace(";", ",").split(",")]
+        return [value for value in values if value]
+
+    @staticmethod
+    def _trial_payload(trial: EEGTrial, *, include_predictions: bool = True) -> dict[str, Any]:
+        payload = {
+            "trial_index": trial.trial_index,
+            "timestamps": trial.timestamps,
+            "data": trial.data,
+            "raw_label": trial.raw_label,
+            "mapped_label": trial.mapped_label,
+            "features": dict(trial.features),
+        }
+        if include_predictions:
+            payload["prediction"] = trial.prediction
+            payload["prediction_distribution"] = trial.prediction_distribution
+        return payload
+
+    @staticmethod
+    def _subject_payload(subject: EEGSubject, *, include_predictions: bool = True) -> dict[str, Any]:
+        return {
+            "name": subject.name,
+            "source_filepath": subject.source_filepath,
+            "labels_map": dict(subject.labels_map),
+            "trials": [
+                AnalysisPipeline._trial_payload(
+                    trial,
+                    include_predictions=include_predictions,
+                )
+                for trial in subject.trials
+            ],
+        }
+
+    @staticmethod
+    def _subject_from_payload(payload: dict[str, Any]) -> EEGSubject:
+        subject = EEGSubject()
+        subject.source_filepath = payload.get("source_filepath")
+        subject.labels_map = dict(payload.get("labels_map", {}))
+        trials = []
+        for trial_payload in payload.get("trials", []):
+            trial = EEGTrial(
+                subject=subject,
+                data=trial_payload["data"],
+                trial_index=trial_payload["trial_index"],
+                timestamps=trial_payload["timestamps"],
+                raw_label=trial_payload["raw_label"],
+                mapped_label=trial_payload.get("mapped_label"),
+                prediction=trial_payload.get("prediction"),
+                prediction_distribution=trial_payload.get("prediction_distribution"),
+            )
+            trial.features = dict(trial_payload.get("features", {}))
+            trials.append(trial)
+        subject.trials = trials
+        if not subject.labels_map:
+            subject.setup_labels_map()
+        return subject
+
     @gui_private()
-    def load_subjects(self, path: str | list[str], data_var: str = "ffr_nodss") -> AnalysisPipeline:
+    def load_subjects(
+        self,
+        path: str | list[str],
+        data_var: str = "ffr_nodss",
+    ) -> AnalysisPipeline:
         """
         Using either a file path or directory path, uses found .mat files to instantiate EEGSubject
         instances and adds them to this object's subjects list. 
@@ -129,6 +193,119 @@ class AnalysisPipeline:
 
         return self
 
+    @detail(details.save_state_detail)
+    def save_state(self, filepath: str) -> AnalysisPipeline:
+        """
+        Saves the full pipeline state, including loaded subjects, extracted
+        features, predictions, and trained model objects.
+        """
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with filepath.open("wb") as file:
+            pickle.dump(self.deepcopy(), file)
+        print(f"save_state : wrote {filepath.absolute()}")
+        return self
+
+    @detail(details.load_state_detail)
+    def load_state(self, filepath: str) -> AnalysisPipeline:
+        """
+        Loads a full pipeline state previously written by save_state().
+        """
+        with Path(filepath).open("rb") as file:
+            loaded = pickle.load(file)
+        if not isinstance(loaded, AnalysisPipeline):
+            raise ValueError("Loaded object is not an AnalysisPipeline state.")
+        self.subjects = loaded.subjects
+        self.models = loaded.models
+        print(f"load_state : loaded {filepath}")
+        return self
+
+    @detail(details.save_features_detail)
+    def save_features(self, filepath: str) -> AnalysisPipeline:
+        """
+        Saves extracted features plus the raw input variables used to compute
+        them. This can be loaded back onto matching subjects with load_features().
+        """
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "kind": "ffr_features",
+            "subjects": [
+                self._subject_payload(subject, include_predictions=False)
+                for subject in self.subjects
+            ],
+        }
+        with filepath.open("wb") as file:
+            pickle.dump(payload, file)
+        print(f"save_features : wrote {filepath.absolute()}")
+        return self
+
+    @detail(details.load_features_detail)
+    def load_features(self, filepath: str) -> AnalysisPipeline:
+        """
+        Loads feature dictionaries saved by save_features() onto the currently
+        loaded subjects, matching by subject name and trial_index.
+        """
+        with Path(filepath).open("rb") as file:
+            payload = pickle.load(file)
+        if payload.get("kind") != "ffr_features":
+            raise ValueError("Feature file was not created by save_features().")
+
+        current_trials = {
+            (subject.name, trial.trial_index): trial
+            for subject in self.subjects
+            for trial in subject.trials
+        }
+        loaded_count = 0
+        for subject_payload in payload.get("subjects", []):
+            for trial_payload in subject_payload.get("trials", []):
+                key = (subject_payload.get("name"), trial_payload.get("trial_index"))
+                if key not in current_trials:
+                    continue
+                current_trials[key].features.update(trial_payload.get("features", {}))
+                loaded_count += 1
+
+        print(f"load_features : loaded features for {loaded_count} trial(s)")
+        return self
+
+    @detail(details.save_visualization_data_detail)
+    def save_visualization_data(self, filepath: str) -> AnalysisPipeline:
+        """
+        Saves subjects, raw trial data, labels, features, predictions, and
+        prediction distributions for later visualization without rerunning.
+        """
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "kind": "ffr_visualization_data",
+            "subjects": [
+                self._subject_payload(subject, include_predictions=True)
+                for subject in self.subjects
+            ],
+        }
+        with filepath.open("wb") as file:
+            pickle.dump(payload, file)
+        print(f"save_visualization_data : wrote {filepath.absolute()}")
+        return self
+
+    @detail(details.load_visualization_data_detail)
+    def load_visualization_data(self, filepath: str) -> AnalysisPipeline:
+        """
+        Loads subjects and prediction data saved by save_visualization_data().
+        """
+        with Path(filepath).open("rb") as file:
+            payload = pickle.load(file)
+        if payload.get("kind") != "ffr_visualization_data":
+            raise ValueError("Visualization file was not created by save_visualization_data().")
+
+        self.subjects = [
+            self._subject_from_payload(subject_payload)
+            for subject_payload in payload.get("subjects", [])
+        ]
+        self.models = []
+        print(f"load_visualization_data : loaded {len(self.subjects)} subject(s)")
+        return self
+
     # MARK: Pre-training processing functions
 
     @detail(details.map_labels_detail)
@@ -157,7 +334,6 @@ class AnalysisPipeline:
         """
         for subject in self.subjects:
             subject.map_trial_labels(rule_csv)
-            subject.setup_labels_map()
         print("map_labels : done")
         return self
 
@@ -182,24 +358,6 @@ class AnalysisPipeline:
             subject.trim_by_timestamp(start_time, end_time)
         print("trim_by_timestamp : done")
         return self
-    
-    @detail(details.filter_by_label_detail)
-    def filter_by_label(self, labels: str) -> AnalysisPipeline:
-        """
-        Keeps only trials whose label matches one of the provided labels.
-        labels: comma-separated string e.g. "1,2,3"
-        """
-        label_set = set(l.strip() for l in labels.split(","))
-        for subject in self.subjects:
-            subject.trials = [
-                t for t in subject.trials
-                if str(t.label) in label_set
-            ]
-            subject.setup_labels_map()
-            print(f"DEBUG: n_trials={len(subject.trials)}, labels={set(str(t.label) for t in subject.trials)}, num_cat={subject.num_categories}")
-            print(f"DEBUG after filter: labels_map={subject.labels_map}, num_categories={subject.num_categories}, n_trials={len(subject.trials)}")
-        print(f"filter_by_label {label_set} : done")
-        return self
 
     @detail(details.trim_by_index_detail)
     def trim_by_index(self, start_index: int, end_index: int) -> AnalysisPipeline:
@@ -209,6 +367,24 @@ class AnalysisPipeline:
         for subject in self.subjects:
             subject.trim_by_index(start_index, end_index)
         print("trim_by_index : done")
+        return self
+
+    @detail(details.trim_by_type_detail)
+    def trim_by_type(
+        self,
+        label_values: str,
+        label_source: str = "raw",
+    ) -> AnalysisPipeline:
+        """
+        Keeps only trials whose labels are in label_values.
+
+        label_values may be comma-separated, for example "1,2,3".
+        label_source may be "raw", "mapped", or "current".
+        """
+        for subject in self.subjects:
+            before = len(subject.trials)
+            subject.trim_by_type(label_values, label_source=label_source)
+            print(f"trim_by_type : {subject.name} {before} -> {len(subject.trials)} trials")
         return self
 
     @detail(details.subaverage_detail)
@@ -237,61 +413,6 @@ class AnalysisPipeline:
             print(f"subaverage ({size}) : done")
         return self
 
-    
-    @detail(details.extract_features_detail)
-    def extract_features(self, feature_names: list[str] | str) -> AnalysisPipeline:
-        if isinstance(feature_names, str):
-            feature_names = [f.strip() for f in feature_names.split(",") if f.strip()]
-        """
-        Pre-computes the requested features for every trial across all subjects
-        and stores results in trial.features[name].
-
-        For stateless features (pitch, autocorr): computed per trial independently.
-        For trainable features (autoencoder_latent): fit() is called per subject
-        first (subject-specific), then each trial is encoded.
-
-        Parameters
-        ----------
-        feature_names : list[str]
-            Names of features to compute e.g. ["pitchtrack", "autoencoder_latent"].
-            Each name must be a key in src.features.FEATURE_REGISTRY.
-        """
-        from ..features import FEATURE_REGISTRY, compute_fs
-        import numpy as np
-
-        for name in feature_names:
-            if name not in FEATURE_REGISTRY:
-                raise ValueError(
-                    f"Unknown feature '{name}'. "
-                    f"Available: {list(FEATURE_REGISTRY.keys())}"
-                )
-
-        for subject in self.subjects:
-            fs = compute_fs(subject.trials[0].timestamps)
-
-            # For trainable extractors, fit per subject first
-            for name in feature_names:
-                extractor = FEATURE_REGISTRY[name]
-                if hasattr(extractor, "fit"):
-                    subject_signals = [trial.data for trial in subject.trials]
-                    print(
-                        f"extract_features | fitting '{name}' on "
-                        f"{subject.name} ({len(subject_signals)} trials)..."
-                    )
-                    extractor.fit(subject_signals)
-
-            # Extract features per trial at their natural size — no padding
-            for trial in subject.trials:
-                trial.features["raw"] = np.array(trial.data, dtype=np.float32)
-                for name in feature_names:
-                    trial.features[name] = np.array(
-                        FEATURE_REGISTRY[name](trial.data, fs),
-                        dtype=np.float32
-                    )
-
-        print(f"extract_features {feature_names} : done")
-        return self
-    
     @detail(details.fold_detail)
     def fold(self, num_folds: int = 5) -> AnalysisPipeline:
         """
@@ -313,6 +434,81 @@ class AnalysisPipeline:
         print("fold : done")
         return self
 
+    @detail(details.extract_features_detail)
+    def extract_features(self, feature_names: str | list[str]) -> AnalysisPipeline:
+        """
+        Pre-computes the requested features for every trial across all subjects
+        and stores the results in trial.features[name].
+
+        Call this after trim_by_timestamp / subaverage, before fold.
+
+        Parameters
+        ----------
+        feature_names : list[str]
+            Names of features to compute, e.g. ["pitchtrack"].
+            Each name must be a key in src.features.FEATURE_REGISTRY.
+        """
+        from ..features import FEATURE_REGISTRY, compute_fs
+
+        feature_names = self._coerce_csv_list(feature_names)
+
+        for name in feature_names:
+            if name not in FEATURE_REGISTRY:
+                raise ValueError(f"Unknown feature '{name}'. Available: {list(FEATURE_REGISTRY.keys())}")
+
+        for subject in self.subjects:
+            if not subject.trials:
+                continue
+
+            fs = compute_fs(subject.trials[0].timestamps)
+
+            for name in feature_names:
+                extractor = FEATURE_REGISTRY[name]
+                if hasattr(extractor, "fit"):
+                    subject_signals = [trial.data for trial in subject.trials]
+                    print(
+                        f"extract_features | fitting '{name}' on "
+                        f"{subject.name} ({len(subject_signals)} trials)..."
+                    )
+                    extractor.fit(subject_signals)
+
+            for trial in subject.trials:
+                trial.features["raw"] = np.asarray(trial.data, dtype=np.float32)
+                for name in feature_names:
+                    trial.features[name] = np.asarray(
+                        FEATURE_REGISTRY[name](trial.data, fs),
+                        dtype=np.float32,
+                    )
+
+        print(f"extract_features {feature_names} : done")
+        return self
+
+    def _prepare_model_inputs(
+        self,
+        concrete_model,
+        training_options: dict[str, any] | None,
+    ) -> list[str]:
+        required_inputs = concrete_model.required_inputs_for_options(training_options)
+
+        if "raw" in required_inputs:
+            for subject in self.subjects:
+                for trial in subject.trials:
+                    if "raw" not in trial.features:
+                        trial.features["raw"] = np.asarray(trial.data, dtype=np.float32)
+
+        features_needed = [name for name in required_inputs if name != "raw"]
+        if features_needed:
+            already_computed = all(
+                name in trial.features
+                for subject in self.subjects
+                for trial in subject.trials
+                for name in features_needed
+            ) if self.subjects else True
+            if not already_computed:
+                self.extract_features(features_needed)
+
+        return required_inputs
+
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
@@ -320,39 +516,193 @@ class AnalysisPipeline:
         """
         TODO @Kevin
         """
+        from ..models.utils import find_model
+
         self.models = []
         concrete_model = find_model(model_name)
 
-        if "raw" in concrete_model.required_inputs:
-            for subject in self.subjects:
-                for trial in subject.trials:
-                    if "raw" not in trial.features:
-                        trial.features["raw"] = np.array(trial.data, dtype=np.float32)
-
-    # Auto-extract any non-raw features the model declares it needs
-        features_needed = [f for f in concrete_model.required_inputs if f != "raw"]
-        if features_needed:
-            already_computed = all(
-                f in trial.features
-                for subject in self.subjects
-                for trial in subject.trials
-                for f in features_needed
-            ) if self.subjects else True
-            if not already_computed:
-                self.extract_features(features_needed)
+        self._prepare_model_inputs(concrete_model, training_options)
 
         print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
+            # Construct the model
             model = concrete_model(training_options)
             model.set_subject(subject)
 
-            # If the model requires all subjects (e.g. Autoencoder LOSO pretraining)
+            # If the model requires all subjects (e.g. Autoencoder LOSO pretraining), pass them in
             if model.needs_all_subjects:
                 model.set_all_subjects(self.subjects)
 
             accuracy = model.evaluate()
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
+
+        return self
+
+    def evaluate_model_with_training_amount(
+        self,
+        model_name: str,
+        training_options: dict[str, Any],
+        training_amount: int,
+    ) -> AnalysisPipeline:
+        """Evaluate fixed folds while limiting only each fold's training pool."""
+        from ..models.utils import find_model
+        from .utils.sampling import sds2
+
+        if training_amount < 1:
+            raise ValueError("training_amount must be at least 1")
+
+        self.models = []
+        concrete_model = find_model(model_name)
+        self._prepare_model_inputs(concrete_model, training_options)
+
+        for subject in self.subjects:
+            if not subject.folds:
+                raise ValueError(
+                    "Subjects must be folded before evaluating a training-data amount."
+                )
+
+            model = concrete_model(training_options)
+            model.set_subject(subject)
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
+
+            for held_out_i, test_trials in enumerate(subject.folds):
+                training_pool = [
+                    trial
+                    for fold_i, fold_trials in enumerate(subject.folds)
+                    if fold_i != held_out_i
+                    for trial in fold_trials
+                ]
+                if training_amount > len(training_pool):
+                    raise ValueError(
+                        f"training_amount={training_amount} exceeds the smallest "
+                        f"available training pool ({len(training_pool)}) for "
+                        f"subject {subject.name}."
+                    )
+
+                sampled_training = sds2(list(training_pool), training_amount)
+                model.train(
+                    trials=list(sampled_training),
+                    validation_trials=model.get_validation_ratio(),
+                )
+                model.infer(trials=test_trials)
+
+            accuracy = EEGTrial.get_accuracy(subject.folds)
+            print(
+                f"Evaluation accuracy on {subject.name} with "
+                f"{training_amount} training trials per fold: {accuracy}"
+            )
+            self.models.append(model)
+
+        return self
+
+    def unify_label_maps(self) -> AnalysisPipeline:
+        """
+        Builds a single global label -> index map shared by every loaded subject.
+
+        Each subject otherwise enumerates its own labels in first-appearance order
+        (see EEGSubject.setup_labels_map), so the same class can map to different
+        integer targets across subjects. That is harmless for per-subject models but
+        wrong for any cross-subject model, where pooled trials must share one label
+        space. Call this before pooling trials across subjects.
+
+        Returns
+        -------
+        A reference to this object.
+        """
+        labels = set()
+        for subject in self.subjects:
+            for trial in subject.trials:
+                labels.add(trial.label)
+
+        global_map = {label: i for i, label in enumerate(sorted(labels))}
+        for subject in self.subjects:
+            subject.labels_map = dict(global_map)
+
+        print(f"unify_label_maps : {global_map}")
+        return self
+
+    def evaluate_generic_model(
+        self,
+        model_name: str,
+        training_options: dict[str, any],
+        only_held_out: list[str] | None = None,
+    ) -> AnalysisPipeline:
+        """
+        Leave-one-subject-out (LOSO) evaluation of a generic, subject-independent model.
+
+        For each held-out subject, a fresh model is trained on the pooled trials of
+        every OTHER loaded subject and tested on the held-out subject's trials. The
+        held-out subject is never seen during training, so the reported accuracy
+        measures cross-subject generalization rather than within-subject fit.
+
+        Unlike evaluate_model, this does NOT use each subject's `folds`; the held-out
+        subject IS the test fold. Run trim/subaverage/extract_features beforehand, but
+        `fold` is unnecessary.
+
+        Parameters
+        ----------
+        model_name : str
+            Registered model name (resolved via find_model).
+        training_options : dict
+            Passed to the model constructor and training loop.
+        only_held_out : list[str] | None
+            If given, only these subject names are held out (one at a time), each still
+            trained on every other loaded subject. Lets CHTC run one held-out subject
+            per job. None -> full LOSO over every loaded subject.
+
+        Returns
+        -------
+        A reference to this object.
+        """
+        if len(self.subjects) < 2:
+            raise ValueError("Generic (LOSO) evaluation needs at least 2 loaded subjects.")
+
+        from ..models.utils import find_model
+
+        self.models = []
+        concrete_model = find_model(model_name)
+
+        self._prepare_model_inputs(concrete_model, training_options)
+
+        # Pooled cross-subject training requires a shared label space
+        self.unify_label_maps()
+
+        accuracies: dict[str, float] = {}
+        for i, held_out in enumerate(self.subjects):
+            if only_held_out is not None and held_out.name not in only_held_out:
+                continue
+
+            train_trials = [
+                trial
+                for j, subject in enumerate(self.subjects)
+                if j != i
+                for trial in subject.trials
+            ]
+            test_trials = held_out.trials
+
+            model = concrete_model(training_options)
+            model.set_subject(held_out)
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
+            # Pass a fresh list: _core_train pops the validation split out of it,
+            # which must not mutate any subject's own trial list.
+            model.train(
+                trials=list(train_trials),
+                validation_trials=model.get_validation_ratio(),
+            )
+            accuracy = model.infer(trials=test_trials)
+            accuracies[held_out.name] = accuracy
+            print(
+                f"LOSO accuracy (held out {held_out.name}, "
+                f"trained on {len(train_trials)} trials): {accuracy}"
+            )
+            self.models.append(model)
+
+        if accuracies:
+            mean_acc = sum(accuracies.values()) / len(accuracies)
+            print(f"LOSO mean accuracy over {len(accuracies)} held-out subject(s): {mean_acc}")
 
         return self
 
@@ -371,11 +721,18 @@ class AnalysisPipeline:
             output_dirpath = Path(output_dirpath)
         
         self.models = []
+        from ..models.utils import find_model
+
         concrete_model = find_model(model_name)
+
+        self._prepare_model_inputs(concrete_model, hyperparameters)
+
         for subject in self.subjects:
             # Construct the model
             model = concrete_model(hyperparameters)
             model.set_subject(subject)
+            if model.needs_all_subjects:
+                model.set_all_subjects(self.subjects)
             
             print(f"training on {len(model.subject.trials)} trials")
 
@@ -414,7 +771,7 @@ class AnalysisPipeline:
             
             # Load the model
             with open(model_filepath, "rb") as file:
-                new_model: ModelInterface = deepcopy(pickle.load(file))
+                new_model: Any = deepcopy(pickle.load(file))
             print(new_model.subject)
             new_model.set_subject(subject) # Important step! Don't remove
             
