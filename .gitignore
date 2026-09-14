@@ -15,6 +15,7 @@
 !demo.py
 !analysis.py
 !run_gui.py
+!analyze.py
 
 *.png
 !spanlab_logo_final.png
@@ -24,3 +25,4 @@
 *.csv
 *.mat
 *.pkl
+*.ipynb

@@ -523,6 +523,7 @@ class AnalysisPipeline:
 
         self._prepare_model_inputs(concrete_model, training_options)
 
+        print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)
