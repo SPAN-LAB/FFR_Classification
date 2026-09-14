@@ -341,6 +341,7 @@ class AnalysisPipeline:
             if not already_computed:
                 self.extract_features(features_needed)
 
+        print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
             model = concrete_model(training_options)
             model.set_subject(subject)

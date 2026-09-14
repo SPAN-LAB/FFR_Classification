@@ -26,7 +26,7 @@ p = (
     AnalysisPipeline()
     .load_subjects(SUBJECT_FILEPATHS)
     .save(to=loading_result)
-    .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
+    .trim_by_timestamp(start_time=50, end_time=250) # Keep all starting from 0 ms
     .save(to=trimming_result)
     .subaverage(5)
     .fold(5)
