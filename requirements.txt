@@ -5,3 +5,4 @@ scikit-learn>=1.7.0
 torch>=2.0.0
 pymatreader>=1.0.0
 tensorflow>=2.16.0
+PyQt5>=5.0.0
