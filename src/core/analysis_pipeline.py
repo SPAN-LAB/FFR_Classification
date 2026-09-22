@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -143,6 +143,7 @@ class AnalysisPipeline:
     def load_subjects(
         self,
         path: str | list[str],
+        extract: Callable | None = None,
         data_var: str = "ffr_nodss",
     ) -> AnalysisPipeline:
         """
@@ -163,7 +164,7 @@ class AnalysisPipeline:
         def load_subjects_helper(filepath: str, check_extension: bool = True):
             if check_extension and not filepath.endswith(".mat"):
                 raise ValueError(f"File does not end with .mat: {filepath}")
-            subject = EEGSubject.init_from_filepath(filepath, data_var=data_var)
+            subject = EEGSubject.init_from_filepath(filepath, extract=extract, data_var=data_var)
             print(f"load_subjects : Subject loaded from {filepath}")
             self.subjects.append(subject)
             
