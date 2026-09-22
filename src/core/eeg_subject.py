@@ -200,7 +200,7 @@ class EEGSubject:
             ]
 
         allowed = {
-            self._label_key(self.parse_label_token(value))
+            self.parse_label_token(value)
             for value in label_values
         }
 
@@ -268,23 +268,28 @@ This causes some folds to have 0 trials from this category.""")
         return self
 
     def map_trial_labels(self, rule_filepath: str) -> Self:
-        # Create a dictionary that maps from raw label to mapped label
         labels_map: dict[Any, Any] = {}
 
         with open(rule_filepath, "r") as file:
             for line in file:
                 line = line.strip()
                 if not line or line.startswith("#"):
-                    continue  # Skip empty lines or comments
+                    continue
 
-                values = line.split(",")
-                mapped_label = self.parse_label_token(values[0])
-                for raw_label in values[1:]:
-                    raw_label = raw_label.strip()
-                    if raw_label:
-                        labels_map[self._label_key(self.parse_label_token(raw_label))] = mapped_label
+                tokens = [token.strip() for token in line.split(",") if token.strip()]
+                if len(tokens) != 2:
+                    print(f"Ignoring mapping line (expected 2 items, got {len(tokens)}): {line}")
+                    continue
 
-        # Assign mapped labels to each trial
+                source_label = self.parse_label_token(tokens[0])
+                target_label = self.parse_label_token(tokens[1])
+                existing = labels_map.get(source_label)
+                if existing is not None and existing != target_label:
+                    raise ValueError(
+                        f"Source label {source_label} maps to both {existing} and {target_label}."
+                    )
+                labels_map[source_label] = target_label
+
         for trial in self.trials:
             raw = self._label_key(trial.raw_label)
             if raw not in labels_map:
