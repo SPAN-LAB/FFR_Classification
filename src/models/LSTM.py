@@ -1,42 +1,85 @@
-from torch import nn
 import torch
+from torch import nn
+
 from .utils import TorchNNBase
 
 
 class CNN_LSTM(nn.Module):
-    def __init__(self, num_classes: int, hidden_size: int = 128):
+    def __init__(
+        self,
+        *,
+        num_classes: int,
+        hidden_size: int,
+        frontend_channels: int,
+        num_layers: int,
+        dropout: float,
+    ):
         super().__init__()
-        # Input is [B, T] -> [B, 1, T]
-        self.conv = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=9, stride=4, padding=4),
-            nn.ReLU(),
-            nn.MaxPool1d(4),  # T shrinks a lot here
+        if hidden_size < 1 or frontend_channels < 4 or num_layers < 1:
+            raise ValueError("Model dimensions and layer count must be positive")
+
+        first_channels = max(frontend_channels // 2, 4)
+        self.frontend = nn.Sequential(
+            nn.Conv1d(
+                1,
+                first_channels,
+                kernel_size=15,
+                stride=2,
+                padding=7,
+                bias=False,
+            ),
+            nn.GroupNorm(1, first_channels),
+            nn.GELU(),
+            nn.Conv1d(
+                first_channels,
+                frontend_channels,
+                kernel_size=7,
+                stride=2,
+                padding=3,
+                bias=False,
+            ),
+            nn.GroupNorm(1, frontend_channels),
+            nn.GELU(),
+            nn.AvgPool1d(kernel_size=4, stride=4),
         )
         self.lstm = nn.LSTM(
-            input_size=64,
+            input_size=frontend_channels,
             hidden_size=hidden_size,
+            num_layers=num_layers,
             batch_first=True,
-            bidirectional=True,  # <-- now bidirectional
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
-        self.dropout = nn.Dropout(0.0)  # keep 0 for now
-        # hidden_size * 2 because fwd + bwd are concatenated
-        self.fc = nn.Linear(hidden_size * 2, num_classes)
+        self.normalization = nn.LayerNorm(hidden_size * 2)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_size * 2, num_classes)
+        self._initialize_forget_gates()
 
-    def forward(self, x: torch.Tensor):
+    def _initialize_forget_gates(self) -> None:
+        for name, parameter in self.lstm.named_parameters():
+            if "bias_ih" not in name:
+                continue
+            gate_size = parameter.shape[0] // 4
+            with torch.no_grad():
+                parameter[gate_size : 2 * gate_size].fill_(1.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == 2:
-            x = x.unsqueeze(1)  # [B, 1, T]
+            x = x.unsqueeze(1)
+        elif x.ndim == 3 and x.shape[-1] == 1:
+            x = x.transpose(1, 2)
 
-        feats = self.conv(x)  # [B, 64, T']
-        feats = feats.transpose(1, 2)  # [B, T', 64]
+        if x.ndim != 3 or x.shape[1] != 1:
+            raise ValueError(
+                "Expected raw waveforms shaped [batch, time], "
+                "[batch, 1, time], or [batch, time, 1]"
+            )
 
-        _, (h_n, _) = self.lstm(feats)  # h_n: [num_layers * num_directions, B, H]
-        # For 1 layer, 2 directions: h_n[0] = forward, h_n[1] = backward
-        h_fwd = h_n[-2]  # [B, H]
-        h_bwd = h_n[-1]  # [B, H]
-        h = torch.cat([h_fwd, h_bwd], dim=1)  # [B, 2H]
-
-        h = self.dropout(h)
-        return self.fc(h)  # [B, num_classes]
+        features = self.frontend(x).transpose(1, 2)
+        sequence, _ = self.lstm(features)
+        pooled = sequence.mean(dim=1)
+        pooled = self.dropout(self.normalization(pooled))
+        return self.classifier(pooled)
 
 
 class RNN_model(TorchNNBase):
@@ -44,9 +87,17 @@ class RNN_model(TorchNNBase):
         super().__init__(training_options)
 
     def build(self):
-        num_classes = 4
-        hidden_size = 128
+        options = self.training_options or {}
+        num_classes = int(
+            options.get(
+                "n_classes",
+                self.subject.num_categories if self.subject else 4,
+            )
+        )
         self.model = CNN_LSTM(
             num_classes=num_classes,
-            hidden_size=hidden_size,
+            hidden_size=int(options.get("hidden_size", 128)),
+            frontend_channels=int(options.get("frontend_channels", 32)),
+            num_layers=int(options.get("num_layers", 1)),
+            dropout=float(options.get("p_drop", options.get("dropout", 0.2))),
         ).to(self.device)

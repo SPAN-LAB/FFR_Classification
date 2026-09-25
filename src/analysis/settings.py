@@ -16,6 +16,19 @@ DATA_AMOUNT_SUBAVERAGE_SIZE = 5
 DATA_AMOUNT_MIN = 100
 DATA_AMOUNT_STRIDE = 100
 
+RECURRENT_TRAINING_OPTIONS: dict[str, Any] = {
+    "num_epochs": 50,
+    "batch_size": 32,
+    "learning_rate": 3e-4,
+    "weight_decay": 1e-3,
+    "patience": 10,
+    "hidden_size": 128,
+    "frontend_channels": 32,
+    "num_layers": 1,
+    "p_drop": 0.2,
+    "gradient_clip_norm": 1.0,
+}
+
 MODEL_TRAINING_OPTIONS: dict[str, dict[str, Any]] = {
     "CNN": {
         "num_epochs": 50,
@@ -29,6 +42,9 @@ MODEL_TRAINING_OPTIONS: dict[str, dict[str, Any]] = {
         "learning_rate": 5e-5,
         "weight_decay": 1e-3,
     },
+    "RNN": dict(RECURRENT_TRAINING_OPTIONS),
+    "LSTM": dict(RECURRENT_TRAINING_OPTIONS),
+    "GRU": dict(RECURRENT_TRAINING_OPTIONS),
     "MultiBranchCNN": {
         "num_epochs": 50,
         "batch_size": 64,
