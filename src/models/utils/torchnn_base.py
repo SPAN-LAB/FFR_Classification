@@ -166,6 +166,11 @@ class TorchNNBase(ModelInterface):
             lr=learning_rate, 
             weight_decay=weight_decay
         )
+        gradient_clip_norm = self.training_options.get("gradient_clip_norm")
+        if gradient_clip_norm is not None:
+            gradient_clip_norm = float(gradient_clip_norm)
+            if gradient_clip_norm <= 0:
+                raise ValueError("gradient_clip_norm must be greater than zero")
         
         must_validate = validation_trials is not None and validation_trials != 0
         if must_validate and isinstance(validation_trials, float):
@@ -203,6 +208,11 @@ class TorchNNBase(ModelInterface):
                 logits = self.model(inputs)
                 loss = criterion(logits, labels)
                 loss.backward()
+                if gradient_clip_norm is not None:
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_norm=gradient_clip_norm,
+                    )
                 optimizer.step()
             
             validation_loss = 0
