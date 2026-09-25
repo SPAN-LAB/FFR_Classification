@@ -543,17 +543,19 @@ class AnalysisPipeline:
         model_name: str,
         training_options: dict[str, Any],
         training_amount: int,
+        subaverage_size: int = 5,
     ) -> AnalysisPipeline:
-        """Evaluate fixed folds while limiting only each fold's training pool."""
+        """Evaluate fixed raw test folds while varying raw training-trial count."""
         from ..models.utils import find_model
         from .utils.sampling import sds2
 
         if training_amount < 1:
             raise ValueError("training_amount must be at least 1")
+        if subaverage_size < 1:
+            raise ValueError("subaverage_size must be at least 1")
 
         self.models = []
         concrete_model = find_model(model_name)
-        self._prepare_model_inputs(concrete_model, training_options)
 
         for subject in self.subjects:
             if not subject.folds:
@@ -561,12 +563,10 @@ class AnalysisPipeline:
                     "Subjects must be folded before evaluating a training-data amount."
                 )
 
-            model = concrete_model(training_options)
-            model.set_subject(subject)
-            if model.needs_all_subjects:
-                model.set_all_subjects(self.subjects)
+            evaluated_folds = []
+            model = None
 
-            for held_out_i, test_trials in enumerate(subject.folds):
+            for held_out_i, raw_test_trials in enumerate(subject.folds):
                 training_pool = [
                     trial
                     for fold_i, fold_trials in enumerate(subject.folds)
@@ -581,18 +581,63 @@ class AnalysisPipeline:
                     )
 
                 sampled_training = sds2(list(training_pool), training_amount)
-                model.train(
+                training_subject = EEGSubject(
                     trials=list(sampled_training),
+                    source_filepath=subject.source_filepath,
+                )
+                test_subject = EEGSubject(
+                    trials=list(raw_test_trials),
+                    source_filepath=subject.source_filepath,
+                )
+                training_subject.subaverage(subaverage_size)
+                test_subject.subaverage(subaverage_size)
+
+                # Preserve one label-to-index mapping across every fold even if a
+                # small condition loses an incomplete per-label averaging group.
+                training_subject.labels_map = dict(subject.labels_map)
+                test_subject.labels_map = dict(subject.labels_map)
+
+                expected_labels = set(subject.labels_map)
+                training_labels = {trial.label for trial in training_subject.trials}
+                test_labels = {trial.label for trial in test_subject.trials}
+                if training_labels != expected_labels:
+                    raise ValueError(
+                        f"training_amount={training_amount} does not leave a complete "
+                        f"subaverage for every category in subject {subject.name}."
+                    )
+                if test_labels != expected_labels:
+                    raise ValueError(
+                        f"A test fold does not contain a complete subaverage for every "
+                        f"category in subject {subject.name}."
+                    )
+
+                fold_pipeline = AnalysisPipeline()
+                fold_pipeline.subjects = [training_subject, test_subject]
+                fold_pipeline._prepare_model_inputs(concrete_model, training_options)
+
+                model = concrete_model(training_options)
+                model.set_subject(training_subject)
+                if model.needs_all_subjects:
+                    raise TypeError(
+                        f"Model {model_name} requires multiple subjects and cannot run "
+                        "the per-subject data_amount analysis."
+                    )
+                model.train(
+                    trials=list(training_subject.trials),
                     validation_trials=model.get_validation_ratio(),
                 )
-                model.infer(trials=test_trials)
+                model.infer(trials=test_subject.trials)
+                evaluated_folds.append(test_subject.trials)
 
-            accuracy = EEGTrial.get_accuracy(subject.folds)
+            subject.folds = evaluated_folds
+            subject.trials = [trial for fold in evaluated_folds for trial in fold]
+            accuracy = EEGTrial.get_accuracy(evaluated_folds)
             print(
                 f"Evaluation accuracy on {subject.name} with "
-                f"{training_amount} training trials per fold: {accuracy}"
+                f"{training_amount} raw training trials per fold: {accuracy}"
             )
-            self.models.append(model)
+            if model is not None:
+                self.models.append(model)
 
         return self
 

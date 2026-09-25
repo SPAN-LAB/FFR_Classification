@@ -41,7 +41,8 @@ def accuracy_against_data_amount(
                     "model": model_name,
                     "analysis": "data_amount",
                     "value_definition": (
-                        "subaveraged training examples per cross-validation fold"
+                        "raw training trials per cross-validation fold before "
+                        "subaveraging"
                     ),
                     "training_options": training_options,
                 },

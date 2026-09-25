@@ -75,7 +75,7 @@ def main() -> None:
         "value_definition": (
             "waveforms averaged per example"
             if args.analysis == "subaverage"
-            else "subaveraged training examples per cross-validation fold"
+            else "raw training trials per cross-validation fold before subaveraging"
         ),
         "training_options": options,
         "git_commit": args.git_commit or _git_commit(),

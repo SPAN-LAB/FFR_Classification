@@ -133,7 +133,6 @@ def run_analysis_conditions(
         try:
             fixed_fold_pipeline = (
                 base_pipeline.deepcopy()
-                .subaverage(size=DATA_AMOUNT_SUBAVERAGE_SIZE)
                 .fold(num_folds=NUM_FOLDS)
             )
             folds = fixed_fold_pipeline.subjects[0].folds
@@ -178,6 +177,7 @@ def run_analysis_conditions(
                     model_name=model_name,
                     training_options=options,
                     training_amount=value,
+                    subaverage_size=DATA_AMOUNT_SUBAVERAGE_SIZE,
                 )
 
             _strip_training_state(pipeline)

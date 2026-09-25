@@ -72,3 +72,7 @@ analyses/
 The summary contains one condition record per value, including accuracy,
 duration, parameters, status, and traceback. The CSV contains fold-level trial
 predictions for every successful value.
+
+For `data_amount`, values start at 100 and increase by 100 raw training trials
+per cross-validation fold. The five raw test folds remain fixed across the
+sweep. Training and test trials are subaveraged separately before evaluation.
