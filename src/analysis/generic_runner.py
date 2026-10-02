@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..core import AnalysisPipeline
+from ..core import AnalysisPipeline, EEGSubject, EEGTrial
 from ..core.utils.sampling import sds2
 from .runner import ConditionResult
 from .settings import (
@@ -123,6 +123,28 @@ def _strip_training_state(pipeline: AnalysisPipeline) -> None:
             trial.features = {}
 
 
+def _copy_pipeline_for_condition(
+    source_pipeline: AnalysisPipeline,
+) -> AnalysisPipeline:
+    """Copy trial metadata while sharing read-only waveform arrays."""
+    pipeline = AnalysisPipeline()
+    for source_subject in source_pipeline.subjects:
+        subject = EEGSubject(source_filepath=source_subject.source_filepath)
+        subject.labels_map = dict(source_subject.labels_map)
+        for source_trial in source_subject.trials:
+            trial = EEGTrial(
+                subject=subject,
+                data=source_trial.data,
+                timestamps=source_trial.timestamps,
+                trial_index=source_trial.trial_index,
+                raw_label=source_trial.raw_label,
+                mapped_label=source_trial.mapped_label,
+            )
+            subject.trials.append(trial)
+        pipeline.subjects.append(subject)
+    return pipeline
+
+
 def run_generic_analysis_conditions(
     *,
     model_name: str,
@@ -204,7 +226,7 @@ def run_generic_analysis_conditions(
         started_at = _timestamp()
         started_timer = time.monotonic()
         try:
-            pipeline = base_pipeline.deepcopy()
+            pipeline = _copy_pipeline_for_condition(base_pipeline)
             if analysis == "subaverage":
                 pipeline.subaverage(size=value)
             else:

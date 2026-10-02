@@ -17,7 +17,7 @@ from pymatreader import read_mat
 from pathlib import Path
 
 from .eeg_trial import EEGTrial
-from copy import deepcopy
+from copy import copy
 
 # from .utils import silence_stderr
 
@@ -223,6 +223,9 @@ class EEGSubject:
         return self
 
     def subaverage(self, size: int) -> EEGSubject:
+        if size < 1:
+            raise ValueError("Subaverage size must be at least 1")
+
         grouped_trials = self.grouped_trials()
         subaveraged_trials = []
 
@@ -237,8 +240,11 @@ class EEGSubject:
                 if len(chunk) < size:
                     continue
 
-                stacked_data = np.array([trial.data for trial in chunk])
-                subaveraged_data = np.mean(stacked_data, axis=0)
+                if size == 1:
+                    subaveraged_data = chunk[0].data
+                else:
+                    stacked_data = np.array([trial.data for trial in chunk])
+                    subaveraged_data = np.mean(stacked_data, axis=0)
 
                 subaveraged_trial = EEGTrial(
                     subject=self,
@@ -351,15 +357,19 @@ This causes some folds to have 0 trials from this category.""")
         if len(subjects) == 0:
             return
         
-        # Gather all trials
+        merged_subject = EEGSubject(source_filepath="<merged>.mat")
         all_trials = []
         for subject in subjects:
             for trial in subject.trials:
-                all_trials.append(deepcopy(trial))
+                copied_trial = copy(trial)
+                copied_trial.subject = merged_subject
+                copied_trial.features = dict(trial.features)
+                if trial.prediction_distribution is not None:
+                    copied_trial.prediction_distribution = dict(
+                        trial.prediction_distribution
+                    )
+                all_trials.append(copied_trial)
 
-        merged_subject = EEGSubject(source_filepath="<merged>.mat")
-        for trial in all_trials:
-            trial.subject = merged_subject
         merged_subject.trials = all_trials
         merged_subject.setup_labels_map()
         return merged_subject

@@ -802,10 +802,6 @@ class AnalysisPipeline:
                     )
                 options["batch_size"] = effective_batch_size
 
-            input_pipeline = AnalysisPipeline()
-            input_pipeline.subjects = [training_subject, held_out]
-            input_pipeline._prepare_model_inputs(concrete_model, options)
-
             model = concrete_model(options)
             model.set_subject(training_subject)
             model.train(
