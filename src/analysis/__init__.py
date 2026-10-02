@@ -8,6 +8,7 @@ __all__ = [
     "accuracy_against_data_amount",
     "ConditionResult",
     "run_analysis_conditions",
+    "run_generic_analysis_conditions",
 ]
 
 
@@ -17,6 +18,7 @@ def __getattr__(name):
         "accuracy_against_data_amount": ".accuracy_against_data_amount",
         "ConditionResult": ".runner",
         "run_analysis_conditions": ".runner",
+        "run_generic_analysis_conditions": ".generic_runner",
     }
     if name not in modules:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
