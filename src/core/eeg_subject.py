@@ -356,7 +356,11 @@ This causes some folds to have 0 trials from this category.""")
         for subject in subjects:
             for trial in subject.trials:
                 all_trials.append(deepcopy(trial))
-        
-        merged_subject = EEGSubject(trials=all_trials, source_filepath="DNE")
+
+        merged_subject = EEGSubject(source_filepath="<merged>.mat")
+        for trial in all_trials:
+            trial.subject = merged_subject
+        merged_subject.trials = all_trials
+        merged_subject.setup_labels_map()
         return merged_subject
         

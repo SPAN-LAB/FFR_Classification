@@ -705,44 +705,125 @@ class AnalysisPipeline:
 
         from ..models.utils import find_model
 
-        self.models = []
         concrete_model = find_model(model_name)
+        required_inputs = concrete_model.required_inputs_for_options(training_options)
+        if required_inputs != ["raw"]:
+            raise ValueError(
+                "Generic analysis currently supports raw-waveform models only; "
+                f"{model_name} requires {required_inputs}."
+            )
+        if concrete_model.needs_all_subjects:
+            raise ValueError(
+                f"Generic analysis does not support the specialized training contract "
+                f"used by {model_name}."
+            )
 
-        self._prepare_model_inputs(concrete_model, training_options)
+        selected_names = None
+        if only_held_out is not None:
+            selected_names = {Path(name).stem for name in only_held_out}
+            available_names = {subject.name for subject in self.subjects}
+            missing_names = selected_names - available_names
+            if missing_names:
+                raise ValueError(
+                    "Held-out subjects were not loaded: "
+                    + ", ".join(sorted(missing_names))
+                )
 
-        # Pooled cross-subject training requires a shared label space
-        self.unify_label_maps()
-
+        original_subjects = list(self.subjects)
+        evaluated_subjects = []
+        evaluated_models = []
         accuracies: dict[str, float] = {}
-        for i, held_out in enumerate(self.subjects):
-            if only_held_out is not None and held_out.name not in only_held_out:
+
+        for held_out_i, held_out in enumerate(original_subjects):
+            if selected_names is not None and held_out.name not in selected_names:
                 continue
 
-            train_trials = [
-                trial
-                for j, subject in enumerate(self.subjects)
-                if j != i
-                for trial in subject.trials
+            training_subjects = [
+                subject
+                for subject_i, subject in enumerate(original_subjects)
+                if subject_i != held_out_i
             ]
-            test_trials = held_out.trials
+            if any(not subject.trials for subject in training_subjects):
+                raise ValueError("A generic training subject has no trials.")
+            if not held_out.trials:
+                raise ValueError(f"Held-out subject {held_out.name} has no trials.")
 
-            model = concrete_model(training_options)
-            model.set_subject(held_out)
-            if model.needs_all_subjects:
-                model.set_all_subjects(self.subjects)
-            # Pass a fresh list: _core_train pops the validation split out of it,
-            # which must not mutate any subject's own trial list.
+            label_order = []
+            seen_labels = set()
+            for subject in training_subjects:
+                for trial in subject.trials:
+                    if trial.label not in seen_labels:
+                        seen_labels.add(trial.label)
+                        label_order.append(trial.label)
+            labels_map = {label: index for index, label in enumerate(label_order)}
+            held_out_labels = {trial.label for trial in held_out.trials}
+            if held_out_labels != seen_labels:
+                missing = seen_labels - held_out_labels
+                unseen = held_out_labels - seen_labels
+                raise ValueError(
+                    f"Held-out subject {held_out.name} has a different label set. "
+                    f"Missing labels: {list(missing)}; unseen labels: {list(unseen)}."
+                )
+
+            training_subject = EEGSubject.create_merged(subjects=training_subjects)
+            training_subject.source_filepath = "<generic-training-pool>.mat"
+            training_subject.labels_map = dict(labels_map)
+            held_out.labels_map = dict(labels_map)
+
+            waveform_sizes = {
+                len(trial.data)
+                for trial in [*training_subject.trials, *held_out.trials]
+            }
+            if len(waveform_sizes) != 1:
+                raise ValueError(
+                    "Generic analysis requires every training and held-out waveform "
+                    f"to have the same length; found {sorted(waveform_sizes)}."
+                )
+
+            options = dict(training_options)
+            options["n_classes"] = len(labels_map)
+            options["n_times"] = training_subject.trial_size
+            options["validation_ratio"] = 0.0
+
+            if model_name.lower() == "ffnn_cj":
+                requested_batch_size = int(options.get("batch_size", 64))
+                effective_batch_size = min(
+                    requested_batch_size,
+                    len(training_subject.trials),
+                )
+                while (
+                    effective_batch_size > 2
+                    and len(training_subject.trials) % effective_batch_size == 1
+                ):
+                    effective_batch_size -= 1
+                if effective_batch_size < 2:
+                    raise ValueError(
+                        "FFNN_Cj requires at least two generic training examples."
+                    )
+                options["batch_size"] = effective_batch_size
+
+            input_pipeline = AnalysisPipeline()
+            input_pipeline.subjects = [training_subject, held_out]
+            input_pipeline._prepare_model_inputs(concrete_model, options)
+
+            model = concrete_model(options)
+            model.set_subject(training_subject)
             model.train(
-                trials=list(train_trials),
-                validation_trials=model.get_validation_ratio(),
+                trials=list(training_subject.trials),
+                validation_trials=None,
             )
-            accuracy = model.infer(trials=test_trials)
+            model.infer(trials=held_out.trials)
+            accuracy = EEGTrial.get_accuracy(held_out.trials)
             accuracies[held_out.name] = accuracy
             print(
                 f"LOSO accuracy (held out {held_out.name}, "
-                f"trained on {len(train_trials)} trials): {accuracy}"
+                f"trained on {len(training_subject.trials)} trials): {accuracy}"
             )
-            self.models.append(model)
+            evaluated_subjects.append(held_out)
+            evaluated_models.append(model)
+
+        self.subjects = evaluated_subjects
+        self.models = evaluated_models
 
         if accuracies:
             mean_acc = sum(accuracies.values()) / len(accuracies)
