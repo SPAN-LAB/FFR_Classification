@@ -167,7 +167,7 @@ class ModelInterface:
 
     # MARK: Orchestration functions
     
-    def infer(self, *, trials: list[EEGTrial]) -> float:
+    def infer(self, *, trials: list[EEGTrial] = []) -> float:
         
         if len(trials) == 0:
             trials = self.subject.trials
@@ -183,23 +183,50 @@ class ModelInterface:
             )
         
         return EEGTrial.get_accuracy(trials)
+
+    def export_model(self, model_save_dirpath: str | Path) -> Path:
+        if self.subject is None or not self.subject.name:
+            raise ValueError("Cannot export a model without a subject name.")
+
+        if isinstance(model_save_dirpath, str):
+            model_save_dirpath = Path(model_save_dirpath)
+
+        subject_name = self.subject.name
+        model_name = type(self).__module__.rsplit(".", 1)[-1]
+        base_name = f"exported_model_{model_name}_subject_{subject_name}"
+
+        model_save_dirpath.mkdir(parents=True, exist_ok=True)
+
+        filepath = model_save_dirpath / f"{base_name}.pkl"
+        suffix = 1
+        while filepath.exists():
+            filepath = model_save_dirpath / f"{base_name}-{suffix}.pkl"
+            suffix += 1
+
+        model_copy = deepcopy(self)
+        model_copy.subject = None
+        with filepath.open("wb") as file:
+            pickle.dump(model_copy, file)
+
+        print(f"Saved model to {filepath.name}")
+        return filepath
+
+    @staticmethod
+    def import_model(filepath: str | Path) -> "ModelInterface":
+        if isinstance(filepath, str):
+            filepath = Path(filepath)
+
+        with filepath.open("rb") as file:
+            loaded_model: ModelInterface = deepcopy(pickle.load(file))
+
+        return loaded_model
     
     def train(self, *, 
         trials: list[EEGTrial] = [], 
         validation_trials: list[EEGTrial] | float | None = None,
         rebuild: bool = True,
-        pickle_to: str | Path | None = None,
-        overwrite: bool = True
+        model_save_dirpath: str | Path | None = None,
     ):
-        
-        if pickle_to is not None:
-            if isinstance(pickle_to, str):
-                pickle_to = Path(pickle_to)
-            
-            if pickle_to.is_dir():
-                raise ValueError("Path provided is a directory")
-            if not overwrite and pickle_to.exists():
-                raise ValueError("File already exists at the provided location")
         
         if len(trials) == 0:
             trials = self.subject.trials
@@ -219,30 +246,22 @@ class ModelInterface:
             lr_patience=self.get_lr_patience()
         )
         
-        # Save to disk if path is specified
-        if pickle_to is not None:
-            self_copy = deepcopy(self)
-            self_copy.subject = None
-            pickle_to.parent.mkdir(parents=True, exist_ok=True)
-            with pickle_to.open("wb") as file:
-                pickle.dump(self, file)
-            
-            print(f"Model written to {pickle_to.absolute()}")
+        if model_save_dirpath is not None:
+            self.export_model(model_save_dirpath)
     
-    def _cross_validate(self, *,
-        folded_trials: list[list[EEGTrial]],
-        base_state: Any | None,
-        num_epochs: int,
-        batch_size: int,
-        learning_rate: float,
-        weight_decay: float,
-        min_delta: float,
-        patience: int,
-        lr_patience: int
-    ) -> list[list[dict[int, float]]]:
+    def evaluate(self, *, 
+        folded_trials: list[list[EEGTrial]] = [],
+        base_state: Any | None = None,
+        model_save_dirpath: str | Path | None = None,
+    ) -> float:
+        
+        if len(folded_trials) == 0:
+            if self.subject is None:
+                raise ValueError("No folds were provided; self.subject is None")
+            folded_trials = self.subject.folds
         
         num_folds = len(folded_trials)
-        folded_trial_prediction_distributions = [[] for _ in range(num_folds)]
+        folded_prediction_distributions = [[] for _ in range(num_folds)]
         
         per_fold_tk = TimeKeeper()
         per_fold_tk.reset()
@@ -259,56 +278,25 @@ class ModelInterface:
                 else:
                     train_trials += trial_list
             
-            if base_state is not None: 
-                self._restore_best(base_state) 
-            self.reset_seed()
-            self._core_train(
+            if base_state is not None:
+                self._restore_best(base_state)
+            self.train(
                 trials=train_trials,
                 validation_trials=self.get_validation_ratio(),
-                rebuild=False if base_state is not None else True,
-                num_epochs=num_epochs,
-                batch_size=batch_size,
-                learning_rate=learning_rate,
-                weight_decay=weight_decay,
-                min_delta=min_delta,
-                patience=patience,
-                lr_patience=lr_patience
+                rebuild=base_state is None,
+                model_save_dirpath=model_save_dirpath,
             )
             unlock()
             
             prediction_distributions = self._core_infer(
                 trials=test_trials,
-                batch_size=batch_size
+                batch_size=self.get_batch_size()
             )
             
-            folded_trial_prediction_distributions[fold_i] += prediction_distributions
+            folded_prediction_distributions[fold_i] += prediction_distributions
         
         per_fold_tk.stop()
         print(f"All folds took {per_fold_tk.accumulated_duration} seconds.")
-            
-        return folded_trial_prediction_distributions
-    
-    def evaluate(self, *, 
-        folded_trials: list[list[EEGTrial]] = [],
-        base_state: Any | None = None
-    ) -> float:
-        
-        if len(folded_trials) == 0:
-            if self.subject is None:
-                raise ValueError("No folds were provided; self.subject is None")
-            folded_trials = self.subject.folds
-        
-        folded_prediction_distributions = self._cross_validate(
-            folded_trials=folded_trials,
-            base_state=base_state,
-            num_epochs=self.get_num_epochs(),
-            batch_size=self.get_batch_size(),
-            learning_rate=self.get_learning_rate(),
-            weight_decay=self.get_weight_decay(),
-            min_delta=self.get_min_delta(),
-            patience=self.get_patience(),
-            lr_patience=self.get_lr_patience()
-        )
         
         for i in range(len(folded_trials)):
             for j in range(len(folded_trials[i])):

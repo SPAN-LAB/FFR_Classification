@@ -19,6 +19,7 @@ from ..printing import print, printl
 
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
+from ..models.utils.model_interface import ModelInterface
 from .utils import detail, undetailed, gui_private, details
 from pathlib import Path
 import pickle
@@ -518,7 +519,12 @@ class AnalysisPipeline:
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
-    def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
+    def evaluate_model(
+        self,
+        model_name: str,
+        training_options: dict[str, any],
+        model_save_dir: str | Path | None = None,
+    ) -> AnalysisPipeline:
         """
         TODO @Kevin
         """
@@ -539,7 +545,7 @@ class AnalysisPipeline:
             if model.needs_all_subjects:
                 model.set_all_subjects(self.subjects)
 
-            accuracy = model.evaluate()
+            accuracy = model.evaluate(model_save_dirpath=model_save_dir)
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
 
@@ -742,12 +748,7 @@ class AnalysisPipeline:
             
             print(f"training on {len(model.subject.trials)} trials")
 
-            # Train and save to disk
-            if output_dirpath is not None:
-                output_filepath = output_dirpath / f"pytorch-model-{subject.name}.pkl"
-                model.train(pickle_to=output_filepath)
-            else:
-                model.train()
+            model.train(model_save_dirpath=output_dirpath)
 
             self.models.append(model)
 
@@ -775,10 +776,7 @@ class AnalysisPipeline:
             else:
                 model_filepath = model_pickle_filepath
             
-            # Load the model
-            with open(model_filepath, "rb") as file:
-                new_model: Any = deepcopy(pickle.load(file))
-            print(new_model.subject)
+            new_model = ModelInterface.import_model(model_filepath)
             new_model.set_subject(subject) # Important step! Don't remove
             
             new_models.append(new_model)
