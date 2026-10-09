@@ -7,7 +7,7 @@ Description: Example code for using the AnalysisPipeline APIs.
 """
 
 
-from src.core import AnalysisPipeline, BlankPipeline
+from src.core import AnalysisPipeline
 
 # UPDATE ME
 DIR_OR_FILE_PATH = None
