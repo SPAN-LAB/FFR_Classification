@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .eeg_trial import EEGTrial
 from copy import deepcopy
+from ..printing.logging import log
 
 # from .utils import silence_stderr
 
@@ -379,3 +380,25 @@ This causes some folds to have 0 trials from this category.""")
                 )
                 
         return mins
+
+    def save_info(self, dirpath: Path):
+
+        filepath = dirpath / f"subject_info_{self.name}.csv"
+
+        log("trial_index,raw_label,mapped_label,prediction", filepath)
+
+        for trial in self.trials:
+
+            content = f"{trial.trial_index},{trial.raw_label}"
+
+            if trial.mapped_label is None:
+                content += ",None"
+            else:
+                content += f",{trial.mapped_label}"
+
+            if trial.prediction is None:
+                content += ",None"
+            else:
+                content += f",{trial.prediction}"
+            
+            log(content, filepath)

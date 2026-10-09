@@ -62,6 +62,11 @@ class AnalysisPipeline:
         to.subjects = copy.subjects
         to.models = copy.models
         return self
+
+    @undetailed()
+    def save_subject_info(self, dirpath: str):
+        for subject in self.subjects:
+            subject.save_info(Path(dirpath))
         
     @undetailed()
     def deepcopy(self) -> AnalysisPipeline:
