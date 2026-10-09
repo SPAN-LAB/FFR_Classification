@@ -22,9 +22,20 @@ loading_result = BlankPipeline()
 trimming_result = BlankPipeline()
 subaverage_and_fold_result = BlankPipeline()
 
+def extract(dictionary):
+
+    # Data is a 2D array with rows corresponding to trials 
+    # and columns corresponding to samples
+    
+    return {
+        "data": dictionary["a"],
+        "timestamps": dictionary["b"],
+        "labels": dictionary["c"]
+    }
+    
 p = (
     AnalysisPipeline()
-    .load_subjects(SUBJECT_FILEPATHS)
+    .load_subjects(SUBJECT_FILEPATHS, extract=extract)
     .save(to=loading_result)
     .trim_by_timestamp(start_time=50, end_time=250) # Keep all starting from 0 ms
     .save(to=trimming_result)
@@ -38,6 +49,6 @@ p = (
             "batch_size": 64,
             "learning_rate": 0.001,
             "weight_decay": 0.1
-        }    
+        }
     )
 )
