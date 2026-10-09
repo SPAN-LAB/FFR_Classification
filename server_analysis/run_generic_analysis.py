@@ -14,6 +14,7 @@ from src.analysis.generic_runner import (
 from src.analysis.job_result import write_analysis_results
 from src.analysis.settings import (
     ANALYSIS_TYPES,
+    DATA_AMOUNT_SUBAVERAGE_SIZE,
     GENERIC_MODEL_NAMES,
     generic_training_options_for,
 )
@@ -55,6 +56,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--data-var", default="ffr_nodss")
     parser.add_argument(
+        "--data-amount-subaverage-size",
+        type=int,
+        default=None,
+        help=(
+            "Subaverage size used by data_amount analysis "
+            f"(default: {DATA_AMOUNT_SUBAVERAGE_SIZE})"
+        ),
+    )
+    parser.add_argument(
         "--output-prefix",
         default=None,
         help="Path prefix for the summary JSON and predictions CSV",
@@ -68,6 +78,19 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
+    if args.data_amount_subaverage_size is not None:
+        if args.analysis != "data_amount":
+            raise ValueError(
+                "--data-amount-subaverage-size is only valid with "
+                "--analysis data_amount"
+            )
+        if args.data_amount_subaverage_size < 1:
+            raise ValueError("--data-amount-subaverage-size must be at least 1")
+    data_amount_subaverage_size = (
+        args.data_amount_subaverage_size
+        if args.data_amount_subaverage_size is not None
+        else DATA_AMOUNT_SUBAVERAGE_SIZE
+    )
     subject_filepaths = resolve_subject_filepaths(args.data_dir)
     held_out_name = Path(args.held_out).stem
     matching_paths = [
@@ -88,16 +111,29 @@ def main() -> None:
     ]
     suffix = f"-{args.value[0]}" if args.value and len(args.value) == 1 else ""
     if args.output_prefix is None:
-        output_prefix = (
-            Path(args.output_dir)
-            / "generic"
-            / args.analysis
-            / args.model
-            / (
-                f"{args.model}.{held_out_filename}.generic."
-                f"{args.analysis}{suffix}"
+        if args.analysis == "data_amount" and args.data_amount_subaverage_size is not None:
+            output_prefix = (
+                Path(args.output_dir)
+                / "generic"
+                / "data_amount_by_subaverage"
+                / f"subaverage_{data_amount_subaverage_size}"
+                / args.model
+                / (
+                    f"{args.model}.{held_out_filename}.generic.data_amount."
+                    f"sa{data_amount_subaverage_size}{suffix}"
+                )
             )
-        )
+        else:
+            output_prefix = (
+                Path(args.output_dir)
+                / "generic"
+                / args.analysis
+                / args.model
+                / (
+                    f"{args.model}.{held_out_filename}.generic."
+                    f"{args.analysis}{suffix}"
+                )
+            )
     else:
         output_prefix = Path(args.output_prefix)
 
@@ -118,6 +154,11 @@ def main() -> None:
         ),
         "training_options": options,
         "data_variable": args.data_var,
+        "data_amount_subaverage_size": (
+            data_amount_subaverage_size
+            if args.analysis == "data_amount"
+            else None
+        ),
         "git_commit": args.git_commit or _git_commit(),
         "condor_cluster_id": args.cluster_id,
         "condor_process_id": args.process_id,
@@ -139,6 +180,7 @@ def main() -> None:
         values=args.value,
         training_options=options,
         data_var=args.data_var,
+        data_amount_subaverage_size=data_amount_subaverage_size,
     )
     finished_at = datetime.now(timezone.utc)
     metadata["finished_at"] = finished_at.isoformat()

@@ -156,6 +156,7 @@ def run_generic_analysis_conditions(
     data_var: str = "ffr_nodss",
     data_amount_min: int = DATA_AMOUNT_MIN,
     data_amount_stride: int = DATA_AMOUNT_STRIDE,
+    data_amount_subaverage_size: int = DATA_AMOUNT_SUBAVERAGE_SIZE,
 ) -> list[ConditionResult]:
     """Run a generic LOSO sweep for one fixed held-out subject."""
     if analysis not in ANALYSIS_TYPES:
@@ -164,6 +165,8 @@ def run_generic_analysis_conditions(
         raise ValueError("data_amount_min must be at least 1")
     if data_amount_stride < 1:
         raise ValueError("data_amount_stride must be at least 1")
+    if data_amount_subaverage_size < 1:
+        raise ValueError("data_amount_subaverage_size must be at least 1")
 
     selected_values = _normalize_values(values)
     options = generic_training_options_for(model_name)
@@ -238,7 +241,7 @@ def run_generic_analysis_conditions(
                                 f"trials ({len(subject.trials)}) for {subject.name}."
                             )
                         subject.trials = list(sds2(list(subject.trials), value))
-                    subject.subaverage(DATA_AMOUNT_SUBAVERAGE_SIZE)
+                    subject.subaverage(data_amount_subaverage_size)
 
             _require_complete_subject_labels(
                 pipeline,

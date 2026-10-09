@@ -43,6 +43,35 @@ For each configured amount:
 The x-value means **raw training trials per training subject**, not total pooled
 trials.
 
+The default subaverage size is five. Pass
+`--data-amount-subaverage-size SIZE` to run the same data-amount sweep with a
+different size. Explicit-size runs are kept separate under:
+
+```text
+analyses/generic/data_amount_by_subaverage/subaverage_<size>/<model>/
+```
+
+Within one run, the held-out test subject uses the selected subaverage size and
+remains fixed across all data-amount values. Comparing different subaverage
+sizes therefore compares both training and test examples at that size.
+
+### Data Amount Across Subaverage Sizes on CHTC
+
+The dedicated submit script defaults to sizes 1, 10, 15, 20, and 25. Size 5 is
+the existing baseline and is not rerun.
+
+```bash
+./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt all
+```
+
+SVM uses CPU jobs and must be submitted separately:
+
+```bash
+./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --submit-file generic_data_amount_subaverages_svm.sub SVM
+```
+
+Use `--dry-run` to inspect the generated manifest without submitting jobs.
+
 ## Outputs
 
 Each held-out run writes one summary JSON and one predictions CSV under:
