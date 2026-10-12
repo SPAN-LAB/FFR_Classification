@@ -4,9 +4,11 @@ import inspect
 import json
 from typing import Any, Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator, QIntValidator
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
     QComboBox,
     QFormLayout,
     QFrame,
@@ -20,7 +22,6 @@ from PyQt5.QtWidgets import (
     QToolTip,
     QVBoxLayout,
     QWidget,
-    QAbstractItemView,
 )
 
 from .manager import Manager
@@ -137,6 +138,10 @@ class DictEditorWidget(QWidget):
 class FunctionCardWidget(QFrame):
     edit_clicked = pyqtSignal(int)
     delete_clicked = pyqtSignal(int)
+    drag_started = pyqtSignal(int, QPoint)
+    drag_moved = pyqtSignal(QPoint)
+    drag_finished = pyqtSignal(int)
+    drag_cancelled = pyqtSignal(int)
 
     def __init__(
         self,
@@ -151,11 +156,17 @@ class FunctionCardWidget(QFrame):
         self._label_text = label
         self._params = dict(params)
         self._detail = detail
+        self._press_pos: Optional[QPoint] = None
+        self._dragging = False
+        self._drag_enabled = True
+        self._drag_saved_min_height: Optional[int] = None
+        self._drag_saved_max_height: Optional[int] = None
 
         self.setFrameShape(QFrame.Box)
         self.setLineWidth(1)
         self._apply_style(selected=False)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
 
         self._description = detail.description if detail and detail.description else None
         self._tooltip_timer = QTimer(self)
@@ -169,31 +180,33 @@ class FunctionCardWidget(QFrame):
 
         header = QHBoxLayout()
         self._title = QLabel(f"<b>{label}</b>")
+        self._title.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         header.addWidget(self._title)
         header.addStretch()
 
-        edit_btn = QPushButton("Edit")
-        edit_btn.setFixedSize(50, 24)
-        edit_btn.setStyleSheet(
+        self._edit_btn = QPushButton("Edit")
+        self._edit_btn.setFixedSize(50, 24)
+        self._edit_btn.setStyleSheet(
             "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
             " border-radius: 4px; font-size: 11px; }"
             " QPushButton:hover { background: #d0d0d0; }"
         )
-        edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self._index))
-        header.addWidget(edit_btn)
+        self._edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self._index))
+        header.addWidget(self._edit_btn)
 
-        delete_btn = QPushButton("Delete")
-        delete_btn.setFixedSize(50, 24)
-        delete_btn.setStyleSheet(
+        self._delete_btn = QPushButton("Delete")
+        self._delete_btn.setFixedSize(50, 24)
+        self._delete_btn.setStyleSheet(
             "QPushButton { background: #e0e0e0; color: #c62828; border: 1px solid #ccc;"
             " border-radius: 4px; font-size: 11px; }"
             " QPushButton:hover { background: #ffcdd2; }"
         )
-        delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self._index))
-        header.addWidget(delete_btn)
+        self._delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self._index))
+        header.addWidget(self._delete_btn)
         layout.addLayout(header)
 
         self._summary_label = QLabel(self._make_summary())
+        self._summary_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._summary_label.setStyleSheet("color: #555; font-size: 11px;")
         self._summary_label.setWordWrap(True)
         layout.addWidget(self._summary_label)
@@ -238,6 +251,39 @@ class FunctionCardWidget(QFrame):
     def set_selected(self, selected: bool):
         self._apply_style(selected)
 
+    def set_drag_enabled(self, enabled: bool) -> None:
+        self._drag_enabled = enabled
+        if not enabled:
+            if self._dragging:
+                self._end_drag(cancelled=True)
+            else:
+                self._press_pos = None
+
+    def set_drag_contents_hidden(self, hidden: bool) -> None:
+        if hidden:
+            self._drag_saved_min_height = self.minimumHeight()
+            self._drag_saved_max_height = self.maximumHeight()
+            self.setFixedHeight(self.height())
+            self._title.hide()
+            self._edit_btn.hide()
+            self._delete_btn.hide()
+            self._summary_label.hide()
+            self.setStyleSheet(
+                "FunctionCardWidget { background: transparent; border: none;"
+                " padding: 8px; margin: 2px 4px; }"
+            )
+            return
+        self._title.show()
+        self._edit_btn.show()
+        self._delete_btn.show()
+        self._summary_label.show()
+        if self._drag_saved_min_height is not None:
+            self.setMinimumHeight(self._drag_saved_min_height)
+            self._drag_saved_min_height = None
+        if self._drag_saved_max_height is not None:
+            self.setMaximumHeight(self._drag_saved_max_height)
+            self._drag_saved_max_height = None
+
     def _apply_style(self, selected: bool):
         if selected:
             self.setStyleSheet(
@@ -255,7 +301,7 @@ class FunctionCardWidget(QFrame):
             )
 
     def enterEvent(self, event):
-        if self._description:
+        if self._description and not self._dragging:
             self._tooltip_timer.start()
         super().enterEvent(event)
 
@@ -265,9 +311,78 @@ class FunctionCardWidget(QFrame):
         super().leaveEvent(event)
 
     def _show_delayed_tooltip(self):
-        if self._description and self.underMouse():
+        if self._description and self.underMouse() and not self._dragging:
             from PyQt5.QtGui import QCursor
             QToolTip.showText(QCursor.pos(), self._description, self)
+
+    def _widget_is_action_button(self, widget: Optional[QWidget]) -> bool:
+        while widget is not None and widget is not self:
+            if widget is self._edit_btn or widget is self._delete_btn:
+                return True
+            widget = widget.parentWidget()
+        return False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if (
+                not self._drag_enabled
+                or self._widget_is_action_button(self.childAt(event.pos()))
+            ):
+                self._press_pos = None
+                self._dragging = False
+            else:
+                self._press_pos = QPoint(event.pos())
+                self._dragging = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            self.drag_moved.emit(event.globalPos())
+        elif (
+            self._press_pos is not None
+            and event.buttons() & Qt.LeftButton
+        ):
+            if (event.pos() - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+                self._begin_drag()
+                self.drag_moved.emit(event.globalPos())
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if self._dragging:
+                self._end_drag(cancelled=False)
+            else:
+                self._press_pos = None
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if self._dragging and event.key() == Qt.Key_Escape:
+            self._end_drag(cancelled=True)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _begin_drag(self) -> None:
+        if not self._drag_enabled or self._dragging or self._press_pos is None:
+            return
+        self._dragging = True
+        self._tooltip_timer.stop()
+        QToolTip.hideText()
+        self.grabMouse()
+        self.grabKeyboard()
+        self.drag_started.emit(self._index, QPoint(self._press_pos))
+
+    def _end_drag(self, cancelled: bool) -> None:
+        if not self._dragging:
+            return
+        self._dragging = False
+        self._press_pos = None
+        self.releaseMouse()
+        self.releaseKeyboard()
+        if cancelled:
+            self.drag_cancelled.emit(self._index)
+        else:
+            self.drag_finished.emit(self._index)
 
 
 class ParameterEditorWidget(QWidget):
