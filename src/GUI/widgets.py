@@ -420,7 +420,7 @@ class ParameterEditorWidget(QWidget):
         self._form_container.setLayout(self._form_layout)
         layout.addWidget(self._form_container)
 
-        self._apply_btn = QPushButton("Apply Changes")
+        self._apply_btn = QPushButton("Done")
         self._apply_btn.setStyleSheet(
             "QPushButton { background: white; color: #333; border: 1px solid #ccc;"
             " border-radius: 6px; padding: 8px 18px;"
