@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -914,3 +915,68 @@ class ParameterEditorWidget(QWidget):
     def clear_and_hide(self):
         self._clear()
         self.hide()
+
+
+class PngSizeDialog(QDialog):
+    """Ask for a PNG width and height in pixels before a save dialog opens."""
+
+    def __init__(self, parent=None, width: int = 1920, height: int = 1080, title: str = "PNG Size"):
+        super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowTitle(title)
+        self.setModal(True)
+
+        self._width_edit = QLineEdit(str(width))
+        self._height_edit = QLineEdit(str(height))
+        validator = QIntValidator(1, 100_000, self)
+        self._width_edit.setValidator(validator)
+        self._height_edit.setValidator(validator)
+        self._width_edit.textChanged.connect(self._update_okay)
+        self._height_edit.textChanged.connect(self._update_okay)
+
+        layout = QVBoxLayout()
+        layout.addLayout(self._labeled_row("Height (px)", self._height_edit))
+        layout.addLayout(self._labeled_row("Width (px)", self._width_edit))
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        self._okay_btn = QPushButton("Okay")
+        self._okay_btn.setDefault(True)
+        self._okay_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        buttons.addWidget(self._okay_btn)
+        buttons.addWidget(cancel_btn)
+        layout.addLayout(buttons)
+        self.setLayout(layout)
+        self._update_okay()
+
+    @staticmethod
+    def _labeled_row(label: str, field: QLineEdit) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addWidget(QLabel(label))
+        row.addWidget(field, stretch=1)
+        return row
+
+    def _update_okay(self) -> None:
+        self._okay_btn.setEnabled(
+            self._positive_int(self._width_edit.text()) is not None
+            and self._positive_int(self._height_edit.text()) is not None
+        )
+
+    @staticmethod
+    def _positive_int(text: str) -> int | None:
+        stripped = text.strip()
+        if not stripped.isdigit():
+            return None
+        value = int(stripped)
+        if value <= 0:
+            return None
+        return value
+
+    def size_px(self) -> tuple[int, int]:
+        width = self._positive_int(self._width_edit.text())
+        height = self._positive_int(self._height_edit.text())
+        if width is None or height is None:
+            raise ValueError("Width and height must be positive integers.")
+        return width, height

@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -51,7 +52,7 @@ import matplotlib as mpl
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from .manager import Manager
-from .widgets import FunctionCardWidget, ParameterEditorWidget
+from .widgets import FunctionCardWidget, ParameterEditorWidget, PngSizeDialog
 from ..core.utils.function_detail import FunctionDetail, Selection
 
 def _function_detail(fn: Callable) -> Optional[FunctionDetail]:
@@ -506,6 +507,91 @@ class MainWindow(QMainWindow):
         self._signals_grid.addWidget(frame, row, col)
         self._plot_layouts.append(layout)
         return layout
+
+    def _install_plot_save_menu(self, widget: QWidget) -> None:
+        """Right-click save menu for a real matplotlib canvas. Placeholders are skipped."""
+        if not isinstance(widget, FigureCanvas):
+            return
+        widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        widget.customContextMenuRequested.connect(
+            lambda pos, canvas=widget: self._show_plot_save_menu(canvas, pos)
+        )
+
+    def _show_plot_save_menu(self, canvas: FigureCanvas, pos: QPoint) -> None:
+        # No parent, so the menu does not inherit the panel stylesheet.
+        # Qt then uses the platform style it selected for this application.
+        menu = QMenu()
+        menu.setStyle(QApplication.style())
+        menu.addAction("Save as PNG", lambda: self._save_plot_png(canvas))
+        menu.addAction("Save as SVG", lambda: self._save_plot_svg(canvas))
+        menu.exec_(canvas.mapToGlobal(pos))
+
+    def _save_plot_png(self, canvas: FigureCanvas) -> None:
+        width_px, height_px = self._displayed_size_px(canvas)
+        size_dialog = PngSizeDialog(self, width=width_px, height=height_px)
+        if size_dialog.exec_() != QDialog.Accepted:
+            return
+        width_px, height_px = size_dialog.size_px()
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save as PNG", str(Path.cwd()), "PNG files (*.png)"
+        )
+        if not file_path:
+            return
+        if not Path(file_path).suffix:
+            file_path += ".png"
+
+        figure = canvas.figure
+        old_size = figure.get_size_inches()
+        old_dpi = figure.dpi
+        try:
+            figure.set_size_inches(width_px / old_dpi, height_px / old_dpi)
+            figure.savefig(file_path, format="png", dpi=old_dpi)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Could not save PNG:\n{exc}")
+        finally:
+            figure.set_size_inches(old_size)
+            figure.set_dpi(old_dpi)
+            canvas.draw_idle()
+
+    def _displayed_size_px(self, canvas: FigureCanvas) -> tuple[int, int]:
+        width = canvas.width()
+        height = canvas.height()
+        if width <= 0 or height <= 0:
+            figure = canvas.figure
+            width = round(figure.get_size_inches()[0] * figure.dpi)
+            height = round(figure.get_size_inches()[1] * figure.dpi)
+        return max(1, int(width)), max(1, int(height))
+
+    def _save_plot_svg(self, canvas: FigureCanvas) -> None:
+        width_px, height_px = self._displayed_size_px(canvas)
+        size_dialog = PngSizeDialog(self, width=width_px, height=height_px, title="SVG Size")
+        if size_dialog.exec_() != QDialog.Accepted:
+            return
+        width_px, height_px = size_dialog.size_px()
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save as SVG", str(Path.cwd()), "SVG files (*.svg)"
+        )
+        if not file_path:
+            return
+        if not Path(file_path).suffix:
+            file_path += ".svg"
+
+        figure = canvas.figure
+        old_size = figure.get_size_inches()
+        old_dpi = figure.dpi
+        try:
+            # Matplotlib writes SVG size in points (72 per inch). 96 CSS pixels
+            # per inch makes the file render at the requested pixel size.
+            figure.set_size_inches(width_px / 96, height_px / 96)
+            figure.savefig(file_path, format="svg")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Could not save SVG:\n{exc}")
+        finally:
+            figure.set_size_inches(old_size)
+            figure.set_dpi(old_dpi)
+            canvas.draw_idle()
 
     def _set_signal_placeholder(self) -> None:
         self._clear_signal_plots()
@@ -1101,6 +1187,7 @@ class MainWindow(QMainWindow):
                         canvas = FigureCanvas(fig)
                         canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                         canvas.draw()
+                        self._install_plot_save_menu(canvas)
                         plot_layout.addWidget(canvas, stretch=1)
                         plt.close(fig)
                     except Exception as e:
@@ -1141,6 +1228,7 @@ class MainWindow(QMainWindow):
                         canvas_cm = FigureCanvas(fig_cm)
                         canvas_cm.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                         canvas_cm.draw()
+                        self._install_plot_save_menu(canvas_cm)
                         self._confusion_layout.addWidget(canvas_cm, stretch=1)
                         try:
                             from ..core.eeg_trial import EEGTrial as _EEGTrial
@@ -1169,6 +1257,7 @@ class MainWindow(QMainWindow):
                         canvas_roc = FigureCanvas(fig_roc)
                         canvas_roc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                         canvas_roc.draw()
+                        self._install_plot_save_menu(canvas_roc)
                         self._roc_layout.addWidget(canvas_roc, stretch=1)
                         try:
                             from sklearn.metrics import roc_auc_score
