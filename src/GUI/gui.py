@@ -11,8 +11,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
-from PyQt5.QtGui import QIcon, QPixmap, QTextCursor
+from PyQt5.QtCore import Qt, QObject, QPoint, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QCursor, QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
@@ -209,6 +209,16 @@ class MainWindow(QMainWindow):
         self._roc_layout: QVBoxLayout | None = None
         self._thread: Optional[QThread] = None
         self._worker: Optional[_FunctionWorker] = None
+        self._pipeline_running = False
+        self._drag_source_index: int | None = None
+        self._drag_source_card: FunctionCardWidget | None = None
+        self._drag_grab_offset = QPoint()
+        self._drag_ghost: QLabel | None = None
+        self._drag_insertion_line: QFrame | None = None
+        self._drag_insert_index: int | None = None
+        self._drag_scroll_timer = QTimer(self)
+        self._drag_scroll_timer.setInterval(30)
+        self._drag_scroll_timer.timeout.connect(self._on_drag_scroll_tick)
         self._checkpoint_path = Path.cwd() / ".ffr_gui_autosave.pkl"
         self._checkpoint_loaded_for_resume = False
 
@@ -364,13 +374,13 @@ class MainWindow(QMainWindow):
         self._cards_layout.setContentsMargins(2, 2, 2, 2)
         self._cards_layout.addStretch()
 
-        cards_widget = QWidget()
-        cards_widget.setStyleSheet("background: transparent;")
-        cards_widget.setLayout(self._cards_layout)
+        self._cards_widget = QWidget()
+        self._cards_widget.setStyleSheet("background: transparent;")
+        self._cards_widget.setLayout(self._cards_layout)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setWidget(cards_widget)
+        self._scroll.setWidget(self._cards_widget)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet(
             "QScrollArea { border: none; background: transparent; }"
@@ -709,8 +719,192 @@ class MainWindow(QMainWindow):
             )
             card.edit_clicked.connect(self._on_edit_card)
             card.delete_clicked.connect(self._on_delete_card)
+            card.drag_started.connect(self._on_card_drag_started)
+            card.drag_moved.connect(self._on_card_drag_moved)
+            card.drag_finished.connect(self._on_card_drag_finished)
+            card.drag_cancelled.connect(self._on_card_drag_cancelled)
             card.set_selected(i == self._selected_index)
+            card.set_drag_enabled(self._drag_should_be_enabled())
             self._cards_layout.insertWidget(i, card)
+
+    def _on_card_drag_started(self, index: int, grab_offset: QPoint) -> None:
+        card = self.sender()
+        if not isinstance(card, FunctionCardWidget):
+            return
+
+        self._drag_source_index = index
+        self._drag_source_card = card
+        self._drag_grab_offset = QPoint(grab_offset)
+
+        pixmap = card.grab()
+        ghost = QLabel(self.centralWidget())
+        ghost.setPixmap(pixmap)
+        ghost.setFixedSize(pixmap.size())
+        ghost.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        ghost.setStyleSheet("background: transparent; border: none;")
+        ghost.raise_()
+        self._drag_ghost = ghost
+        self._position_drag_ghost(QCursor.pos())
+        ghost.show()
+
+        card.set_drag_contents_hidden(True)
+
+        line = QFrame(self._cards_widget)
+        line.setFixedHeight(3)
+        line.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        line.setStyleSheet(
+            "background-color: #4285f4; border: none; border-radius: 1px;"
+        )
+        self._drag_insertion_line = line
+        self._drag_insert_index = None
+        self._move_insertion_line(index)
+        self._drag_scroll_timer.start()
+
+    def _position_drag_ghost(self, global_pos: QPoint) -> None:
+        if self._drag_ghost is None:
+            return
+        parent = self._drag_ghost.parentWidget()
+        if parent is None:
+            return
+        top_left = global_pos - self._drag_grab_offset
+        self._drag_ghost.move(parent.mapFromGlobal(top_left))
+        self._drag_ghost.raise_()
+
+    def _function_cards(self) -> list[FunctionCardWidget]:
+        cards: list[FunctionCardWidget] = []
+        for i in range(self._cards_layout.count()):
+            widget = self._cards_layout.itemAt(i).widget()
+            if isinstance(widget, FunctionCardWidget):
+                cards.append(widget)
+        return cards
+
+    def _insertion_index_at(self, global_pos: QPoint) -> int:
+        cards = self._function_cards()
+        if not cards:
+            return 0
+        y = global_pos.y()
+        for i, card in enumerate(cards):
+            mid_y = card.mapToGlobal(QPoint(0, card.height() // 2)).y()
+            if y < mid_y:
+                return i
+        return len(cards)
+
+    def _move_insertion_line(self, insert_index: int) -> None:
+        line = self._drag_insertion_line
+        if line is None:
+            return
+        self._drag_insert_index = insert_index
+        cards = self._function_cards()
+        margins = self._cards_layout.contentsMargins()
+        line_height = line.height()
+        if not cards:
+            y = margins.top()
+        elif insert_index <= 0:
+            y = cards[0].geometry().top() - line_height // 2
+        elif insert_index >= len(cards):
+            y = cards[-1].geometry().bottom() - line_height // 2 + 1
+        else:
+            above = cards[insert_index - 1].geometry()
+            below = cards[insert_index].geometry()
+            y = (above.bottom() + below.top() - line_height) // 2
+        line.setFixedWidth(
+            max(1, self._cards_widget.width() - margins.left() - margins.right())
+        )
+        line.move(margins.left(), y)
+        line.show()
+        line.raise_()
+
+    def _auto_scroll_cards(self, global_pos: QPoint) -> bool:
+        viewport = self._scroll.viewport()
+        local = viewport.mapFromGlobal(global_pos)
+        if local.x() < -40 or local.x() > viewport.width() + 40:
+            return False
+        bar = self._scroll.verticalScrollBar()
+        margin = 24
+        step = 20
+        if local.y() < margin:
+            bar.setValue(bar.value() - step)
+            return True
+        if local.y() > viewport.height() - margin:
+            bar.setValue(bar.value() + step)
+            return True
+        return False
+
+    def _update_drag_from_pos(self, global_pos: QPoint) -> None:
+        self._position_drag_ghost(global_pos)
+        self._auto_scroll_cards(global_pos)
+        self._move_insertion_line(self._insertion_index_at(global_pos))
+
+    def _on_card_drag_moved(self, global_pos: QPoint) -> None:
+        self._update_drag_from_pos(global_pos)
+
+    def _on_drag_scroll_tick(self) -> None:
+        if self._drag_source_index is None:
+            return
+        self._update_drag_from_pos(QCursor.pos())
+
+    def _teardown_drag_visuals(self) -> None:
+        self._drag_scroll_timer.stop()
+        if self._drag_ghost is not None:
+            self._drag_ghost.hide()
+            self._drag_ghost.deleteLater()
+            self._drag_ghost = None
+        if self._drag_insertion_line is not None:
+            self._drag_insertion_line.hide()
+            self._drag_insertion_line.deleteLater()
+            self._drag_insertion_line = None
+        if self._drag_source_card is not None:
+            self._drag_source_card.set_drag_contents_hidden(False)
+            self._drag_source_card.set_selected(
+                self._drag_source_index == self._selected_index
+            )
+        self._drag_source_card = None
+        self._drag_source_index = None
+        self._drag_insert_index = None
+        self._drag_grab_offset = QPoint()
+
+    def _drop_is_over_card_list(self, global_pos: QPoint) -> bool:
+        local = self._scroll.mapFromGlobal(global_pos)
+        return self._scroll.rect().contains(local)
+
+    def _remap_index_after_move(self, index: int, source: int, dest: int) -> int:
+        if index == source:
+            return dest
+        if source < dest and source < index <= dest:
+            return index - 1
+        if dest < source and dest <= index < source:
+            return index + 1
+        return index
+
+    def _commit_card_reorder(self, source: int, insert_index: int) -> None:
+        dest = insert_index if insert_index <= source else insert_index - 1
+        if dest == source:
+            return
+        entry = self._pipeline_functions.pop(source)
+        self._pipeline_functions.insert(dest, entry)
+        if self._selected_index is not None:
+            self._selected_index = self._remap_index_after_move(
+                self._selected_index, source, dest
+            )
+        self._rebuild_cards()
+        self._checkpoint_loaded_for_resume = False
+        self._autosave_checkpoint()
+
+    def _on_card_drag_finished(self, _index: int) -> None:
+        source = self._drag_source_index
+        insert_index = self._drag_insert_index
+        over_list = self._drop_is_over_card_list(QCursor.pos())
+        self._teardown_drag_visuals()
+        if (
+            not over_list
+            or source is None
+            or insert_index is None
+        ):
+            return
+        self._commit_card_reorder(source, insert_index)
+
+    def _on_card_drag_cancelled(self, _index: int) -> None:
+        self._teardown_drag_visuals()
 
     def _on_delete_card(self, index: int) -> None:
         self._pipeline_functions.pop(index)
@@ -734,6 +928,7 @@ class MainWindow(QMainWindow):
 
         if entry["detail"]:
             self._param_editor.display(entry["detail"], entry["params"], entry["name"])
+            self._sync_card_drag_enabled()
 
     def _on_apply_params(self, params: dict) -> None:
         if self._selected_index is None:
@@ -742,9 +937,9 @@ class MainWindow(QMainWindow):
             return
 
         self._pipeline_functions[self._selected_index]["params"] = params
-        self._rebuild_cards()
         self._param_editor.clear_and_hide()
         self._selected_index = None
+        self._rebuild_cards()
         self._checkpoint_loaded_for_resume = False
         self._autosave_checkpoint()
 
@@ -1321,7 +1516,18 @@ class MainWindow(QMainWindow):
         if current is not None:
             self._on_subject_clicked(current)
 
+    def _drag_should_be_enabled(self) -> bool:
+        return not self._pipeline_running and not self._param_editor.isVisible()
+
+    def _sync_card_drag_enabled(self) -> None:
+        enabled = self._drag_should_be_enabled()
+        for i in range(self._cards_layout.count()):
+            widget = self._cards_layout.itemAt(i).widget()
+            if isinstance(widget, FunctionCardWidget):
+                widget.set_drag_enabled(enabled)
+
     def _set_running(self, running: bool) -> None:
+        self._pipeline_running = running
         self._run_btn.setEnabled(not running)
         self._load_subjects_btn.setEnabled(not running)
         self._load_subject_file_btn.setEnabled(not running)
@@ -1332,6 +1538,7 @@ class MainWindow(QMainWindow):
         self._add_function_btn.setEnabled(not running)
         self._scroll.setEnabled(not running)
         self._param_editor.setEnabled(not running)
+        self._sync_card_drag_enabled()
 
 
 def main() -> None:
