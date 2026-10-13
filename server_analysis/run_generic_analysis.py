@@ -15,6 +15,7 @@ from src.analysis.job_result import write_analysis_results
 from src.analysis.settings import (
     ANALYSIS_TYPES,
     DATA_AMOUNT_SUBAVERAGE_SIZE,
+    GENERIC_DATA_AMOUNT_SAMPLING_SEED,
     GENERIC_MODEL_NAMES,
     generic_training_options_for,
 )
@@ -150,12 +151,17 @@ def main() -> None:
         "value_definition": (
             "waveforms averaged per example within each subject and category"
             if args.analysis == "subaverage"
-            else "raw training trials per training subject before subaveraging"
+            else "raw training trials per category per training subject before subaveraging"
         ),
         "training_options": options,
         "data_variable": args.data_var,
         "data_amount_subaverage_size": (
             data_amount_subaverage_size
+            if args.analysis == "data_amount"
+            else None
+        ),
+        "data_amount_sampling_seed": (
+            GENERIC_DATA_AMOUNT_SAMPLING_SEED
             if args.analysis == "data_amount"
             else None
         ),

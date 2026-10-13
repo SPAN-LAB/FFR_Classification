@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import time
 import traceback
+from random import Random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from ..core import AnalysisPipeline, EEGSubject, EEGTrial
-from ..core.utils.sampling import sds2
 from .runner import ConditionResult
 from .settings import (
     ANALYSIS_TYPES,
     DATA_AMOUNT_MIN,
     DATA_AMOUNT_STRIDE,
     DATA_AMOUNT_SUBAVERAGE_SIZE,
+    GENERIC_DATA_AMOUNT_SAMPLING_SEED,
     GENERIC_NUM_EPOCHS,
     SUBAVERAGE_VALUES,
     TRIM_END_MS,
@@ -96,6 +97,23 @@ def resolve_subject_filepaths(
 
 def _subject_labels(subject) -> set[Any]:
     return {trial.label for trial in subject.trials}
+
+
+def _sample_trials_per_label(subject: EEGSubject, amount: int) -> list[EEGTrial]:
+    sampled = []
+    for label, trials in subject.grouped_trials().items():
+        if len(trials) < amount:
+            raise ValueError(
+                f"Subject {subject.name} has only {len(trials)} raw trials "
+                f"for category {label!r}; requested {amount} per category."
+            )
+        shuffled = list(trials)
+        Random(
+            f"generic-data-amount:{GENERIC_DATA_AMOUNT_SAMPLING_SEED}:"
+            f"{subject.name}:{label!r}"
+        ).shuffle(shuffled)
+        sampled.extend(shuffled[:amount])
+    return sampled
 
 
 def _require_complete_subject_labels(
@@ -202,14 +220,15 @@ def run_generic_analysis_conditions(
             planned_values = selected_values or list(SUBAVERAGE_VALUES)
         else:
             max_training_amount = min(
-                len(subject.trials)
+                len(trials)
                 for subject in base_pipeline.subjects
+                for trials in subject.grouped_trials().values()
             )
             if selected_values is None:
                 if data_amount_min > max_training_amount:
                     raise ValueError(
-                        f"Minimum training amount {data_amount_min} exceeds the "
-                        f"smallest training-subject pool ({max_training_amount})."
+                        f"Minimum amount {data_amount_min} per category exceeds the "
+                        f"smallest subject/category pool ({max_training_amount})."
                     )
                 planned_values = list(
                     range(
@@ -235,12 +254,7 @@ def run_generic_analysis_conditions(
             else:
                 for subject in pipeline.subjects:
                     if subject.name != held_out_name:
-                        if value > len(subject.trials):
-                            raise ValueError(
-                                f"training amount {value} exceeds the available "
-                                f"trials ({len(subject.trials)}) for {subject.name}."
-                            )
-                        subject.trials = list(sds2(list(subject.trials), value))
+                        subject.trials = _sample_trials_per_label(subject, value)
                     subject.subaverage(data_amount_subaverage_size)
 
             _require_complete_subject_labels(
