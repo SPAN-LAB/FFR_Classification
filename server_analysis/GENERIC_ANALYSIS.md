@@ -35,13 +35,16 @@ For each configured subaverage size:
 
 For each configured amount:
 
-1. Select that many raw trials from each training subject, balanced by label.
-2. Subaverage the selected training trials by five.
+1. Select that many raw trials per category from each training subject, using a
+   fixed seed so higher amounts include all trials used at lower amounts.
+2. Subaverage the selected trials within each subject and category (default size five).
 3. Pool the processed training subjects and train a new model.
 4. Evaluate the same fixed held-out test data at every amount.
 
-The x-value means **raw training trials per training subject**, not total pooled
-trials.
+The x-value means **raw training trials per category per training subject**.
+The sweep stops at the smallest available category count across all subjects.
+For example, with four categories and ten training subjects, an x-value of 100
+selects 4,000 raw training trials before subaveraging.
 
 The default subaverage size is five. Pass
 `--data-amount-subaverage-size SIZE` to run the same data-amount sweep with a
@@ -57,17 +60,18 @@ sizes therefore compares both training and test examples at that size.
 
 ### Data Amount Across Subaverage Sizes on CHTC
 
-The dedicated submit script defaults to sizes 1, 10, 15, 20, and 25. Size 5 is
-the existing baseline and is not rerun.
+All generic data-amount results need to be rerun under this value definition.
+Pass all six sizes explicitly so an older copy of the gitignored CHTC submit
+script also includes size 5.
 
 ```bash
-./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt all
+./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --subaverage-sizes 1,5,10,15,20,25 all
 ```
 
 SVM uses CPU jobs and must be submitted separately:
 
 ```bash
-./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --submit-file generic_data_amount_subaverages_svm.sub SVM
+./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --subaverage-sizes 1,5,10,15,20,25 --submit-file generic_data_amount_subaverages_svm.sub SVM
 ```
 
 Use `--dry-run` to inspect the generated manifest without submitting jobs.
