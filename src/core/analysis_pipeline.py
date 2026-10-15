@@ -754,6 +754,7 @@ class AnalysisPipeline:
 
         return self
     
+    @detail(details.load_model_detail)
     def load_model(
         self,
         model_pickle_filepath: str | Path | list[str] | list[Path]
@@ -761,16 +762,17 @@ class AnalysisPipeline:
         
         list_of_models = isinstance(model_pickle_filepath, list)
         
-        if list_of_models:
-            if len(model_pickle_filepath) != len(self.subjects):
-                print("Length mismatch! Skipping...")
-                return
+        if list_of_models and len(model_pickle_filepath) != len(self.subjects):
+            raise ValueError(
+                f"Load Model was given {len(model_pickle_filepath)} file(s) "
+                f"for {len(self.subjects)} subject(s). "
+                "Choose one file for every subject, or one file per subject."
+            )
                     
         new_models = []
         for i, subject in enumerate(self.subjects): 
             
-            # Determine the filepath
-            model_filepath = ""
+            # One file is applied to every subject. A list is one file per subject.
             if list_of_models:
                 model_filepath = model_pickle_filepath[i]
             else:
@@ -790,6 +792,11 @@ class AnalysisPipeline:
         """
         TODO
         """
+        if len(self.models) != len(self.subjects):
+            raise ValueError(
+                f"Infer on Model needs one loaded model per subject, "
+                f"but found {len(self.models)} model(s) for {len(self.subjects)} subject(s)."
+            )
         
         for i, subject in enumerate(self.subjects):
             self.models[i].set_training_options(training_options)

@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .manager import Manager
-from ..core.utils.function_detail import ArgumentDetail, FunctionDetail, Selection
+from ..core.utils.function_detail import ArgumentDetail, FunctionDetail, PathKind, Selection
 from ..models.utils import find_models, get_model_import_errors
 
 
@@ -215,6 +215,13 @@ class FunctionCardWidget(QFrame):
         self.setLayout(layout)
 
     def _make_summary(self) -> str:
+        if self._label_text == "Infer on Model":
+            options = self._params.get("training_options")
+            batch_size = options.get("batch_size") if isinstance(options, dict) else None
+            if isinstance(batch_size, int) and batch_size > 0:
+                return f"Batch Size: {batch_size}"
+            return ""
+
         if "model_name" in self._params:
             parts = [f"Model: {self._params.get('model_name', '')}"]
             options = self._params.get("training_options", self._params.get("hyperparameters"))
@@ -223,9 +230,15 @@ class FunctionCardWidget(QFrame):
                     "Options: "
                     + ", ".join(f"{k}: {v}" for k, v in options.items())
                 )
-            output_dir = self._params.get("output_dirpath")
-            if output_dir:
-                parts.append(f"Output Directory: {output_dir}")
+            save_dir = self._params.get("model_save_dir", self._params.get("output_dirpath"))
+            if isinstance(save_dir, str) and save_dir.strip():
+                label = "Save Directory"
+                if self._detail:
+                    for ad in self._detail.argument_details:
+                        if ad.type is PathKind.directory:
+                            label = ad.label
+                            break
+                parts.append(f"{label}: {save_dir.strip()}")
             return "\n".join(parts)
 
         if not self._detail or not self._detail.argument_details:
@@ -237,6 +250,14 @@ class FunctionCardWidget(QFrame):
             # Get parameter name by position from params dict
             param_name = param_names[i] if i < len(param_names) else f"arg_{i}"
             val = self._params.get(param_name, ad.default_value)
+            if ad.type is PathKind.file:
+                if isinstance(val, list):
+                    paths = [str(path) for path in val if str(path).strip()]
+                    if not paths:
+                        continue
+                    val = ", ".join(paths)
+                elif not isinstance(val, str) or not val.strip():
+                    continue
             if isinstance(val, Selection):
                 opts = val.options if hasattr(val, "options") else []
                 val = opts[0] if opts else "Select..."
@@ -440,7 +461,7 @@ class ParameterEditorWidget(QWidget):
         self._current_detail = detail
         self._current_params_val = current_params # Keep reference to initial params
         
-        # Special handling for evaluate_model and train_model: add model_name dropdown
+        # Special handling for model steps: model dropdown and training-option fields.
         if function_name in ["evaluate_model", "train_model"]:
             model_combo = QComboBox()
             model_combo.setStyleSheet(self._COMBO_STYLE)
@@ -477,31 +498,8 @@ class ParameterEditorWidget(QWidget):
             
             self._editors.append(("model_name", model_combo, None))
             self._form_layout.addRow("Select Model:", model_combo)
-            
-            if function_name == "train_model":
-                dir_container = QWidget()
-                dir_layout = QHBoxLayout()
-                dir_layout.setContentsMargins(0, 0, 0, 0)
-                
-                dir_edit = QLineEdit()
-                dir_edit.setStyleSheet(self._EDITOR_STYLE)
-                dir_edit.setText(current_params.get("output_dirpath", ""))
-                
-                browse_btn = QPushButton("Browse")
-                browse_btn.setStyleSheet(
-                    "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
-                    " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
-                    " QPushButton:hover { background: #d0d0d0; }"
-                )
-                browse_btn.clicked.connect(lambda _, le=dir_edit: self._browse_dir(le))
-                
-                dir_layout.addWidget(dir_edit)
-                dir_layout.addWidget(browse_btn)
-                dir_container.setLayout(dir_layout)
-                
-                self._editors.append(("output_dirpath", dir_edit, None))
-                self._form_layout.addRow("Output Directory:", dir_container)
-            
+            self._add_directory_path_rows(function_name, detail, current_params)
+
             # Connect change signal
             model_combo.currentTextChanged.connect(self._on_model_changed)
             
@@ -510,33 +508,17 @@ class ParameterEditorWidget(QWidget):
             if function_name == "train_model":
                 initial_opts = current_params.get("hyperparameters", {})
             self._refresh_training_options(model_combo.currentText(), initial_opts)
-        elif function_name == "load_model":
-            param_name = "model_pickle_filepath"
-            current_val = current_params.get(param_name, "")
-            
-            container = QWidget()
-            layout = QHBoxLayout()
-            layout.setContentsMargins(0, 0, 0, 0)
-            
-            line_edit = QLineEdit()
-            line_edit.setStyleSheet(self._EDITOR_STYLE)
-            if current_val:
-                line_edit.setText(str(current_val))
-                
-            browse_btn = QPushButton("Browse")
-            browse_btn.setStyleSheet(
-                "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
-                " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
-                " QPushButton:hover { background: #d0d0d0; }"
+        elif function_name == "infer_on_model":
+            options = current_params.get("training_options") or {}
+            current_batch = options.get("batch_size", 32) if isinstance(options, dict) else 32
+            batch_detail = ArgumentDetail(
+                "batch_size", int, 32, "Number of trials per batch"
             )
-            browse_btn.clicked.connect(lambda _, le=line_edit: self._browse_file(le))
-            
-            layout.addWidget(line_edit)
-            layout.addWidget(browse_btn)
-            container.setLayout(layout)
-            
-            self._editors.append((param_name, line_edit, detail.argument_details[0]))
-            self._form_layout.addRow("Model Filepath:", container)
+            batch_edit = self._build_editor(batch_detail, current_batch)
+            self._editors.append(("to_batch_size", batch_edit, batch_detail))
+            self._form_layout.addRow("Batch Size:", batch_edit)
+        elif function_name == "load_model":
+            self._add_file_path_rows(function_name, detail, current_params)
         elif function_name == "extract_features":
             from ..features import FEATURE_REGISTRY
 
@@ -579,6 +561,93 @@ class ParameterEditorWidget(QWidget):
                 self._form_layout.addRow(f"{ad.label}:", widget)
                 
         self.show()
+
+    def _add_directory_path_rows(
+        self,
+        function_name: str,
+        detail: FunctionDetail,
+        current_params: dict,
+    ) -> None:
+        """Draw each directory-path argument from the function detail."""
+        directory_details = [
+            ad for ad in detail.argument_details if ad.type is PathKind.directory
+        ]
+        if not directory_details:
+            return
+        reserved = {"model_name", "training_options", "hyperparameters"}
+        param_names = [
+            name
+            for name in self._parameter_names(function_name)
+            if name not in reserved
+        ]
+        for ad, param_name in zip(directory_details, param_names):
+            current = current_params.get(param_name, ad.default_value)
+            if current is None:
+                current = ""
+
+            dir_edit = QLineEdit()
+            dir_edit.setStyleSheet(self._EDITOR_STYLE)
+            dir_edit.setText(str(current))
+
+            choose_btn = QPushButton("Choose")
+            choose_btn.setStyleSheet(
+                "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+                " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
+                " QPushButton:hover { background: #d0d0d0; }"
+            )
+            choose_btn.clicked.connect(lambda _, le=dir_edit: self._browse_dir(le))
+
+            dir_layout = QHBoxLayout()
+            dir_layout.setContentsMargins(0, 0, 0, 0)
+            dir_layout.addWidget(dir_edit)
+            dir_layout.addWidget(choose_btn)
+            dir_container = QWidget()
+            dir_container.setLayout(dir_layout)
+
+            self._editors.append((param_name, dir_edit, ad))
+            self._form_layout.addRow(f"{ad.label}:", dir_container)
+
+    def _add_file_path_rows(
+        self,
+        function_name: str,
+        detail: FunctionDetail,
+        current_params: dict,
+    ) -> None:
+        """Draw each file-path argument from the function detail."""
+        file_details = [
+            ad for ad in detail.argument_details if ad.type is PathKind.file
+        ]
+        if not file_details:
+            return
+        param_names = self._parameter_names(function_name)
+        for ad, param_name in zip(file_details, param_names):
+            current = current_params.get(param_name, ad.default_value)
+            if current is None:
+                current = ""
+            elif isinstance(current, list):
+                current = json.dumps(current)
+
+            file_edit = QLineEdit()
+            file_edit.setStyleSheet(self._EDITOR_STYLE)
+            file_edit.setText(str(current))
+
+            choose_btn = QPushButton("Choose")
+            choose_btn.setStyleSheet(
+                "QPushButton { background: #e0e0e0; color: #333; border: 1px solid #ccc;"
+                " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
+                " QPushButton:hover { background: #d0d0d0; }"
+            )
+            choose_btn.clicked.connect(lambda _, le=file_edit: self._browse_file(le))
+
+            file_layout = QHBoxLayout()
+            file_layout.setContentsMargins(0, 0, 0, 0)
+            file_layout.addWidget(file_edit)
+            file_layout.addWidget(choose_btn)
+            file_container = QWidget()
+            file_container.setLayout(file_layout)
+
+            self._editors.append((param_name, file_edit, ad))
+            self._form_layout.addRow(f"{ad.label}:", file_container)
 
     def _parameter_names(self, function_name: str) -> list[str]:
         try:
@@ -862,7 +931,11 @@ class ParameterEditorWidget(QWidget):
             val = None
             if isinstance(widget, QLineEdit):
                 val = widget.text()
-                if _ad is not None and _ad.type is int:
+                if _ad is not None and _ad.type is PathKind.directory:
+                    val = val.strip() or None
+                elif _ad is not None and _ad.type is PathKind.file:
+                    val = self._file_path_value(val)
+                elif _ad is not None and _ad.type is int:
                     if val.strip() == "":
                         raise ValueError(f"{_ad.label} requires an integer value.")
                     val = int(val)
@@ -898,12 +971,32 @@ class ParameterEditorWidget(QWidget):
             else:
                 result[name] = val
         
+        if self._current_function_name == "infer_on_model":
+            batch_size = training_options.get("batch_size")
+            if not isinstance(batch_size, int) or batch_size <= 0:
+                raise ValueError("Batch Size requires a positive integer.")
+            return {"training_options": {"batch_size": batch_size}}
         if self._current_function_name == "evaluate_model" and training_options:
             result["training_options"] = training_options
         elif self._current_function_name == "train_model" and training_options:
             result["hyperparameters"] = training_options
             
         return result
+
+    @staticmethod
+    def _file_path_value(text: str) -> str | list:
+        """One chosen file is a string. Several are a list. A blank field stays blank."""
+        stripped = text.strip()
+        if not stripped:
+            return ""
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return stripped
+            if isinstance(parsed, list):
+                return parsed
+        return stripped
 
     def _clear(self):
         for i in reversed(range(self._form_layout.count())):

@@ -750,18 +750,21 @@ class MainWindow(QMainWindow):
         func: Callable,
         detail: Optional[FunctionDetail],
     ) -> dict[str, Any]:
+        if func_name == "infer_on_model":
+            return {"training_options": {"batch_size": 32}}
         if func_name == "evaluate_model":
             model_name, training_options = self._default_model_config()
             return {
                 "model_name": model_name,
                 "training_options": training_options,
+                "model_save_dir": None,
             }
         if func_name == "train_model":
             model_name, training_options = self._default_model_config()
             return {
                 "model_name": model_name,
                 "hyperparameters": training_options,
-                "output_dirpath": "",
+                "output_dirpath": None,
             }
 
         params: dict[str, Any] = {}
@@ -1479,6 +1482,22 @@ class MainWindow(QMainWindow):
         self._autosave_checkpoint()
         self._start_next_queued()
 
+    @staticmethod
+    def _blank_save_directory_as_none(name: str, params: dict) -> dict:
+        """A missing or blank save directory means do not save."""
+        directory_keys = {
+            "evaluate_model": "model_save_dir",
+            "train_model": "output_dirpath",
+        }
+        key = directory_keys.get(name)
+        if key is None:
+            return params
+        params = dict(params)
+        value = params.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            params[key] = None
+        return params
+
     def _start_next_queued(self) -> None:
         if not self._pending_queue:
             self._set_running(False)
@@ -1491,6 +1510,9 @@ class MainWindow(QMainWindow):
             return
 
         name, params = self._pending_queue.pop(0)
+        params = self._blank_save_directory_as_none(name, params)
+        if name == "infer_on_model":
+            params = {"training_options": params.get("training_options") or {}}
         func = self.function_map.get(name)
         if func is None:
             self._append_log(f"Error: Unknown function: {name}\n")
