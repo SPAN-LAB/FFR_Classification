@@ -7,7 +7,8 @@ not used for training. It uses leave-one-subject-out (LOSO) evaluation.
 
 Each run fixes one held-out subject:
 
-- Train on every other subject.
+- Train on other subjects; data-amount conditions may omit one training subject
+  that lacks the requested number of trials per category.
 - Test only on the held-out subject.
 - Repeat until every subject has been held out once, for 11 folds total.
 - Average held-out accuracies when comparing models.
@@ -35,16 +36,21 @@ For each configured subaverage size:
 
 For each configured amount:
 
-1. Select that many raw trials per category from each training subject, using a
-   fixed seed so higher amounts include all trials used at lower amounts.
+1. Select that many raw trials per category from each eligible training subject,
+   using a fixed seed so higher amounts include all trials used at lower amounts.
+   Omit a training subject at values above its smallest category count.
 2. Subaverage the selected trials within each subject and category (default size five).
 3. Pool the processed training subjects and train a new model.
 4. Evaluate the same fixed held-out test data at every amount.
 
-The x-value means **raw training trials per category per training subject**.
-The sweep stops at the smallest available category count across all subjects.
-For example, with four categories and ten training subjects, an x-value of 100
-selects 4,000 raw training trials before subaveraging.
+The x-value means **raw training trials per category per included training subject**.
+The default sweep starts at 50 and advances by 50. It stops at the largest
+value for which every held-out fold retains all but at most one training subject
+(at least nine of ten for an 11-subject dataset). The summary records the
+included and excluded training subjects and actual raw training-trial count for
+each value. Higher values may therefore use a different set of training subjects.
+The top-level `training_subjects` list contains all possible training subjects;
+each condition's list records those actually used.
 
 The default subaverage size is five. Pass
 `--data-amount-subaverage-size SIZE` to run the same data-amount sweep with a
@@ -60,9 +66,11 @@ sizes therefore compares both training and test examples at that size.
 
 ### Data Amount Across Subaverage Sizes on CHTC
 
-All generic data-amount results need to be rerun under this value definition.
-Pass all six sizes explicitly so an older copy of the gitignored CHTC submit
-script also includes size 5.
+Earlier results at 100 and 200 use the same per-category sampling definition,
+but do not contain the expanded values or per-condition training-subject lists.
+Keep results from different code versions separate when comparing plots. Pass
+all six sizes explicitly so an older copy of the gitignored CHTC submit script
+also includes size 5.
 
 ```bash
 ./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --subaverage-sizes 1,5,10,15,20,25 all

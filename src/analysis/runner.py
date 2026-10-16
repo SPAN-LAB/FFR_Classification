@@ -33,6 +33,7 @@ class ConditionResult:
     finished_at: str
     duration_seconds: float
     error_traceback: str | None = None
+    condition_metadata: dict[str, Any] | None = None
 
 
 def _timestamp() -> str:

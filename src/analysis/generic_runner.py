@@ -13,10 +13,11 @@ from ..core import AnalysisPipeline, EEGSubject, EEGTrial
 from .runner import ConditionResult
 from .settings import (
     ANALYSIS_TYPES,
-    DATA_AMOUNT_MIN,
-    DATA_AMOUNT_STRIDE,
     DATA_AMOUNT_SUBAVERAGE_SIZE,
+    GENERIC_DATA_AMOUNT_MAX_EXCLUDED_TRAINING_SUBJECTS,
+    GENERIC_DATA_AMOUNT_MIN,
     GENERIC_DATA_AMOUNT_SAMPLING_SEED,
+    GENERIC_DATA_AMOUNT_STRIDE,
     GENERIC_NUM_EPOCHS,
     SUBAVERAGE_VALUES,
     TRIM_END_MS,
@@ -33,6 +34,7 @@ def _failure(
     value: int | None,
     started_at: str,
     started_timer: float,
+    condition_metadata: dict[str, Any] | None = None,
 ) -> ConditionResult:
     return ConditionResult(
         value=value,
@@ -42,6 +44,7 @@ def _failure(
         finished_at=_timestamp(),
         duration_seconds=time.monotonic() - started_timer,
         error_traceback=traceback.format_exc(),
+        condition_metadata=condition_metadata,
     )
 
 
@@ -172,8 +175,8 @@ def run_generic_analysis_conditions(
     values: Iterable[int] | None = None,
     training_options: dict[str, Any] | None = None,
     data_var: str = "ffr_nodss",
-    data_amount_min: int = DATA_AMOUNT_MIN,
-    data_amount_stride: int = DATA_AMOUNT_STRIDE,
+    data_amount_min: int = GENERIC_DATA_AMOUNT_MIN,
+    data_amount_stride: int = GENERIC_DATA_AMOUNT_STRIDE,
     data_amount_subaverage_size: int = DATA_AMOUNT_SUBAVERAGE_SIZE,
 ) -> list[ConditionResult]:
     """Run a generic LOSO sweep for one fixed held-out subject."""
@@ -219,16 +222,34 @@ def run_generic_analysis_conditions(
         if analysis == "subaverage":
             planned_values = selected_values or list(SUBAVERAGE_VALUES)
         else:
-            max_training_amount = min(
-                len(trials)
+            subject_capacities = {
+                subject.name: min(len(trials) for trials in subject.grouped_trials().values())
                 for subject in base_pipeline.subjects
-                for trials in subject.grouped_trials().values()
+            }
+            min_training_subjects = max(
+                1,
+                len(base_pipeline.subjects)
+                - 1
+                - GENERIC_DATA_AMOUNT_MAX_EXCLUDED_TRAINING_SUBJECTS,
+            )
+            # Keep the x-values common to every held-out fold.
+            max_training_amount = min(
+                sorted(
+                    (
+                        capacity
+                        for name, capacity in subject_capacities.items()
+                        if name != candidate_held_out
+                    ),
+                    reverse=True,
+                )[min_training_subjects - 1]
+                for candidate_held_out in subjects_by_name
             )
             if selected_values is None:
                 if data_amount_min > max_training_amount:
                     raise ValueError(
                         f"Minimum amount {data_amount_min} per category exceeds the "
-                        f"smallest subject/category pool ({max_training_amount})."
+                        f"largest shared amount with at least {min_training_subjects} "
+                        f"training subjects ({max_training_amount})."
                     )
                 planned_values = list(
                     range(
@@ -247,15 +268,47 @@ def run_generic_analysis_conditions(
     for value in planned_values:
         started_at = _timestamp()
         started_timer = time.monotonic()
+        condition_metadata = None
         try:
             pipeline = _copy_pipeline_for_condition(base_pipeline)
             if analysis == "subaverage":
                 pipeline.subaverage(size=value)
             else:
+                included = [
+                    subject.name
+                    for subject in pipeline.subjects
+                    if subject.name != held_out_name
+                    and subject_capacities[subject.name] >= value
+                ]
+                excluded = [
+                    subject.name
+                    for subject in pipeline.subjects
+                    if subject.name != held_out_name
+                    and subject_capacities[subject.name] < value
+                ]
+                condition_metadata = {
+                    "training_subjects": included,
+                    "excluded_training_subjects": excluded,
+                    "num_training_subjects": len(included),
+                }
+                if len(included) < min_training_subjects:
+                    raise ValueError(
+                        f"value={value} leaves only {len(included)} training subjects "
+                        f"for held-out subject {held_out_name}; "
+                        f"at least {min_training_subjects} are required."
+                    )
+                pipeline.subjects = [
+                    subject
+                    for subject in pipeline.subjects
+                    if subject.name == held_out_name or subject.name in included
+                ]
+                raw_training_trials = 0
                 for subject in pipeline.subjects:
                     if subject.name != held_out_name:
                         subject.trials = _sample_trials_per_label(subject, value)
+                        raw_training_trials += len(subject.trials)
                     subject.subaverage(data_amount_subaverage_size)
+                condition_metadata["raw_training_trials"] = raw_training_trials
 
             _require_complete_subject_labels(
                 pipeline,
@@ -276,9 +329,10 @@ def run_generic_analysis_conditions(
                     started_at=started_at,
                     finished_at=_timestamp(),
                     duration_seconds=time.monotonic() - started_timer,
+                    condition_metadata=condition_metadata,
                 )
             )
         except Exception:
-            results.append(_failure(value, started_at, started_timer))
+            results.append(_failure(value, started_at, started_timer, condition_metadata))
 
     return results

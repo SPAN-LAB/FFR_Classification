@@ -15,7 +15,10 @@ from src.analysis.job_result import write_analysis_results
 from src.analysis.settings import (
     ANALYSIS_TYPES,
     DATA_AMOUNT_SUBAVERAGE_SIZE,
+    GENERIC_DATA_AMOUNT_MAX_EXCLUDED_TRAINING_SUBJECTS,
+    GENERIC_DATA_AMOUNT_MIN,
     GENERIC_DATA_AMOUNT_SAMPLING_SEED,
+    GENERIC_DATA_AMOUNT_STRIDE,
     GENERIC_MODEL_NAMES,
     generic_training_options_for,
 )
@@ -162,6 +165,17 @@ def main() -> None:
         ),
         "data_amount_sampling_seed": (
             GENERIC_DATA_AMOUNT_SAMPLING_SEED
+            if args.analysis == "data_amount"
+            else None
+        ),
+        "data_amount_min": (
+            GENERIC_DATA_AMOUNT_MIN if args.analysis == "data_amount" else None
+        ),
+        "data_amount_stride": (
+            GENERIC_DATA_AMOUNT_STRIDE if args.analysis == "data_amount" else None
+        ),
+        "max_excluded_training_subjects": (
+            GENERIC_DATA_AMOUNT_MAX_EXCLUDED_TRAINING_SUBJECTS
             if args.analysis == "data_amount"
             else None
         ),
