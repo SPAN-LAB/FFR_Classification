@@ -550,6 +550,10 @@ class ParameterEditorWidget(QWidget):
 
             self._editors.append(("feature_names", feature_list, None))
             self._form_layout.addRow("Features:", feature_list)
+        elif function_name == "map_labels":
+            self._add_file_path_rows(
+                function_name, detail, current_params, self._browse_csv
+            )
         else:
             # Standard positional matching for other functions
             param_names = self._parameter_names(function_name)
@@ -612,6 +616,7 @@ class ParameterEditorWidget(QWidget):
         function_name: str,
         detail: FunctionDetail,
         current_params: dict,
+        browse=None,
     ) -> None:
         """Draw each file-path argument from the function detail."""
         file_details = [
@@ -619,6 +624,8 @@ class ParameterEditorWidget(QWidget):
         ]
         if not file_details:
             return
+        if browse is None:
+            browse = self._browse_file
         param_names = self._parameter_names(function_name)
         for ad, param_name in zip(file_details, param_names):
             current = current_params.get(param_name, ad.default_value)
@@ -637,7 +644,7 @@ class ParameterEditorWidget(QWidget):
                 " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
                 " QPushButton:hover { background: #d0d0d0; }"
             )
-            choose_btn.clicked.connect(lambda _, le=file_edit: self._browse_file(le))
+            choose_btn.clicked.connect(lambda _, le=file_edit, browse=browse: browse(le))
 
             file_layout = QHBoxLayout()
             file_layout.setContentsMargins(0, 0, 0, 0)
@@ -658,6 +665,14 @@ class ParameterEditorWidget(QWidget):
             return [name for name in sig.parameters.keys() if name != "self"]
         except Exception:
             return []
+
+    def _browse_csv(self, line_edit):
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select CSV File", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if path:
+            line_edit.setText(path)
 
     def _browse_file(self, line_edit):
         from PyQt5.QtWidgets import QFileDialog
@@ -934,7 +949,10 @@ class ParameterEditorWidget(QWidget):
                 if _ad is not None and _ad.type is PathKind.directory:
                     val = val.strip() or None
                 elif _ad is not None and _ad.type is PathKind.file:
-                    val = self._file_path_value(val)
+                    if self._current_function_name == "map_labels":
+                        val = val.strip()
+                    else:
+                        val = self._file_path_value(val)
                 elif _ad is not None and _ad.type is int:
                     if val.strip() == "":
                         raise ValueError(f"{_ad.label} requires an integer value.")

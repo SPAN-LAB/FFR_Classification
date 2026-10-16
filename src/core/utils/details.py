@@ -40,7 +40,7 @@ map_labels_detail = FD(
     argument_details=[
         AD(
             label="CSV Filepath",
-            type=str,
+            type=PathKind.file,
             default_value="",
             description="The path to a CSV file specifying how the labels are mapped."
         )
