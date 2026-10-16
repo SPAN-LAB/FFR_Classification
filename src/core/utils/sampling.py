@@ -1,6 +1,7 @@
 from ..eeg_subject import EEGSubject
 from ..eeg_trial import EEGTrial
 from math import floor
+from random import Random
 
 def sds2(trials: list[EEGTrial], num_trials: int) -> list[EEGTrial]:
     """
@@ -59,3 +60,36 @@ def sds2(trials: list[EEGTrial], num_trials: int) -> list[EEGTrial]:
         sampled_trials += grouped_trials[label][:num_trials_to_take]
     
     return sampled_trials
+
+
+def sample_balanced_trials(
+    trials: list[EEGTrial], num_trials: int, *, seed: str
+) -> list[EEGTrial]:
+    """Sample a reproducible, nearly equal number of trials from every label."""
+    if num_trials < 1:
+        raise ValueError("num_trials must be at least 1")
+    if num_trials > len(trials):
+        raise ValueError(f"Cannot sample {num_trials} trials from a pool of {len(trials)}")
+
+    grouped: dict[object, list[EEGTrial]] = {}
+    for trial in trials:
+        grouped.setdefault(trial.label, []).append(trial)
+
+    labels = list(grouped)
+    Random(f"{seed}:label-order").shuffle(labels)
+    per_label, remainder = divmod(num_trials, len(labels))
+    if per_label == 0:
+        raise ValueError(f"Need at least {len(labels)} trials to include every label")
+
+    sampled = []
+    for index, label in enumerate(labels):
+        count = per_label + (index < remainder)
+        if count > len(grouped[label]):
+            raise ValueError(
+                f"Label {label!r} has only {len(grouped[label])} trials; "
+                f"need {count} for a balanced sample of {num_trials}"
+            )
+        shuffled = list(grouped[label])
+        Random(f"{seed}:{label!r}").shuffle(shuffled)
+        sampled.extend(shuffled[:count])
+    return sampled

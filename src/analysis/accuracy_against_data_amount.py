@@ -7,6 +7,7 @@ from typing import Any
 
 from .job_result import write_analysis_results
 from .runner import run_analysis_conditions
+from .settings import DATA_AMOUNT_SAMPLING_SEED
 
 
 def accuracy_against_data_amount(
@@ -45,5 +46,7 @@ def accuracy_against_data_amount(
                         "subaveraging"
                     ),
                     "training_options": training_options,
+                    "sampling": "seeded_balanced_per_label",
+                    "sampling_seed": DATA_AMOUNT_SAMPLING_SEED,
                 },
             )

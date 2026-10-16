@@ -544,10 +544,11 @@ class AnalysisPipeline:
         training_options: dict[str, Any],
         training_amount: int,
         subaverage_size: int = 5,
+        sampling_seed: int = 0,
     ) -> AnalysisPipeline:
         """Evaluate fixed raw test folds while varying raw training-trial count."""
         from ..models.utils import find_model
-        from .utils.sampling import sds2
+        from .utils.sampling import sample_balanced_trials
 
         if training_amount < 1:
             raise ValueError("training_amount must be at least 1")
@@ -580,7 +581,11 @@ class AnalysisPipeline:
                         f"subject {subject.name}."
                     )
 
-                sampled_training = sds2(list(training_pool), training_amount)
+                sampled_training = sample_balanced_trials(
+                    training_pool,
+                    training_amount,
+                    seed=f"data-amount:{sampling_seed}:{subject.name}:{held_out_i}",
+                )
                 training_subject = EEGSubject(
                     trials=list(sampled_training),
                     source_filepath=subject.source_filepath,

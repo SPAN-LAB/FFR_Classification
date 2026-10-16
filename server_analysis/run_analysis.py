@@ -9,7 +9,11 @@ from pathlib import Path
 
 from src.analysis.job_result import write_analysis_results
 from src.analysis.runner import run_analysis_conditions
-from src.analysis.settings import ANALYSIS_TYPES, training_options_for
+from src.analysis.settings import (
+    ANALYSIS_TYPES,
+    DATA_AMOUNT_SAMPLING_SEED,
+    training_options_for,
+)
 
 
 def _git_commit() -> str | None:
@@ -85,6 +89,9 @@ def main() -> None:
         "finished_at": None,
         "duration_seconds": 0.0,
     }
+    if args.analysis == "data_amount":
+        metadata["sampling"] = "seeded_balanced_per_label"
+        metadata["sampling_seed"] = DATA_AMOUNT_SAMPLING_SEED
     # Ensure Condor always has declared output files, even if the process is
     # terminated during model training.
     write_analysis_results(
