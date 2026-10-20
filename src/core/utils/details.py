@@ -12,6 +12,7 @@ Description: Decorators for the methods of AnalysisPipeline that provide additio
 from .function_detail import FunctionDetail as FD
 from .function_detail import ArgumentDetail as AD
 from .function_detail import FunctionKind
+from .function_detail import PathKind
 from .function_detail import Selection
 
 # from ...models.utils import find_models
@@ -39,7 +40,7 @@ map_labels_detail = FD(
     argument_details=[
         AD(
             label="CSV Filepath",
-            type=str,
+            type=PathKind.file,
             default_value="",
             description="The path to a CSV file specifying how the labels are mapped."
         )
@@ -243,6 +244,12 @@ evaluate_model_detail = FD(
                 "learning_rate": 0.001,
                 "weight_decay": 0.1
             }
+        ),
+        AD(
+            label="Save Directory",
+            type=PathKind.directory,
+            default_value="",
+            description="Directory for per-fold model pickles. Leave blank to skip saving."
         )
     ]
 )
@@ -250,13 +257,35 @@ evaluate_model_detail = FD(
 # TODO
 train_model_detail = FD(
     label="Train Model",
-    argument_details=[],
+    argument_details=[
+        AD(
+            label="Output Directory",
+            type=PathKind.directory,
+            default_value="",
+            description="Directory for saved model pickles. Leave blank to skip saving."
+        )
+    ],
     description="This function is NOT YET implemented."
 )
 
-# TODO
+load_model_detail = FD(
+    label="Load Model",
+    argument_details=[
+        AD(
+            label="Model File",
+            type=PathKind.file,
+            default_value="",
+            description="One pickle for every subject, or one pickle per subject in order."
+        )
+    ],
+    description="Loads saved model pickles onto the loaded subjects."
+)
+
 infer_on_model_detail = FD(
     label="Infer on Model",
     argument_details=[],
-    description="This function is NOT YET implemented."
+    description=(
+        "Runs each loaded model on that subject's trials. "
+        "Training-option fields are chosen in the editor from the selected model type."
+    )
 )

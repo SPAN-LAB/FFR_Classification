@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -19,6 +19,7 @@ from ..printing import print, printl
 
 from .eeg_subject import EEGSubject
 from .eeg_trial import EEGTrial
+from ..models.utils.model_interface import ModelInterface
 from .utils import detail, undetailed, gui_private, details
 from pathlib import Path
 import pickle
@@ -62,6 +63,11 @@ class AnalysisPipeline:
         to.subjects = copy.subjects
         to.models = copy.models
         return self
+
+    @undetailed()
+    def save_subject_info(self, dirpath: str):
+        for subject in self.subjects:
+            subject.save_info(Path(dirpath))
         
     @undetailed()
     def deepcopy(self) -> AnalysisPipeline:
@@ -143,6 +149,7 @@ class AnalysisPipeline:
     def load_subjects(
         self,
         path: str | list[str],
+        extract: Callable | None = None,
         data_var: str = "ffr_nodss",
     ) -> AnalysisPipeline:
         """
@@ -163,7 +170,7 @@ class AnalysisPipeline:
         def load_subjects_helper(filepath: str, check_extension: bool = True):
             if check_extension and not filepath.endswith(".mat"):
                 raise ValueError(f"File does not end with .mat: {filepath}")
-            subject = EEGSubject.init_from_filepath(filepath, data_var=data_var)
+            subject = EEGSubject.init_from_filepath(filepath, extract=extract, data_var=data_var)
             print(f"load_subjects : Subject loaded from {filepath}")
             self.subjects.append(subject)
             
@@ -512,7 +519,12 @@ class AnalysisPipeline:
     # MARK: ML functions
 
     @detail(details.evaluate_model_detail)
-    def evaluate_model(self, model_name: str, training_options: dict[str, any]) -> AnalysisPipeline:
+    def evaluate_model(
+        self,
+        model_name: str,
+        training_options: dict[str, any],
+        model_save_dir: str | Path | None = None,
+    ) -> AnalysisPipeline:
         """
         TODO @Kevin
         """
@@ -523,6 +535,7 @@ class AnalysisPipeline:
 
         self._prepare_model_inputs(concrete_model, training_options)
 
+        print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
             # Construct the model
             model = concrete_model(training_options)
@@ -532,7 +545,7 @@ class AnalysisPipeline:
             if model.needs_all_subjects:
                 model.set_all_subjects(self.subjects)
 
-            accuracy = model.evaluate()
+            accuracy = model.evaluate(model_save_dirpath=model_save_dir)
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
 
@@ -862,17 +875,13 @@ class AnalysisPipeline:
             
             print(f"training on {len(model.subject.trials)} trials")
 
-            # Train and save to disk
-            if output_dirpath is not None:
-                output_filepath = output_dirpath / f"pytorch-model-{subject.name}.pkl"
-                model.train(pickle_to=output_filepath)
-            else:
-                model.train()
+            model.train(model_save_dirpath=output_dirpath)
 
             self.models.append(model)
 
         return self
     
+    @detail(details.load_model_detail)
     def load_model(
         self,
         model_pickle_filepath: str | Path | list[str] | list[Path]
@@ -880,25 +889,23 @@ class AnalysisPipeline:
         
         list_of_models = isinstance(model_pickle_filepath, list)
         
-        if list_of_models:
-            if len(model_pickle_filepath) != len(self.subjects):
-                print("Length mismatch! Skipping...")
-                return
+        if list_of_models and len(model_pickle_filepath) != len(self.subjects):
+            raise ValueError(
+                f"Load Model was given {len(model_pickle_filepath)} file(s) "
+                f"for {len(self.subjects)} subject(s). "
+                "Choose one file for every subject, or one file per subject."
+            )
                     
         new_models = []
         for i, subject in enumerate(self.subjects): 
             
-            # Determine the filepath
-            model_filepath = ""
+            # One file is applied to every subject. A list is one file per subject.
             if list_of_models:
                 model_filepath = model_pickle_filepath[i]
             else:
                 model_filepath = model_pickle_filepath
             
-            # Load the model
-            with open(model_filepath, "rb") as file:
-                new_model: Any = deepcopy(pickle.load(file))
-            print(new_model.subject)
+            new_model = ModelInterface.import_model(model_filepath)
             new_model.set_subject(subject) # Important step! Don't remove
             
             new_models.append(new_model)
@@ -912,6 +919,11 @@ class AnalysisPipeline:
         """
         TODO
         """
+        if len(self.models) != len(self.subjects):
+            raise ValueError(
+                f"Infer on Model needs one loaded model per subject, "
+                f"but found {len(self.models)} model(s) for {len(self.subjects)} subject(s)."
+            )
         
         for i, subject in enumerate(self.subjects):
             self.models[i].set_training_options(training_options)

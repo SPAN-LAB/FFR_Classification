@@ -98,3 +98,11 @@ def get_results(dir_path: str) -> list[tuple[int, float]]:
         (record["value"], record["accuracy"])
         for record in get_result_records(dir_path)
     ]
+
+
+def strip_data_away(subject: EEGSubject) -> None:
+    """Remove waveform data from a subject before serializing legacy results."""
+    for trial in subject.trials:
+        trial.data = []
+        trial.timestamps = []
+    subject.folds = []

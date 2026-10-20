@@ -7,37 +7,36 @@ Description: Example code for using the AnalysisPipeline APIs.
 """
 
 
-from src.core import AnalysisPipeline, BlankPipeline
+from src.core import AnalysisPipeline
 
-# Replace this with a string variable representing the path to the directory containing the data. 
-# Example:
-# 
-#     PATH = "area51/martian_subject_42/eeg_data"
-#
-# Swap this variable into the ``load_subjects`` method on line 18 below.
+# UPDATE ME
+FILE_PATHS = []
 
-SUBJECT_FILEPATHS = ["4T1002.mat", "4T1004.mat","4T1005.mat","4T1006.mat","4T1007.mat","4T1008.mat","4T1009.mat","4T1010.mat","4T1012.mat","4T1014.mat","4T1015.mat"]
+def extract(dictionary):
 
-loading_result = BlankPipeline()
-trimming_result = BlankPipeline()
-subaverage_and_fold_result = BlankPipeline()
+    # Data is a 2D array with rows corresponding to trials 
+    # and columns corresponding to samples
+    
+    return {
+        "data": dictionary["a"],
+        "timestamps": dictionary["b"],
+        "labels": dictionary["c"]
+    }
 
-p = (
-    AnalysisPipeline()
-    .load_subjects(SUBJECT_FILEPATHS)
-    .save(to=loading_result)
-    .trim_by_timestamp(start_time=0, end_time=float("inf")) # Keep all starting from 0 ms
-    .save(to=trimming_result)
-    .subaverage(5)
-    .fold(5)
-    .save(to=subaverage_and_fold_result)
-    .evaluate_model(
-        model_name="CNN",
-        training_options={
-            "num_epochs": 50,
-            "batch_size": 64,
-            "learning_rate": 0.001,
-            "weight_decay": 0.1
-        }    
+for filepath in FILE_PATHS:
+    p = (
+        AnalysisPipeline()
+        .load_subjects(filepath, extract=extract)
+        .trim_by_timestamp(start_time=50, end_time=250) # Keep all starting from 0 ms
+        .subaverage(5)
+        .fold(5)
+        .evaluate_model(
+            model_name="CNN",
+            training_options={
+                "num_epochs": 50,
+                "batch_size": 64,
+                "learning_rate": 0.001,
+                "weight_decay": 0.1
+            }
+        )
     )
-)

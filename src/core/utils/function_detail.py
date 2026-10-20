@@ -17,6 +17,15 @@ class FunctionKind(Enum):
     gui_private = auto()
     non_gui = auto()
 
+class PathKind(Enum):
+    """Marks a function-detail argument as a filesystem path rather than plain text.
+
+    ``directory`` opens a directory chooser. ``file`` opens a file chooser.
+    """
+
+    file = auto()
+    directory = auto()
+
 class Selection:
     def __init__(self, map: Callable[[], dict[str, any]]):
         self.option_value_map = map
@@ -45,7 +54,7 @@ class ArgumentDetail:
     def __init__(
         self,
         label: str,
-        type: type[int | float | str | dict[str, any] | Selection],
+        type: type[int | float | str | dict[str, any] | Selection] | PathKind,
         default_value: int | float | str | dict[str, any] | Selection | None = None,
         description: str | None = None
     ):

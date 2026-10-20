@@ -18,6 +18,7 @@ CHTC.md
 !demo.py
 !analysis.py
 !run_gui.py
+!analyze.py
 
 *.png
 !spanlab_logo_final.png
@@ -27,3 +28,4 @@ CHTC.md
 *.csv
 *.mat
 *.pkl
+*.ipynb
