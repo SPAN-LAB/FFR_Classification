@@ -64,26 +64,6 @@ Within one run, the held-out test subject uses the selected subaverage size and
 remains fixed across all data-amount values. Comparing different subaverage
 sizes therefore compares both training and test examples at that size.
 
-### Data Amount Across Subaverage Sizes on CHTC
-
-Earlier results at 100 and 200 use the same per-category sampling definition,
-but do not contain the expanded values or per-condition training-subject lists.
-Keep results from different code versions separate when comparing plots. Pass
-all six sizes explicitly so an older copy of the gitignored CHTC submit script
-also includes size 5.
-
-```bash
-./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --subaverage-sizes 1,5,10,15,20,25 all
-```
-
-SVM uses CPU jobs and must be submitted separately:
-
-```bash
-./submit_generic_data_amount_subaverages.sh --subjects-file subjects.txt --subaverage-sizes 1,5,10,15,20,25 --submit-file generic_data_amount_subaverages_svm.sub SVM
-```
-
-Use `--dry-run` to inspect the generated manifest without submitting jobs.
-
 ## Outputs
 
 Each held-out run writes one summary JSON and one predictions CSV under:
