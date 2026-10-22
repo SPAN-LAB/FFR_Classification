@@ -9,6 +9,7 @@ __all__ = [
     "ConditionResult",
     "run_analysis_conditions",
     "run_generic_analysis_conditions",
+    "run_transfer_analysis_conditions",
 ]
 
 
@@ -19,6 +20,7 @@ def __getattr__(name):
         "ConditionResult": ".runner",
         "run_analysis_conditions": ".runner",
         "run_generic_analysis_conditions": ".generic_runner",
+        "run_transfer_analysis_conditions": ".transfer_runner",
     }
     if name not in modules:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
