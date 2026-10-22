@@ -188,18 +188,11 @@ class TorchNNBase(ModelInterface):
             factor=0.25,
             patience=max(1, lr_patience)
         )
-        
-        must_validate = validation_trials is not None and validation_trials != 0
-        if must_validate and isinstance(validation_trials, float):
-            # Sample the validation trials from `trials` if a ratio is provided
-            # and remove those from `trials`
-            num_validation_trials = int(len(trials) * validation_trials)
-            if num_validation_trials <= 0 or len(trials) - num_validation_trials <= 0:
-                raise ValueError("The splitting of trials results in some group being empty")
-            validation_trials = sds2(trials=trials, num_trials=num_validation_trials)
-            for trial in validation_trials:
-                trials.remove(trial)
-        # Now, type of validation_trials is strictly either None or list[EEGTrial]
+        gradient_clip_norm = self.training_options.get("gradient_clip_norm")
+        if gradient_clip_norm is not None:
+            gradient_clip_norm = float(gradient_clip_norm)
+            if gradient_clip_norm <= 0:
+                raise ValueError("gradient_clip_norm must be greater than zero")
         
         must_validate = validation_trials is not None and validation_trials != 0
         if must_validate and isinstance(validation_trials, float):
@@ -237,6 +230,11 @@ class TorchNNBase(ModelInterface):
                 logits = self.model(inputs)
                 loss = criterion(logits, labels)
                 loss.backward()
+                if gradient_clip_norm is not None:
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_norm=gradient_clip_norm,
+                    )
                 optimizer.step()
             
             validation_loss = 0

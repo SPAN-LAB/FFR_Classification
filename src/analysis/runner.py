@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import traceback
 import inspect
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -14,6 +15,7 @@ from ..models.utils import find_model
 from .settings import (
     ANALYSIS_TYPES,
     DATA_AMOUNT_MIN,
+    DATA_AMOUNT_SAMPLING_SEED,
     DATA_AMOUNT_STRIDE,
     DATA_AMOUNT_SUBAVERAGE_SIZE,
     NUM_FOLDS,
@@ -33,6 +35,7 @@ class ConditionResult:
     finished_at: str
     duration_seconds: float
     error_traceback: str | None = None
+    condition_metadata: dict[str, Any] | None = None
 
 
 def _timestamp() -> str:
@@ -133,17 +136,24 @@ def run_analysis_conditions(
         try:
             fixed_fold_pipeline = (
                 base_pipeline.deepcopy()
-                .subaverage(size=DATA_AMOUNT_SUBAVERAGE_SIZE)
                 .fold(num_folds=NUM_FOLDS)
             )
-            folds = fixed_fold_pipeline.subjects[0].folds
-            total_trials = sum(len(fold) for fold in folds)
-            max_training_amount = min(total_trials - len(fold) for fold in folds)
+            subject = fixed_fold_pipeline.subjects[0]
+            folds = subject.folds
+            # A balanced sample must fit the smallest label pool in every training fold.
+            counts_by_fold = [Counter(trial.label for trial in fold) for fold in folds]
+            total_counts = sum(counts_by_fold, Counter())
+            max_per_label = min(
+                total_counts[label] - fold_counts[label]
+                for fold_counts in counts_by_fold
+                for label in subject.labels_map
+            )
+            max_training_amount = len(subject.labels_map) * max_per_label
             if selected_values is None:
                 if data_amount_min > max_training_amount:
                     raise ValueError(
-                        f"Minimum training amount {data_amount_min} exceeds the available "
-                        f"training pool ({max_training_amount})."
+                        f"Minimum training amount {data_amount_min} exceeds the "
+                        f"balanced training pool ({max_training_amount})."
                     )
                 planned_values = list(
                     range(
@@ -178,6 +188,8 @@ def run_analysis_conditions(
                     model_name=model_name,
                     training_options=options,
                     training_amount=value,
+                    subaverage_size=DATA_AMOUNT_SUBAVERAGE_SIZE,
+                    sampling_seed=DATA_AMOUNT_SAMPLING_SEED,
                 )
 
             _strip_training_state(pipeline)

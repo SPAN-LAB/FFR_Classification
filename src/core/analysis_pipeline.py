@@ -556,17 +556,20 @@ class AnalysisPipeline:
         model_name: str,
         training_options: dict[str, Any],
         training_amount: int,
+        subaverage_size: int = 5,
+        sampling_seed: int = 0,
     ) -> AnalysisPipeline:
-        """Evaluate fixed folds while limiting only each fold's training pool."""
+        """Evaluate fixed raw test folds while varying raw training-trial count."""
         from ..models.utils import find_model
-        from .utils.sampling import sds2
+        from .utils.sampling import sample_balanced_trials
 
         if training_amount < 1:
             raise ValueError("training_amount must be at least 1")
+        if subaverage_size < 1:
+            raise ValueError("subaverage_size must be at least 1")
 
         self.models = []
         concrete_model = find_model(model_name)
-        self._prepare_model_inputs(concrete_model, training_options)
 
         for subject in self.subjects:
             if not subject.folds:
@@ -574,12 +577,10 @@ class AnalysisPipeline:
                     "Subjects must be folded before evaluating a training-data amount."
                 )
 
-            model = concrete_model(training_options)
-            model.set_subject(subject)
-            if model.needs_all_subjects:
-                model.set_all_subjects(self.subjects)
+            evaluated_folds = []
+            model = None
 
-            for held_out_i, test_trials in enumerate(subject.folds):
+            for held_out_i, raw_test_trials in enumerate(subject.folds):
                 training_pool = [
                     trial
                     for fold_i, fold_trials in enumerate(subject.folds)
@@ -593,19 +594,68 @@ class AnalysisPipeline:
                         f"subject {subject.name}."
                     )
 
-                sampled_training = sds2(list(training_pool), training_amount)
-                model.train(
+                sampled_training = sample_balanced_trials(
+                    training_pool,
+                    training_amount,
+                    seed=f"data-amount:{sampling_seed}:{subject.name}:{held_out_i}",
+                )
+                training_subject = EEGSubject(
                     trials=list(sampled_training),
+                    source_filepath=subject.source_filepath,
+                )
+                test_subject = EEGSubject(
+                    trials=list(raw_test_trials),
+                    source_filepath=subject.source_filepath,
+                )
+                training_subject.subaverage(subaverage_size)
+                test_subject.subaverage(subaverage_size)
+
+                # Preserve one label-to-index mapping across every fold even if a
+                # small condition loses an incomplete per-label averaging group.
+                training_subject.labels_map = dict(subject.labels_map)
+                test_subject.labels_map = dict(subject.labels_map)
+
+                expected_labels = set(subject.labels_map)
+                training_labels = {trial.label for trial in training_subject.trials}
+                test_labels = {trial.label for trial in test_subject.trials}
+                if training_labels != expected_labels:
+                    raise ValueError(
+                        f"training_amount={training_amount} does not leave a complete "
+                        f"subaverage for every category in subject {subject.name}."
+                    )
+                if test_labels != expected_labels:
+                    raise ValueError(
+                        f"A test fold does not contain a complete subaverage for every "
+                        f"category in subject {subject.name}."
+                    )
+
+                fold_pipeline = AnalysisPipeline()
+                fold_pipeline.subjects = [training_subject, test_subject]
+                fold_pipeline._prepare_model_inputs(concrete_model, training_options)
+
+                model = concrete_model(training_options)
+                model.set_subject(training_subject)
+                if model.needs_all_subjects:
+                    raise TypeError(
+                        f"Model {model_name} requires multiple subjects and cannot run "
+                        "the per-subject data_amount analysis."
+                    )
+                model.train(
+                    trials=list(training_subject.trials),
                     validation_trials=model.get_validation_ratio(),
                 )
-                model.infer(trials=test_trials)
+                model.infer(trials=test_subject.trials)
+                evaluated_folds.append(test_subject.trials)
 
-            accuracy = EEGTrial.get_accuracy(subject.folds)
+            subject.folds = evaluated_folds
+            subject.trials = [trial for fold in evaluated_folds for trial in fold]
+            accuracy = EEGTrial.get_accuracy(evaluated_folds)
             print(
                 f"Evaluation accuracy on {subject.name} with "
-                f"{training_amount} training trials per fold: {accuracy}"
+                f"{training_amount} raw training trials per fold: {accuracy}"
             )
-            self.models.append(model)
+            if model is not None:
+                self.models.append(model)
 
         return self
 
@@ -673,44 +723,121 @@ class AnalysisPipeline:
 
         from ..models.utils import find_model
 
-        self.models = []
         concrete_model = find_model(model_name)
+        required_inputs = concrete_model.required_inputs_for_options(training_options)
+        if required_inputs != ["raw"]:
+            raise ValueError(
+                "Generic analysis currently supports raw-waveform models only; "
+                f"{model_name} requires {required_inputs}."
+            )
+        if concrete_model.needs_all_subjects:
+            raise ValueError(
+                f"Generic analysis does not support the specialized training contract "
+                f"used by {model_name}."
+            )
 
-        self._prepare_model_inputs(concrete_model, training_options)
+        selected_names = None
+        if only_held_out is not None:
+            selected_names = {Path(name).stem for name in only_held_out}
+            available_names = {subject.name for subject in self.subjects}
+            missing_names = selected_names - available_names
+            if missing_names:
+                raise ValueError(
+                    "Held-out subjects were not loaded: "
+                    + ", ".join(sorted(missing_names))
+                )
 
-        # Pooled cross-subject training requires a shared label space
-        self.unify_label_maps()
-
+        original_subjects = list(self.subjects)
+        evaluated_subjects = []
+        evaluated_models = []
         accuracies: dict[str, float] = {}
-        for i, held_out in enumerate(self.subjects):
-            if only_held_out is not None and held_out.name not in only_held_out:
+
+        for held_out_i, held_out in enumerate(original_subjects):
+            if selected_names is not None and held_out.name not in selected_names:
                 continue
 
-            train_trials = [
-                trial
-                for j, subject in enumerate(self.subjects)
-                if j != i
-                for trial in subject.trials
+            training_subjects = [
+                subject
+                for subject_i, subject in enumerate(original_subjects)
+                if subject_i != held_out_i
             ]
-            test_trials = held_out.trials
+            if any(not subject.trials for subject in training_subjects):
+                raise ValueError("A generic training subject has no trials.")
+            if not held_out.trials:
+                raise ValueError(f"Held-out subject {held_out.name} has no trials.")
 
-            model = concrete_model(training_options)
-            model.set_subject(held_out)
-            if model.needs_all_subjects:
-                model.set_all_subjects(self.subjects)
-            # Pass a fresh list: _core_train pops the validation split out of it,
-            # which must not mutate any subject's own trial list.
+            label_order = []
+            seen_labels = set()
+            for subject in training_subjects:
+                for trial in subject.trials:
+                    if trial.label not in seen_labels:
+                        seen_labels.add(trial.label)
+                        label_order.append(trial.label)
+            labels_map = {label: index for index, label in enumerate(label_order)}
+            held_out_labels = {trial.label for trial in held_out.trials}
+            if held_out_labels != seen_labels:
+                missing = seen_labels - held_out_labels
+                unseen = held_out_labels - seen_labels
+                raise ValueError(
+                    f"Held-out subject {held_out.name} has a different label set. "
+                    f"Missing labels: {list(missing)}; unseen labels: {list(unseen)}."
+                )
+
+            training_subject = EEGSubject.create_merged(subjects=training_subjects)
+            training_subject.source_filepath = "<generic-training-pool>.mat"
+            training_subject.labels_map = dict(labels_map)
+            held_out.labels_map = dict(labels_map)
+
+            waveform_sizes = {
+                len(trial.data)
+                for trial in [*training_subject.trials, *held_out.trials]
+            }
+            if len(waveform_sizes) != 1:
+                raise ValueError(
+                    "Generic analysis requires every training and held-out waveform "
+                    f"to have the same length; found {sorted(waveform_sizes)}."
+                )
+
+            options = dict(training_options)
+            options["n_classes"] = len(labels_map)
+            options["n_times"] = training_subject.trial_size
+            options["validation_ratio"] = 0.0
+
+            if model_name.lower() == "ffnn_cj":
+                requested_batch_size = int(options.get("batch_size", 64))
+                effective_batch_size = min(
+                    requested_batch_size,
+                    len(training_subject.trials),
+                )
+                while (
+                    effective_batch_size > 2
+                    and len(training_subject.trials) % effective_batch_size == 1
+                ):
+                    effective_batch_size -= 1
+                if effective_batch_size < 2:
+                    raise ValueError(
+                        "FFNN_Cj requires at least two generic training examples."
+                    )
+                options["batch_size"] = effective_batch_size
+
+            model = concrete_model(options)
+            model.set_subject(training_subject)
             model.train(
-                trials=list(train_trials),
-                validation_trials=model.get_validation_ratio(),
+                trials=list(training_subject.trials),
+                validation_trials=None,
             )
-            accuracy = model.infer(trials=test_trials)
+            model.infer(trials=held_out.trials)
+            accuracy = EEGTrial.get_accuracy(held_out.trials)
             accuracies[held_out.name] = accuracy
             print(
                 f"LOSO accuracy (held out {held_out.name}, "
-                f"trained on {len(train_trials)} trials): {accuracy}"
+                f"trained on {len(training_subject.trials)} trials): {accuracy}"
             )
-            self.models.append(model)
+            evaluated_subjects.append(held_out)
+            evaluated_models.append(model)
+
+        self.subjects = evaluated_subjects
+        self.models = evaluated_models
 
         if accuracies:
             mean_acc = sum(accuracies.values()) / len(accuracies)

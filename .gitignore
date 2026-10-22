@@ -10,6 +10,9 @@
 *.txt
 !requirements.txt
 
+AGENTS.md
+CLAUDE.md
+CHTC.md
 # Ignore all .py files in the root directory except demo.py and analysis.py.
 /*.py
 !demo.py

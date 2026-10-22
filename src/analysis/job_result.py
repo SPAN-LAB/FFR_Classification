@@ -149,6 +149,8 @@ def write_analysis_results(
             "duration_seconds": result.duration_seconds,
             "metrics": _metrics(condition_rows),
         }
+        if result.condition_metadata is not None:
+            condition.update(result.condition_metadata)
         if result.error_traceback is not None:
             condition["traceback"] = result.error_traceback
         conditions.append(condition)
