@@ -230,6 +230,9 @@ class FunctionCardWidget(QFrame):
                     "Options: "
                     + ", ".join(f"{k}: {v}" for k, v in options.items())
                 )
+            held_out = self._params.get("only_held_out")
+            if isinstance(held_out, list) and held_out:
+                parts.append("Hold out subjects: " + ", ".join(str(name) for name in held_out))
             save_dir = self._params.get("model_save_dir", self._params.get("output_dirpath"))
             if isinstance(save_dir, str) and save_dir.strip():
                 label = "Save Directory"
@@ -462,7 +465,7 @@ class ParameterEditorWidget(QWidget):
         self._current_params_val = current_params # Keep reference to initial params
         
         # Special handling for model steps: model dropdown and training-option fields.
-        if function_name in ["evaluate_model", "train_model"]:
+        if function_name in ["evaluate_model", "train_model", "evaluate_generic_model"]:
             model_combo = QComboBox()
             model_combo.setStyleSheet(self._COMBO_STYLE)
             model_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
@@ -498,7 +501,10 @@ class ParameterEditorWidget(QWidget):
             
             self._editors.append(("model_name", model_combo, None))
             self._form_layout.addRow("Select Model:", model_combo)
-            self._add_directory_path_rows(function_name, detail, current_params)
+            if function_name == "evaluate_generic_model":
+                self._add_holdout_subjects_row(current_params)
+            else:
+                self._add_directory_path_rows(function_name, detail, current_params)
 
             # Connect change signal
             model_combo.currentTextChanged.connect(self._on_model_changed)
@@ -565,6 +571,22 @@ class ParameterEditorWidget(QWidget):
                 self._form_layout.addRow(f"{ad.label}:", widget)
                 
         self.show()
+
+    def _add_holdout_subjects_row(self, current_params: dict) -> None:
+        held_out = current_params.get("only_held_out")
+        if isinstance(held_out, list):
+            text = ", ".join(str(name) for name in held_out)
+        elif isinstance(held_out, str):
+            text = held_out
+        else:
+            text = ""
+
+        holdout_edit = QLineEdit()
+        holdout_edit.setStyleSheet(self._EDITOR_STYLE)
+        holdout_edit.setText(text)
+        holdout_edit.setPlaceholderText("Blank holds out every loaded subject")
+        self._editors.append(("only_held_out", holdout_edit, None))
+        self._form_layout.addRow("Hold out subjects:", holdout_edit)
 
     def _add_directory_path_rows(
         self,
@@ -998,8 +1020,23 @@ class ParameterEditorWidget(QWidget):
             result["training_options"] = training_options
         elif self._current_function_name == "train_model" and training_options:
             result["hyperparameters"] = training_options
+        elif self._current_function_name == "evaluate_generic_model":
+            if training_options:
+                result["training_options"] = training_options
+            result["only_held_out"] = self._holdout_names(result.get("only_held_out"))
             
         return result
+
+    @staticmethod
+    def _holdout_names(value) -> list[str] | None:
+        """A blank hold-out field is no list. Names are stored as a list."""
+        if value is None:
+            return None
+        if isinstance(value, list):
+            names = [str(name).strip() for name in value if str(name).strip()]
+        else:
+            names = [part.strip() for part in str(value).split(",") if part.strip()]
+        return names or None
 
     @staticmethod
     def _file_path_value(text: str) -> str | list:

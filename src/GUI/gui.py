@@ -752,13 +752,17 @@ class MainWindow(QMainWindow):
     ) -> dict[str, Any]:
         if func_name == "infer_on_model":
             return {"training_options": {"batch_size": 32}}
-        if func_name == "evaluate_model":
+        if func_name in ("evaluate_model", "evaluate_generic_model"):
             model_name, training_options = self._default_model_config()
-            return {
+            params = {
                 "model_name": model_name,
                 "training_options": training_options,
-                "model_save_dir": None,
             }
+            if func_name == "evaluate_model":
+                params["model_save_dir"] = None
+            else:
+                params["only_held_out"] = None
+            return params
         if func_name == "train_model":
             model_name, training_options = self._default_model_config()
             return {
@@ -1513,6 +1517,10 @@ class MainWindow(QMainWindow):
         params = self._blank_save_directory_as_none(name, params)
         if name == "infer_on_model":
             params = {"training_options": params.get("training_options") or {}}
+        elif name == "evaluate_generic_model":
+            params = dict(params)
+            if not params.get("only_held_out"):
+                params["only_held_out"] = None
         func = self.function_map.get(name)
         if func is None:
             self._append_log(f"Error: Unknown function: {name}\n")
