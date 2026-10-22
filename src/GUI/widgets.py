@@ -215,6 +215,9 @@ class FunctionCardWidget(QFrame):
         self.setLayout(layout)
 
     def _make_summary(self) -> str:
+        if self._label_text == "Extract Features":
+            return self._extract_features_summary()
+
         if self._label_text == "Infer on Model":
             options = self._params.get("training_options")
             batch_size = options.get("batch_size") if isinstance(options, dict) else None
@@ -267,6 +270,25 @@ class FunctionCardWidget(QFrame):
             elif isinstance(val, dict):
                 val = ", ".join(f"{k}: {v}" for k, v in val.items())
             parts.append(f"{ad.label}: {val}")
+        return "\n".join(parts)
+
+    def _extract_features_summary(self) -> str:
+        raw_names = self._params.get("feature_names", "")
+        if isinstance(raw_names, list):
+            names = [str(name).strip() for name in raw_names if str(name).strip()]
+        else:
+            names = [part.strip() for part in str(raw_names).split(",") if part.strip()]
+        if not names:
+            return ""
+        parts = ["Features: " + ", ".join(names)]
+        if "autoencoder_latent" in names and "latent_dim" in self._params:
+            parts.append(
+                "Autoencoder: "
+                f"latent {self._params.get('latent_dim')}, "
+                f"epochs {self._params.get('num_epochs')}, "
+                f"batch {self._params.get('batch_size')}, "
+                f"learning rate {self._params.get('learning_rate')}"
+            )
         return "\n".join(parts)
 
     def update_params(self, params: dict):
@@ -556,6 +578,9 @@ class ParameterEditorWidget(QWidget):
 
             self._editors.append(("feature_names", feature_list, None))
             self._form_layout.addRow("Features:", feature_list)
+            self._add_autoencoder_fields(current_params)
+            feature_list.itemSelectionChanged.connect(self._sync_autoencoder_fields)
+            self._sync_autoencoder_fields()
         elif function_name == "map_labels":
             self._add_file_path_rows(
                 function_name, detail, current_params, self._browse_csv
@@ -571,6 +596,45 @@ class ParameterEditorWidget(QWidget):
                 self._form_layout.addRow(f"{ad.label}:", widget)
                 
         self.show()
+
+    def _add_autoencoder_fields(self, current_params: dict) -> None:
+        defaults = {
+            "latent_dim": 128,
+            "num_epochs": 100,
+            "batch_size": 64,
+            "learning_rate": 0.001,
+        }
+        fields = [
+            ("latent_dim", "Latent Size", int),
+            ("num_epochs", "Epochs", int),
+            ("batch_size", "Batch Size", int),
+            ("learning_rate", "Learning Rate", float),
+        ]
+        box = QWidget()
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        box.setLayout(form)
+        for key, label, kind in fields:
+            detail = ArgumentDetail(label, kind, defaults[key])
+            editor = self._build_editor(detail, current_params.get(key, defaults[key]))
+            self._editors.append((key, editor, detail))
+            form.addRow(f"{label}:", editor)
+        self._autoencoder_box = box
+        self._form_layout.addRow(box)
+
+    def _sync_autoencoder_fields(self) -> None:
+        box = getattr(self, "_autoencoder_box", None)
+        if box is None:
+            return
+        selected = False
+        for name, widget, _ad in self._editors:
+            if name == "feature_names" and isinstance(widget, QListWidget):
+                selected = any(
+                    item.text() == "autoencoder_latent" and item.isSelected()
+                    for item in (widget.item(i) for i in range(widget.count()))
+                )
+                break
+        box.setVisible(selected)
 
     def _add_holdout_subjects_row(self, current_params: dict) -> None:
         held_out = current_params.get("only_held_out")
@@ -965,6 +1029,8 @@ class ParameterEditorWidget(QWidget):
         training_options = {}
         
         for name, widget, _ad in self._editors:
+            if not widget.isVisible():
+                continue
             val = None
             if isinstance(widget, QLineEdit):
                 val = widget.text()
@@ -1020,6 +1086,35 @@ class ParameterEditorWidget(QWidget):
             result["training_options"] = training_options
         elif self._current_function_name == "train_model" and training_options:
             result["hyperparameters"] = training_options
+        elif self._current_function_name == "extract_features":
+            names = [
+                part.strip()
+                for part in str(result.get("feature_names", "")).split(",")
+                if part.strip()
+            ]
+            if not names:
+                raise ValueError("Select at least one feature.")
+            stored = {"feature_names": ",".join(names)}
+            if "autoencoder_latent" in names:
+                latent_dim = result.get("latent_dim")
+                num_epochs = result.get("num_epochs")
+                batch_size = result.get("batch_size")
+                learning_rate = result.get("learning_rate")
+                if not isinstance(latent_dim, int) or latent_dim <= 0:
+                    raise ValueError("Latent Size requires a positive integer.")
+                if not isinstance(num_epochs, int) or num_epochs <= 0:
+                    raise ValueError("Epochs requires a positive integer.")
+                if not isinstance(batch_size, int) or batch_size <= 0:
+                    raise ValueError("Batch Size requires a positive integer.")
+                if not isinstance(learning_rate, float) or learning_rate <= 0:
+                    raise ValueError("Learning Rate requires a positive number.")
+                stored.update({
+                    "latent_dim": latent_dim,
+                    "num_epochs": num_epochs,
+                    "batch_size": batch_size,
+                    "learning_rate": learning_rate,
+                })
+            return stored
         elif self._current_function_name == "evaluate_generic_model":
             if training_options:
                 result["training_options"] = training_options

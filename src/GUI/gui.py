@@ -750,6 +750,8 @@ class MainWindow(QMainWindow):
         func: Callable,
         detail: Optional[FunctionDetail],
     ) -> dict[str, Any]:
+        if func_name == "extract_features":
+            return {"feature_names": "pitchtrack,autocorr,zerocrossing"}
         if func_name == "infer_on_model":
             return {"training_options": {"batch_size": 32}}
         if func_name in ("evaluate_model", "evaluate_generic_model"):
@@ -1502,6 +1504,27 @@ class MainWindow(QMainWindow):
             params[key] = None
         return params
 
+    @staticmethod
+    def _apply_autoencoder_settings(params: dict) -> dict:
+        """Apply saved autoencoder settings, then call extract_features with feature names only."""
+        params = dict(params)
+        names = str(params.get("feature_names", ""))
+        selected = {part.strip() for part in names.split(",") if part.strip()}
+        settings = {
+            "latent_dim": params.pop("latent_dim", None),
+            "num_epochs": params.pop("num_epochs", None),
+            "batch_size": params.pop("batch_size", None),
+            "learning_rate": params.pop("learning_rate", None),
+        }
+        if "autoencoder_latent" in selected and settings["latent_dim"] is not None:
+            from ..features import FEATURE_REGISTRY
+            extractor = FEATURE_REGISTRY["autoencoder_latent"]
+            extractor.latent_dim = int(settings["latent_dim"])
+            extractor.num_epochs = int(settings["num_epochs"])
+            extractor.batch_size = int(settings["batch_size"])
+            extractor.learning_rate = float(settings["learning_rate"])
+        return params
+
     def _start_next_queued(self) -> None:
         if not self._pending_queue:
             self._set_running(False)
@@ -1521,6 +1544,8 @@ class MainWindow(QMainWindow):
             params = dict(params)
             if not params.get("only_held_out"):
                 params["only_held_out"] = None
+        elif name == "extract_features":
+            params = self._apply_autoencoder_settings(params)
         func = self.function_map.get(name)
         if func is None:
             self._append_log(f"Error: Unknown function: {name}\n")
