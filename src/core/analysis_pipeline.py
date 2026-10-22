@@ -685,6 +685,7 @@ class AnalysisPipeline:
         print(f"unify_label_maps : {global_map}")
         return self
 
+    @detail(details.evaluate_generic_model_detail)
     def evaluate_generic_model(
         self,
         model_name: str,
@@ -720,6 +721,17 @@ class AnalysisPipeline:
         """
         if len(self.subjects) < 2:
             raise ValueError("Generic (LOSO) evaluation needs at least 2 loaded subjects.")
+
+        if only_held_out is not None:
+            loaded_names = {subject.name for subject in self.subjects}
+            missing = [name for name in only_held_out if name not in loaded_names]
+            matched = [name for name in only_held_out if name in loaded_names]
+            if missing or not matched:
+                missing_text = ", ".join(missing) if missing else "none"
+                raise ValueError(
+                    "Hold out subjects must name at least one loaded subject "
+                    f"and no unknown subjects. Not loaded: {missing_text}."
+                )
 
         from ..models.utils import find_model
 

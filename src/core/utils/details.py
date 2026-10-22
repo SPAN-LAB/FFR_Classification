@@ -254,6 +254,15 @@ evaluate_model_detail = FD(
     ]
 )
 
+evaluate_generic_model_detail = FD(
+    label="Evaluate Generic Model",
+    argument_details=[],
+    description=(
+        "Leave-one-subject-out evaluation. Each held-out subject is tested "
+        "with a model trained on every other loaded subject."
+    )
+)
+
 # TODO
 train_model_detail = FD(
     label="Train Model",
