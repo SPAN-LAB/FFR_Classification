@@ -25,17 +25,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reject added .mat files
+      - name: Reject added .mat and .pkl files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          added=$(git diff --name-only --diff-filter=ACR "$BASE_SHA" HEAD | grep -i '\.mat$' || true)
+          added=$(git diff --name-only --diff-filter=ACR "$BASE_SHA" HEAD | grep -iE '\.(mat|pkl)$' || true)
           if [ -n "$added" ]; then
-            echo "::error::Datasets must not be committed. Remove these .mat files from the PR:"
+            echo "::error::Datasets and results must not be committed. Remove these .mat/.pkl files from the PR:"
             echo "$added"
             exit 1
           fi
-          echo "No .mat files added."
+          echo "No .mat or .pkl files added."
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
