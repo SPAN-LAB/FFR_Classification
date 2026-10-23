@@ -243,13 +243,25 @@ class DynamicCRNNModel(TorchNNBase):
         return feats, labels
 
     def _core_train(self, *,
-        trials, validation_trials, num_epochs,
-        batch_size, learning_rate, weight_decay, min_delta, patience
+        trials, validation_trials, rebuild, num_epochs,
+        batch_size, learning_rate, weight_decay, min_delta, patience,
+        lr_patience,
     ):
-        self._build_net(trials)
+        if rebuild or self._net is None:
+            self._build_net(trials)
+        self._net.to(self.device)
+        self.model = self._net
         optimizer = optim.AdamW(
             self._net.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.25, patience=max(1, lr_patience)
+        )
+        gradient_clip_norm = self.training_options.get("gradient_clip_norm")
+        if gradient_clip_norm is not None:
+            gradient_clip_norm = float(gradient_clip_norm)
+            if gradient_clip_norm <= 0:
+                raise ValueError("gradient_clip_norm must be greater than zero")
         criterion = nn.CrossEntropyLoss()
 
         must_validate = validation_trials is not None and validation_trials != 0
@@ -281,6 +293,10 @@ class DynamicCRNNModel(TorchNNBase):
                 logits = self._net(batch_feats)
                 loss   = criterion(logits, batch_labels)
                 loss.backward()
+                if gradient_clip_norm is not None:
+                    nn.utils.clip_grad_norm_(
+                        self._net.parameters(), max_norm=gradient_clip_norm
+                    )
                 optimizer.step()
 
             if must_validate:
@@ -290,6 +306,10 @@ class DynamicCRNNModel(TorchNNBase):
                     val_loss   = criterion(val_logits, val_labels).item()
                 self._net.train()
                 self._record_loss(val_loss, self._net)
+                prev_lr = optimizer.param_groups[0]["lr"]
+                scheduler.step(val_loss)
+                if optimizer.param_groups[0]["lr"] != prev_lr:
+                    self._restore_best()
                 if not self._should_continue():
                     self._restore_best()
                     break
