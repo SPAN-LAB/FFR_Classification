@@ -5,10 +5,13 @@
 /*/
 !src/
 !server_analysis/
+!tests/
+!.github/
 
-# Ignore all .txt files except requirements.txt.
+# Ignore all .txt files except the requirements files.
 *.txt
 !requirements.txt
+!requirements-ci.txt
 
 AGENTS.md
 CLAUDE.md

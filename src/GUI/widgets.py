@@ -800,18 +800,7 @@ class ParameterEditorWidget(QWidget):
         # Hardcoded model parameters since they are not in the model classes anymore
         model_name_lower = model_name.lower()
         
-        if model_name_lower == "jason_cnn":
-            ads = [
-                ArgumentDetail("num_epochs", int, 15, "Number of training epochs"),
-                ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
-                ArgumentDetail("learning_rate", float, 1e-3, "Optimizer learning rate"),
-                ArgumentDetail("val_split", float, 0.10, "Validation split ratio"),
-                ArgumentDetail("l2", float, 1e-5, "L2 regularization penalty"),
-                ArgumentDetail("sdrop", float, 0.10, "Spatial dropout rate"),
-                ArgumentDetail("head_drop", float, 0.30, "Head dropout rate"),
-                ArgumentDetail("n_classes", int, 4, "Number of output classes"),
-            ]
-        elif model_name_lower == "cnn":
+        if model_name_lower == "cnn":
             ads = [
                 ArgumentDetail("num_epochs", int, 20, "Number of training epochs"),
                 ArgumentDetail("batch_size", int, 32, "Number of trials per batch"),
