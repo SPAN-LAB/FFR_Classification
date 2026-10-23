@@ -37,6 +37,27 @@ GENERIC_DATA_AMOUNT_STRIDE = 50
 GENERIC_DATA_AMOUNT_SAMPLING_SEED = 0
 GENERIC_DATA_AMOUNT_MAX_EXCLUDED_TRAINING_SUBJECTS = 1
 
+# Transfer analysis: pre-train on every other subject, then fine-tune on raw
+# calibration trials from the held-out subject. Values are raw trials per fold,
+# balanced across labels; multiples of 20 (4 labels x size 5) drop no trials.
+TRANSFER_ANALYSIS = "transfer"
+GENERIC_ANALYSIS_TYPES = (*ANALYSIS_TYPES, TRANSFER_ANALYSIS)
+TRANSFER_MODEL_NAMES = (
+    "EEGNet",
+    "EEGNeX",
+    "EEGNeXFFR",
+    "FFNN",
+    "RNN",
+    "LSTM",
+    "GRU",
+)
+TRANSFER_CALIBRATION_VALUES = (
+    20, 40, 60, 80, 100, 200, 300, 400, 500, 800, 1000, 1500, 2000, 3000,
+)
+TRANSFER_SUBAVERAGE_SIZE = 5
+TRANSFER_FINE_TUNE_LR_SCALE = 1.0
+TRANSFER_FINE_TUNE_EPOCHS = 50
+
 RECURRENT_TRAINING_OPTIONS: dict[str, Any] = {
     "num_epochs": 50,
     "batch_size": 32,
