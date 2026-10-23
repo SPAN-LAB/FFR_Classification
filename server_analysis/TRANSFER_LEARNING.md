@@ -31,8 +31,8 @@ For one held-out subject:
       the same trials, and higher N includes every trial used at lower N.
    2. Subaverage the calibration sample and the test fold separately at size five.
    3. Load the pre-trained weights into a new model and fine-tune every layer
-      for 50 epochs at one tenth of the pre-training learning rate, with no
-      validation split or schedule.
+      for 50 epochs at the pre-training learning rate, with no validation
+      split or schedule.
    4. Predict the test fold.
 6. Accuracy for each N is pooled over the five test folds.
 
