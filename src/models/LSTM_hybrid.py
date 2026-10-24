@@ -2,7 +2,6 @@
 
 Independent copy of the archived experiment, discoverable as LSTM_hybrid.
 Its settings select temporal trends and a 50/50 calibrated waveform blend.
-See server_analysis/RNN_HYBRID_COMPARISON.md for the paired evaluation.
 """
 
 import torch
