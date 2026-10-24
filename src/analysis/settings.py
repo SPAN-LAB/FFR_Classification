@@ -8,13 +8,10 @@ from typing import Any
 ANALYSIS_TYPES = ("subaverage", "data_amount")
 
 GENERIC_MODEL_NAMES = (
-    "BrainModule",
-    "CNN",
     "EEGNet",
     "EEGNeX",
     "EEGNeXFFR",
     "FFNN",
-    "FFNN_Cj",
     "RNN",
     "LSTM",
     "LSTM_hybrid",
@@ -53,7 +50,20 @@ TRANSFER_MODEL_NAMES = (
     "GRU",
 )
 TRANSFER_CALIBRATION_VALUES = (
-    20, 40, 60, 80, 100, 200, 300, 400, 500, 800, 1000, 1500, 2000, 3000,
+    20,
+    40,
+    60,
+    80,
+    100,
+    200,
+    300,
+    400,
+    500,
+    800,
+    1000,
+    1500,
+    2000,
+    3000,
 )
 TRANSFER_SUBAVERAGE_SIZE = 5
 TRANSFER_FINE_TUNE_LR_SCALE = 1.0
@@ -171,11 +181,7 @@ def training_options_for(model_name: str) -> dict[str, Any]:
 def generic_training_options_for(model_name: str) -> dict[str, Any]:
     """Return fixed-length training options for the supported generic models."""
     configured_name = next(
-        (
-            name
-            for name in GENERIC_MODEL_NAMES
-            if name.lower() == model_name.lower()
-        ),
+        (name for name in GENERIC_MODEL_NAMES if name.lower() == model_name.lower()),
         None,
     )
     if configured_name is None:
