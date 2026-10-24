@@ -8,15 +8,13 @@ from typing import Any
 ANALYSIS_TYPES = ("subaverage", "data_amount")
 
 GENERIC_MODEL_NAMES = (
-    "BrainModule",
-    "CNN",
     "EEGNet",
     "EEGNeX",
     "EEGNeXFFR",
     "FFNN",
-    "FFNN_Cj",
     "RNN",
     "LSTM",
+    "LSTM_hybrid",
     "GRU",
     "LDA",
     "SVM",
@@ -52,7 +50,20 @@ TRANSFER_MODEL_NAMES = (
     "GRU",
 )
 TRANSFER_CALIBRATION_VALUES = (
-    20, 40, 60, 80, 100, 200, 300, 400, 500, 800, 1000, 1500, 2000, 3000,
+    20,
+    40,
+    60,
+    80,
+    100,
+    200,
+    300,
+    400,
+    500,
+    800,
+    1000,
+    1500,
+    2000,
+    3000,
 )
 TRANSFER_SUBAVERAGE_SIZE = 5
 TRANSFER_FINE_TUNE_LR_SCALE = 1.0
@@ -85,7 +96,39 @@ MODEL_TRAINING_OPTIONS: dict[str, dict[str, Any]] = {
         "weight_decay": 1e-3,
     },
     "RNN": dict(RECURRENT_TRAINING_OPTIONS),
-    "LSTM": dict(RECURRENT_TRAINING_OPTIONS),
+    # Frozen defaults for the first selected CNN-LSTM (59.66% on five subjects).
+    "LSTM": {
+        "num_epochs": 50,
+        "batch_size": 64,
+        "learning_rate": 1e-3,
+        "weight_decay": 1e-2,
+        "gradient_clip_norm": 1.0,
+        "validation_ratio": 0.0,
+        "architecture": "eegnex_residual",
+        "hidden_size": 16,
+        "pool_size": 4,
+        "recurrent_type": "lstm",
+        "p_drop": 0.5,
+        "seed": 0,
+    },
+    "LSTM_hybrid": {
+        "num_epochs": 50,
+        "batch_size": 64,
+        "learning_rate": 0.001,
+        "weight_decay": 0.01,
+        "gradient_clip_norm": 1,
+        "validation_ratio": 0,
+        "architecture": "eegnex_residual",
+        "hidden_size": 16,
+        "pool_size": 4,
+        "recurrent_type": "lstm",
+        "p_drop": 0.5,
+        "seed": 0,
+        "waveform_blend": 0.5,
+        "trend_window": 21,
+        "include_deltas": True,
+        "forget_bias": 2.0,
+    },
     "GRU": dict(RECURRENT_TRAINING_OPTIONS),
     "MultiBranchCNN": {
         "num_epochs": 50,
@@ -138,11 +181,7 @@ def training_options_for(model_name: str) -> dict[str, Any]:
 def generic_training_options_for(model_name: str) -> dict[str, Any]:
     """Return fixed-length training options for the supported generic models."""
     configured_name = next(
-        (
-            name
-            for name in GENERIC_MODEL_NAMES
-            if name.lower() == model_name.lower()
-        ),
+        (name for name in GENERIC_MODEL_NAMES if name.lower() == model_name.lower()),
         None,
     )
     if configured_name is None:
