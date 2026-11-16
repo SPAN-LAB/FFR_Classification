@@ -12,6 +12,7 @@ from src.analysis.runner import run_analysis_conditions
 from src.analysis.settings import (
     ANALYSIS_TYPES,
     DATA_AMOUNT_SAMPLING_SEED,
+    DATA_AMOUNT_SUBAVERAGE_SIZE,
     training_options_for,
 )
 
@@ -45,6 +46,15 @@ def _parser() -> argparse.ArgumentParser:
         help="Run only this value. May be supplied more than once.",
     )
     parser.add_argument(
+        "--data-amount-subaverage-size",
+        type=int,
+        default=None,
+        help=(
+            "Subaverage size used by data_amount analysis "
+            f"(default: {DATA_AMOUNT_SUBAVERAGE_SIZE})"
+        ),
+    )
+    parser.add_argument(
         "--output-prefix",
         default=None,
         help="Path prefix for the summary JSON and predictions CSV",
@@ -58,14 +68,40 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
+    if args.data_amount_subaverage_size is not None:
+        if args.analysis != "data_amount":
+            raise ValueError(
+                "--data-amount-subaverage-size is only valid with "
+                "--analysis data_amount"
+            )
+        if args.data_amount_subaverage_size < 1:
+            raise ValueError("--data-amount-subaverage-size must be at least 1")
+    data_amount_subaverage_size = (
+        args.data_amount_subaverage_size
+        if args.data_amount_subaverage_size is not None
+        else DATA_AMOUNT_SUBAVERAGE_SIZE
+    )
     subject_name = Path(args.subject).stem
     if args.output_prefix is None:
         suffix = f"-{args.value[0]}" if args.value and len(args.value) == 1 else ""
-        output_prefix = (
-            Path(args.output_dir)
-            / args.analysis
-            / f"{args.model}.{subject_name}.{args.analysis}{suffix}"
-        )
+        if args.data_amount_subaverage_size is not None:
+            # Explicit-size runs are kept apart from the default size-5 sweep.
+            output_prefix = (
+                Path(args.output_dir)
+                / "data_amount_by_subaverage"
+                / f"subaverage_{data_amount_subaverage_size}"
+                / args.model
+                / (
+                    f"{args.model}.{subject_name}.data_amount."
+                    f"sa{data_amount_subaverage_size}{suffix}"
+                )
+            )
+        else:
+            output_prefix = (
+                Path(args.output_dir)
+                / args.analysis
+                / f"{args.model}.{subject_name}.{args.analysis}{suffix}"
+            )
     else:
         output_prefix = Path(args.output_prefix)
 
@@ -92,6 +128,7 @@ def main() -> None:
     if args.analysis == "data_amount":
         metadata["sampling"] = "seeded_balanced_per_label"
         metadata["sampling_seed"] = DATA_AMOUNT_SAMPLING_SEED
+        metadata["data_amount_subaverage_size"] = data_amount_subaverage_size
     # Ensure Condor always has declared output files, even if the process is
     # terminated during model training.
     write_analysis_results(
@@ -106,6 +143,7 @@ def main() -> None:
         analysis=args.analysis,
         values=args.value,
         training_options=options,
+        data_amount_subaverage_size=data_amount_subaverage_size,
     )
     finished_at = datetime.now(timezone.utc)
     metadata["finished_at"] = finished_at.isoformat()
