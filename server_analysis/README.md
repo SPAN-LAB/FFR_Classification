@@ -76,3 +76,29 @@ predictions for every successful value.
 For `data_amount`, values start at 100 and increase by 100 raw training trials
 per cross-validation fold. The five raw test folds remain fixed across the
 sweep. Training and test trials are subaveraged separately before evaluation.
+
+## Data amount at other subaverage sizes
+
+`--data-amount-subaverage-size SIZE` runs the same data-amount sweep with the
+training sample and test folds subaveraged at `SIZE` instead of 5:
+
+```bash
+python -m server_analysis.run_analysis \
+  --model FFNN \
+  --subject /path/to/4T1002.mat \
+  --analysis data_amount \
+  --data-amount-subaverage-size 10
+```
+
+Results are written separately from the default sweep:
+
+```text
+analyses/data_amount_by_subaverage/subaverage_<size>/<model>/<model>.<subject>.data_amount.sa<size>.summary.json
+```
+
+The x-values, folds, and sampled raw trials are identical at every size; only
+the averaging changes. Plot each size separately. Large sizes leave few
+training examples at the smallest amounts: 100 raw trials is 25 per category,
+so sizes 15 to 25 give one example per category. LDA cannot fit that, and SVM
+needs at least three per category, so those conditions are recorded as
+failures while the rest of the sweep continues.
