@@ -89,6 +89,7 @@ def run_analysis_conditions(
     training_options: dict[str, Any] | None = None,
     data_amount_min: int = DATA_AMOUNT_MIN,
     data_amount_stride: int = DATA_AMOUNT_STRIDE,
+    data_amount_subaverage_size: int = DATA_AMOUNT_SUBAVERAGE_SIZE,
 ) -> list[ConditionResult]:
     """Run selected values, or the complete default sweep when values is omitted."""
     if analysis not in ANALYSIS_TYPES:
@@ -97,6 +98,8 @@ def run_analysis_conditions(
         raise ValueError("data_amount_min must be at least 1")
     if data_amount_stride < 1:
         raise ValueError("data_amount_stride must be at least 1")
+    if data_amount_subaverage_size < 1:
+        raise ValueError("data_amount_subaverage_size must be at least 1")
     selected_values = _normalize_values(values)
     options = dict(training_options or training_options_for(model_name))
 
@@ -188,7 +191,7 @@ def run_analysis_conditions(
                     model_name=model_name,
                     training_options=options,
                     training_amount=value,
-                    subaverage_size=DATA_AMOUNT_SUBAVERAGE_SIZE,
+                    subaverage_size=data_amount_subaverage_size,
                     sampling_seed=DATA_AMOUNT_SAMPLING_SEED,
                 )
 
