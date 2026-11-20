@@ -7,6 +7,7 @@ Description: TODO @Anu
 """
 
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -89,6 +90,116 @@ class TorchNNBase(ModelInterface):
         if len(self.required_inputs) == 1:
             return batch["x"].to(self.device)
         return {k: v.to(self.device) for k, v in batch["inputs"].items()}
+
+    # MARK: Layer activations (used by RSA)
+
+    _ACTIVATION_TYPES = (
+        nn.ReLU, nn.LeakyReLU, nn.ELU, nn.GELU, nn.SiLU,
+        nn.Tanh, nn.Sigmoid, nn.Softplus,
+    )
+
+    def default_rsa_layers(self) -> list[str]:
+        """
+        Names of the layers recorded by ``extract_activations`` when none are given:
+        every activation module, plus the final ``nn.Linear`` (the logits).
+        Override in a subclass to pick different layers.
+        """
+        if self.model is None:
+            raise ValueError("The model has not been built or trained yet.")
+        names = []
+        last_linear = None
+        for name, module in self.model.named_modules():
+            if isinstance(module, self._ACTIVATION_TYPES):
+                names.append(name)
+            elif isinstance(module, nn.Linear):
+                last_linear = name
+        if last_linear is not None and last_linear not in names:
+            names.append(last_linear)
+        if not names:
+            raise ValueError(
+                "No activation modules found (the model may use functional activations); "
+                "pass layer names explicitly."
+            )
+        return names
+
+    def extract_activations(
+        self,
+        trials: list[EEGTrial],
+        layers: list[str] | None = None,
+        reduce: str = "flatten",
+        batch_size: int | None = None,
+    ) -> dict[str, np.ndarray]:
+        """
+        Runs ``trials`` through the trained model (eval mode, no gradients) and records
+        the output of each named layer. Weights are not changed.
+
+        Parameters
+        ----------
+        trials : list[EEGTrial]
+        layers : list[str] | None
+            Module names from ``self.model.named_modules()``. Defaults to
+            ``default_rsa_layers()``.
+        reduce : str
+            How each trial's layer output becomes a vector:
+            "flatten"   keeps everything (e.g. channels x time for conv layers);
+            "mean_time" averages a 3-D output [B, C, T] over its last axis first.
+
+        Returns
+        -------
+        {layer_name: array of shape (len(trials), n_features)}, rows in ``trials`` order.
+        """
+        if self.model is None:
+            raise ValueError("The model has not been built or trained yet.")
+        if reduce not in ("flatten", "mean_time"):
+            raise ValueError(f"Unknown reduce '{reduce}'. Use 'flatten' or 'mean_time'.")
+
+        layers = list(layers) if layers else self.default_rsa_layers()
+        modules = dict(self.model.named_modules())
+        missing = [name for name in layers if name not in modules]
+        if missing:
+            raise ValueError(f"Unknown layer(s) {missing}. Available: {list(modules)[1:]}")
+
+        store = {name: [] for name in layers}
+        calls = {name: 0 for name in layers}
+
+        def make_hook(name):
+            def hook(module, inputs, output):
+                if isinstance(output, (tuple, list)):
+                    output = output[0]
+                if reduce == "mean_time" and output.ndim == 3:
+                    output = output.mean(dim=-1)
+                store[name].append(output.detach().flatten(start_dim=1).cpu())
+                calls[name] += 1
+            return hook
+
+        loader = DataLoader(
+            IndexTrackedDataset(trials=trials, inputs=self.required_inputs),
+            batch_size=batch_size or self.get_batch_size(),
+            shuffle=False,
+        )
+
+        was_training = self.model.training
+        handles = [modules[name].register_forward_hook(make_hook(name)) for name in layers]
+        self.model.eval()
+        try:
+            num_batches = 0
+            with torch.no_grad():
+                for batch in loader:
+                    self.model(self._extract_inputs(batch))
+                    num_batches += 1
+        finally:
+            for handle in handles:
+                handle.remove()
+            self.model.train(was_training)
+
+        reused = [name for name in layers if calls[name] != num_batches]
+        if reused:
+            raise ValueError(
+                f"Layer(s) {reused} ran more or less than once per forward pass "
+                "(a module reused in several places?); pick different layers."
+            )
+
+        return {name: torch.cat(store[name]).numpy() for name in layers}
 
     def _core_avg_val_loss(self, *, 
         trials: list[EEGTrial], 
