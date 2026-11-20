@@ -7,7 +7,7 @@ Description: An interface that all ML models must conform to for compatability w
     AnalysisPipeline.
 """
 
-from typing import Any
+from typing import Any, Callable
 from copy import deepcopy
 from pathlib import Path
 import pickle
@@ -253,8 +253,17 @@ class ModelInterface:
         folded_trials: list[list[EEGTrial]] = [],
         base_state: Any | None = None,
         model_save_dirpath: str | Path | None = None,
+        on_fold_end: Callable[["ModelInterface", list[EEGTrial], int], None] | None = None,
     ) -> float:
-        
+        """
+        Cross-validates over ``folded_trials``: for each fold, trains on the other folds
+        and infers on the held-out one.
+
+        on_fold_end : optional ``callback(model, test_trials, fold_index)``, called after
+            each fold's inference while that fold's trained weights are still loaded
+            (e.g. to record layer activations for held-out trials).
+        """
+
         if len(folded_trials) == 0:
             if self.subject is None:
                 raise ValueError("No folds were provided; self.subject is None")
@@ -294,7 +303,10 @@ class ModelInterface:
             )
             
             folded_prediction_distributions[fold_i] += prediction_distributions
-        
+
+            if on_fold_end is not None:
+                on_fold_end(self, test_trials, fold_i)
+
         per_fold_tk.stop()
         print(f"All folds took {per_fold_tk.accumulated_duration} seconds.")
         

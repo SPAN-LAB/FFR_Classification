@@ -524,9 +524,14 @@ class AnalysisPipeline:
         model_name: str,
         training_options: dict[str, any],
         model_save_dir: str | Path | None = None,
+        on_fold_end: Callable | None = None,
     ) -> AnalysisPipeline:
         """
         TODO @Kevin
+
+        on_fold_end : optional ``callback(model, test_trials, fold_index)`` forwarded to
+            each model's ``evaluate()``; ``model.subject`` identifies the subject.
+            Only models using ``ModelInterface.evaluate`` support it.
         """
         from ..models.utils import find_model
 
@@ -534,6 +539,12 @@ class AnalysisPipeline:
         concrete_model = find_model(model_name)
 
         self._prepare_model_inputs(concrete_model, training_options)
+
+        evaluate_kwargs = {"model_save_dirpath": model_save_dir}
+        if on_fold_end is not None:
+            # Only pass it when used, so models with their own evaluate() signature
+            # behave exactly as before.
+            evaluate_kwargs["on_fold_end"] = on_fold_end
 
         print(f"Evaluating on : {model_name}")
         for i, subject in enumerate(self.subjects):
@@ -545,7 +556,7 @@ class AnalysisPipeline:
             if model.needs_all_subjects:
                 model.set_all_subjects(self.subjects)
 
-            accuracy = model.evaluate(model_save_dirpath=model_save_dir)
+            accuracy = model.evaluate(**evaluate_kwargs)
             print(f"Evaluation accuracy on {subject.name}: {accuracy}")
             self.models.append(model)
 
